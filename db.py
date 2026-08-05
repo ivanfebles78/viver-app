@@ -8,6 +8,12 @@ if not DATABASE_URL:
     # fallback SOLO para local (docker)
     DATABASE_URL = "postgresql+psycopg://vivero:vivero123@db:5432/vivero"
 
+# Railway (y otros proveedores) entregan la URL como "postgres://...". SQLAlchemy
+# 2.0 solo entiende "postgresql://". Normalizamos el esquema para evitar el
+# clásico "Can't load plugin: sqlalchemy.dialects:postgres".
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+
 engine = create_engine(
     DATABASE_URL,
     # pool_pre_ping: verifica conexión antes de cada uso (descarta zombies).
