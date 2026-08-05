@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16
+    container_name: vivero_db
+    environment:
+      POSTGRES_USER: vivero
+      POSTGRES_PASSWORD: vivero123
+      POSTGRES_DB: vivero
+    ports:
+      - "5432:5432"
+    volumes:
+      - vivero_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vivero -d vivero"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: vivero_backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://vivero:vivero123@db:5432/vivero
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: vivero
+      DB_USER: vivero
+      DB_PASSWORD: vivero123
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: vivero_frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5476:5476"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 5476
+
+volumes:
+  vivero_pgdata:

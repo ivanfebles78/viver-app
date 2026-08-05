@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" role="img" aria-label="Nerium oleander">
+  <rect width="600" height="450" fill="#eef7ee"/>
+  <rect y="350" width="600" height="100" fill="#cfe3c8"/>
+  <g stroke="#3f7d3a" stroke-width="8" fill="none" stroke-linecap="round">
+    <path d="M300 360 C300 280 290 220 300 150"/>
+    <path d="M300 250 C250 230 215 205 195 175"/>
+    <path d="M300 230 C350 210 385 185 405 158"/>
+  </g>
+  <g fill="#2f6e2c">
+    <ellipse cx="190" cy="170" rx="34" ry="11" transform="rotate(-28 190 170)"/>
+    <ellipse cx="410" cy="153" rx="34" ry="11" transform="rotate(28 410 153)"/>
+    <ellipse cx="300" cy="150" rx="12" ry="40"/>
+  </g>
+  <g fill="#ef7aa6">
+    <circle cx="300" cy="120" r="16"/><circle cx="278" cy="138" r="15"/><circle cx="322" cy="138" r="15"/>
+    <circle cx="200" cy="150" r="14"/><circle cx="408" cy="135" r="14"/>
+    <circle cx="300" cy="138" r="9" fill="#fcd34d"/>
+  </g>
+  <text x="300" y="425" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="22" fill="#1f2937">Nerium oleander</text>
+  <text x="588" y="22" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#64748b">imagen de ejemplo</text>
+</svg>

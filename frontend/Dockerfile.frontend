@@ -1,0 +1,27 @@
+# --- Build ---
+FROM node:20-alpine AS build
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+
+# La URL del backend se "hornea" en el bundle en tiempo de build. En Railway,
+# define VITE_API_URL como variable del servicio (ver README).
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+RUN npm run build
+
+# --- Serve (estático con vite preview) ---
+FROM node:20-alpine AS serve
+WORKDIR /app
+COPY --from=build /app/package*.json ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/vite.config.* ./
+
+EXPOSE 4173
+# Railway inyecta $PORT; vite preview sirve el dist ya compilado.
+CMD ["sh", "-c", "npm run preview -- --host 0.0.0.0 --port ${PORT:-4173}"]

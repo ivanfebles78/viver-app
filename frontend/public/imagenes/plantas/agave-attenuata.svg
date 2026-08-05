@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" role="img" aria-label="Agave attenuata">
+  <rect width="600" height="450" fill="#f3f7ee"/>
+  <rect y="360" width="600" height="90" fill="#d8cba6"/>
+  <g fill="#8bbf6a" stroke="#6fa653" stroke-width="3">
+    <path d="M300 360 C200 330 150 250 150 200 C220 240 280 300 300 360 Z"/>
+    <path d="M300 360 C400 330 450 250 450 200 C380 240 320 300 300 360 Z"/>
+    <path d="M300 360 C250 300 230 220 245 160 C285 210 300 300 300 360 Z"/>
+    <path d="M300 360 C350 300 370 220 355 160 C315 210 300 300 300 360 Z"/>
+    <path d="M300 360 C300 290 300 210 300 150 C300 210 300 300 300 360 Z"/>
+  </g>
+  <text x="300" y="430" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="22" fill="#1f2937">Agave attenuata</text>
+  <text x="588" y="22" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#64748b">imagen de ejemplo</text>
+</svg>

@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+passlib[bcrypt]
+python-jose[cryptography]
+bcrypt==3.2.2
+python-multipart
+pydantic
+email-validator
+pandas
+openpyxl
+python-multipart
+psycopg2-binary
+reportlab
