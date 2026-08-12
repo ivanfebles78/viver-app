@@ -118,32 +118,32 @@ def _seed_bootstrap() -> None:
 
         total_users = db.query(Usuario).count()
         if total_users == 0:
+            sa_pwd = os.getenv("BOOTSTRAP_SUPERADMIN_PASSWORD", "superadmin1234")
             admin_pwd = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin1234")
-            av_pwd = os.getenv("BOOTSTRAP_ADMINVIVERO_PASSWORD", "vivero1234")
             db.add(
                 Usuario(
-                    username="admin",
-                    email=os.getenv("BOOTSTRAP_ADMIN_EMAIL"),
-                    password_hash=pwd_context.hash(admin_pwd),
+                    username="superadmin",
+                    email=os.getenv("BOOTSTRAP_SUPERADMIN_EMAIL"),
+                    password_hash=pwd_context.hash(sa_pwd),
                     status="activo",
-                    rol="admin",
-                    cliente_id=None,  # super-admin global (todos los ayuntamientos)
+                    rol="superadmin",
+                    cliente_id=None,  # dueño global de la plataforma (ningún ayuntamiento)
                 )
             )
             db.add(
                 Usuario(
                     username="admin_sct",
-                    email=os.getenv("BOOTSTRAP_ADMINVIVERO_EMAIL"),
-                    password_hash=pwd_context.hash(av_pwd),
+                    email=os.getenv("BOOTSTRAP_ADMIN_EMAIL"),
+                    password_hash=pwd_context.hash(admin_pwd),
                     status="activo",
-                    rol="admin_vivero",
-                    cliente_id=cliente.id,  # admin del vivero de Santa Cruz
+                    rol="admin",
+                    cliente_id=cliente.id,  # administrador del ayuntamiento de Santa Cruz
                 )
             )
             db.commit()
             print(
-                "[seed] Usuarios de arranque creados: 'admin' (global) y "
-                "'admin_sct' (admin_vivero de Santa Cruz). Cambia las contraseñas."
+                "[seed] Usuarios de arranque creados: 'superadmin' (plataforma) y "
+                "'admin_sct' (admin de Santa Cruz). Cambia las contraseñas."
             )
     except Exception as exc:  # pragma: no cover - no debe tumbar el arranque
         db.rollback()
@@ -162,6 +162,8 @@ import os as _os_cors
 _cors_origins = [
     "http://localhost:5173",
     "http://localhost:5476",
+    "https://viver-app.com",
+    "https://www.viver-app.com",
 ]
 _extra = _os_cors.getenv("EXTRA_CORS_ORIGINS", "")
 _cors_origins += [o.strip() for o in _extra.split(",") if o.strip()]
@@ -425,8 +427,11 @@ def auth_login(payload: LoginRequest, db: Session = Depends(get_db)):
     }
 
 
-# Nombre del rol super-admin global (ve todos los ayuntamientos y elige uno).
-ROL_ADMIN_GLOBAL = "admin"
+# Rol GLOBAL de plataforma ("superadmin"): dueño de la SaaS, no está atado a
+# ningún ayuntamiento (cliente_id NULL). Ve todos los ayuntamientos, elige uno
+# con X-Cliente-Id, y administra la plataforma (enrollment, estadísticas…).
+# `admin` y `admin_vivero`, en cambio, SÍ pertenecen a un ayuntamiento.
+ROL_ADMIN_GLOBAL = "superadmin"
 
 
 def get_current_user(
@@ -481,13 +486,14 @@ def get_current_user(
 
 def require_roles(roles: list[str]):
     allowed = {r.lower() for r in roles}
-    # El rol `admin_vivero` es el administrador DEL vivero de un ayuntamiento:
-    # hereda todos los permisos que tenga `admin`, pero acotado a su propio
-    # cliente_id (el aislamiento lo garantiza tenant.py). Así no hay que listar
-    # "admin_vivero" en cada endpoint. Los endpoints realmente globales usan
-    # `require_global_admin` en su lugar.
+    # Jerarquía de administración: donde se permita `admin`, también entran
+    # `admin_vivero` (admin del vivero, subconjunto) y `superadmin` (plataforma,
+    # que puede hacer todo lo que un admin hace). Todos quedan acotados por el
+    # aislamiento de tenant.py; los endpoints SOLO-plataforma usan
+    # `require_global_admin`.
     if "admin" in allowed:
         allowed.add("admin_vivero")
+        allowed.add("superadmin")
 
     def _dep(current_user: Usuario = Depends(get_current_user)):
         rol = (current_user.rol or "").strip().lower()
@@ -499,14 +505,15 @@ def require_roles(roles: list[str]):
 
 
 def require_global_admin():
-    """Solo el super-admin global (rol 'admin', cliente_id NULL). Para
-    herramientas cross-tenant: copia de seguridad, configuración de correo y
-    gestión de ayuntamientos. `admin_vivero` NO entra aquí."""
+    """Solo el `superadmin` (dueño de la plataforma, cliente_id NULL). Para
+    herramientas globales cross-tenant: enrollment de ayuntamientos,
+    estadísticas de plataforma, copia de seguridad y configuración de correo.
+    Ni `admin` ni `admin_vivero` entran aquí."""
 
     def _dep(current_user: Usuario = Depends(get_current_user)):
         rol = (current_user.rol or "").strip().lower()
         if rol != ROL_ADMIN_GLOBAL:
-            raise HTTPException(status_code=403, detail="Solo el administrador global")
+            raise HTTPException(status_code=403, detail="Solo el superadmin de la plataforma")
         return current_user
 
     return _dep
@@ -1318,6 +1325,9 @@ def auth_me(
         "status": current_user.status,
         "cliente_id": current_user.cliente_id,
         "cliente_nombre": cliente_nombre,
+        # es_superadmin: dueño global de la plataforma. Mantenemos es_admin_global
+        # como alias por compatibilidad (mismo significado).
+        "es_superadmin": (current_user.rol or "").strip().lower() == ROL_ADMIN_GLOBAL,
         "es_admin_global": (current_user.rol or "").strip().lower() == ROL_ADMIN_GLOBAL,
     }
 
@@ -1525,6 +1535,202 @@ def delete_mapa_imagen(
     db.add(c)
     db.commit()
     return {"ok": True}
+
+
+# =============================
+# SUPERADMIN — PLATAFORMA SaaS (enrollment + estadísticas)
+# =============================
+# Todo lo de este bloque es SOLO para el rol `superadmin` (dueño de la
+# plataforma) y opera de forma GLOBAL (sobre todos los ayuntamientos), por lo
+# que desactivamos el filtro por ayuntamiento con set_session_cliente(db, None).
+
+class EnrollAyuntamientoIn(BaseModel):
+    # Datos del ayuntamiento
+    nombre: str
+    slug: str
+    cif: Optional[str] = None
+    direccion: Optional[str] = None
+    email_contacto: Optional[str] = None
+    telefono: Optional[str] = None
+    # Datos del administrador inicial de ese ayuntamiento
+    admin_username: str
+    admin_email: str
+    # Rol del usuario inicial (admin del ayuntamiento por defecto)
+    admin_rol: Optional[str] = "admin"
+
+
+@app.post("/superadmin/enroll", status_code=201)
+def superadmin_enroll(
+    payload: EnrollAyuntamientoIn,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_global_admin()),
+):
+    """Alta (enrollment) de un ayuntamiento NUEVO y su administrador inicial en
+    una sola operación. Solo el superadmin. El admin se crea en estado
+    'pendiente' y recibe un email de invitación para fijar su contraseña."""
+    set_session_cliente(db, None)  # operación global
+
+    slug = (payload.slug or "").strip().lower()
+    nombre = (payload.nombre or "").strip()
+    admin_username = (payload.admin_username or "").strip()
+    admin_email = _validate_email_or_400(payload.admin_email)
+    admin_rol = (payload.admin_rol or "admin").strip().lower()
+
+    if not slug or not nombre:
+        raise HTTPException(status_code=400, detail="Nombre y slug del ayuntamiento son obligatorios")
+    if len(admin_username) < 3:
+        raise HTTPException(status_code=400, detail="El usuario admin debe tener al menos 3 caracteres")
+    if admin_rol not in {"admin", "admin_vivero"}:
+        raise HTTPException(status_code=400, detail="El rol del usuario inicial debe ser admin o admin_vivero")
+
+    if db.query(Cliente).filter(func.lower(Cliente.slug) == slug).first():
+        raise HTTPException(status_code=409, detail="Ya existe un ayuntamiento con ese slug")
+    if db.query(Usuario).filter(func.lower(Usuario.username) == admin_username.lower()).first():
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese nombre")
+    if db.query(Usuario).filter(func.lower(Usuario.email) == admin_email).first():
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
+
+    # 1) Ayuntamiento
+    cliente = Cliente(
+        nombre=nombre,
+        slug=slug,
+        cif=(payload.cif or None),
+        direccion=(payload.direccion or None),
+        email_contacto=(payload.email_contacto or None),
+        telefono=(payload.telefono or None),
+        activo=True,
+    )
+    db.add(cliente)
+    db.flush()  # necesitamos cliente.id
+
+    # 2) Administrador inicial del ayuntamiento (pendiente de activación)
+    admin_user = Usuario(
+        username=admin_username,
+        email=admin_email,
+        password_hash=pwd_context.hash(uuid.uuid4().hex),  # placeholder
+        status="pendiente",
+        rol=admin_rol,
+        failed_login_attempts=0,
+        cliente_id=cliente.id,
+    )
+    db.add(admin_user)
+    db.flush()
+
+    raw_token = account_tokens.issue_token(
+        db, admin_user, "activate", created_by=current_user.username
+    )
+    db.commit()
+
+    email_enviado = False
+    try:
+        email_service.send_invitation_email(
+            to=admin_user.email, username=admin_user.username, token=raw_token
+        )
+        email_enviado = True
+    except Exception as e:  # noqa: BLE001
+        print(f"[superadmin_enroll] Email de invitación falló: {e}")
+
+    db.refresh(cliente)
+    db.refresh(admin_user)
+    return {
+        "ok": True,
+        "cliente": _cliente_to_dict(cliente),
+        "admin": {
+            "id": admin_user.id,
+            "username": admin_user.username,
+            "email": admin_user.email,
+            "rol": admin_user.rol,
+            "status": admin_user.status,
+        },
+        "email_invitacion_enviado": email_enviado,
+    }
+
+
+# Cuota mensual por ayuntamiento activo (facturación). Configurable por entorno.
+def _cuota_mensual() -> float:
+    try:
+        return float(_os.getenv("FACTURACION_CUOTA_MENSUAL", "49"))
+    except (TypeError, ValueError):
+        return 49.0
+
+
+@app.get("/superadmin/stats")
+def superadmin_stats(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_global_admin()),
+):
+    """Estadísticas globales de la plataforma para el superadmin: evolución de
+    altas de ayuntamientos, métricas de uso por ayuntamiento y facturación."""
+    set_session_cliente(db, None)  # agregamos sobre TODOS los ayuntamientos
+
+    clientes = db.query(Cliente).order_by(Cliente.id.asc()).all()
+
+    # --- Conteos por ayuntamiento (agrupados) ---
+    def _counts_by_cliente(model):
+        rows = (
+            db.query(model.cliente_id, func.count())
+            .group_by(model.cliente_id)
+            .all()
+        )
+        return {cid: n for (cid, n) in rows}
+
+    usuarios_por = _counts_by_cliente(Usuario)
+    productos_por = _counts_by_cliente(Producto)
+    pedidos_por = _counts_by_cliente(Pedido)
+    movimientos_por = _counts_by_cliente(Movimiento)
+
+    cuota = _cuota_mensual()
+    activos = [c for c in clientes if c.activo]
+
+    por_cliente = []
+    for c in clientes:
+        por_cliente.append({
+            "id": c.id,
+            "nombre": c.nombre,
+            "slug": c.slug,
+            "activo": c.activo,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "usuarios": int(usuarios_por.get(c.id, 0)),
+            "productos": int(productos_por.get(c.id, 0)),
+            "pedidos": int(pedidos_por.get(c.id, 0)),
+            "movimientos": int(movimientos_por.get(c.id, 0)),
+            "cuota_mensual": cuota if c.activo else 0.0,
+        })
+
+    # --- Evolución de altas por mes (acumulado) ---
+    por_mes: dict[str, int] = {}
+    for c in clientes:
+        if not c.created_at:
+            continue
+        key = c.created_at.strftime("%Y-%m")
+        por_mes[key] = por_mes.get(key, 0) + 1
+    evolucion = []
+    acumulado = 0
+    for mes in sorted(por_mes.keys()):
+        altas = por_mes[mes]
+        acumulado += altas
+        evolucion.append({"mes": mes, "altas": altas, "acumulado": acumulado})
+
+    return {
+        "resumen": {
+            "ayuntamientos_total": len(clientes),
+            "ayuntamientos_activos": len(activos),
+            "ayuntamientos_inactivos": len(clientes) - len(activos),
+            "usuarios_total": int(sum(usuarios_por.values())),
+            "productos_total": int(sum(productos_por.values())),
+            "pedidos_total": int(sum(pedidos_por.values())),
+            "movimientos_total": int(sum(movimientos_por.values())),
+        },
+        "facturacion": {
+            "cuota_mensual_por_ayuntamiento": cuota,
+            "ayuntamientos_facturables": len(activos),
+            "ingreso_mensual_estimado": round(cuota * len(activos), 2),
+            "ingreso_anual_estimado": round(cuota * len(activos) * 12, 2),
+            "moneda": "EUR",
+        },
+        "evolucion_altas": evolucion,
+        "por_cliente": por_cliente,
+    }
 
 
 # =============================
@@ -3784,7 +3990,7 @@ def marcar_zona_interna(
 # =============================
 # `admin_vivero`: administrador del vivero de un ayuntamiento (gestiona usuarios,
 # productos y el mapa de SU ayuntamiento). `admin` es el super-admin global.
-ALLOWED_ROLES = {"admin", "admin_vivero", "manager", "tecnico", "gestor_vivero", "empresa_externa", "proveedor"}
+ALLOWED_ROLES = {"superadmin", "admin", "admin_vivero", "manager", "tecnico", "gestor_vivero", "empresa_externa", "proveedor"}
 ALLOWED_STATUSES_FOR_UPDATE = {"activo", "inactivo", "bloqueado", "pendiente"}
 
 

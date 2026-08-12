@@ -12,6 +12,7 @@ import Informes from "./pages/Informes";
 import Lotetracking from "./pages/Lotetracking";
 import ViveroPage from "./pages/ViveroPage";
 import AdminUsuarios from "./pages/AdminUsuarios";// force rebuild
+import Plataforma from "./pages/Plataforma";
 import CuentaToken from "./pages/CuentaToken";
 
 
@@ -39,6 +40,7 @@ export default function App() {
 			<Route path="/lotes" element={<Lotetracking />} />
 			<Route path="/vivero" element={<ViveroPage />} />
 			<Route path="/admin/usuarios" element={<AdminUsuarios />} />
+			<Route path="/plataforma" element={<Plataforma />} />
           </Route>
         </Route>
 

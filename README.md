@@ -24,28 +24,40 @@ usuarios…). Todo cuelga de un `cliente_id`.
 
 | Rol | Alcance | Puede |
 |-----|---------|-------|
-| `admin` | **Global** (todos los ayuntamientos) | Todo; elige el ayuntamiento activo desde un selector. Copias de seguridad y config de correo. |
-| `admin_vivero` | Su ayuntamiento | Gestionar usuarios, productos y el mapa (subir imagen + zonas) de su vivero. Hereda los permisos de `admin` acotados a su cliente. |
+| `superadmin` | **Plataforma / global** (sin ayuntamiento, `cliente_id` NULL) | Todo. Da de alta ayuntamientos + su admin (*enrollment*), ve estadísticas globales (altas, uso por ayuntamiento, facturación) y actúa como cualquier admin eligiendo ayuntamiento. Copias de seguridad y config de correo. |
+| `admin` | Su ayuntamiento | Administrador completo del ayuntamiento: usuarios, productos, mapa, pedidos, movimientos, informes. |
+| `admin_vivero` | Su ayuntamiento | Admin del vivero: usuarios, productos y mapa. Subconjunto de `admin`. |
 | `manager` | Su ayuntamiento | Aprobaciones, productos, movimientos, informes. |
 | `tecnico` | Su ayuntamiento | Operativa del vivero. |
 | `gestor_vivero` | Su ayuntamiento | Operativa del vivero. |
 | `empresa_externa` | Su ayuntamiento | Pedidos y catálogo (UTE). |
 | `proveedor` | Su ayuntamiento | Solo consulta de pedidos de reposición. |
 
-El **super-admin global** (`admin`) elige el ayuntamiento con el selector del
-menú; la elección viaja en la cabecera `X-Cliente-Id`. El resto de roles quedan
+El **superadmin** (dueño de la plataforma) elige el ayuntamiento activo con el
+selector del menú; la elección viaja en la cabecera `X-Cliente-Id`. Al entrar,
+aterriza en el **Panel de plataforma** (`/plataforma`). El resto de roles quedan
 atados a su propio ayuntamiento y esa cabecera se ignora para ellos.
+
+### Panel de plataforma (superadmin)
+
+- **Enrollment:** alta de un ayuntamiento nuevo + su administrador inicial en un
+  solo paso (`POST /superadmin/enroll`). El admin recibe un email de invitación
+  para fijar su contraseña.
+- **Estadísticas** (`GET /superadmin/stats`): resumen global, gráfica de
+  evolución de altas de ayuntamientos, uso por ayuntamiento (usuarios,
+  productos, pedidos, movimientos) y facturación estimada
+  (`FACTURACION_CUOTA_MENSUAL` € × ayuntamientos activos).
 
 ## Usuarios de arranque
 
 Con la base de datos **vacía**, el arranque crea el ayuntamiento *Santa Cruz de
 Tenerife* (`cliente_id = 1`) y dos usuarios (cambia las contraseñas tras entrar):
 
-- `admin` / `admin1234` — super-admin global.
-- `admin_sct` / `vivero1234` — `admin_vivero` de Santa Cruz.
+- `superadmin` / `superadmin1234` — dueño global de la plataforma.
+- `admin_sct` / `admin1234` — administrador del ayuntamiento de Santa Cruz.
 
-(Las contraseñas se pueden fijar con `BOOTSTRAP_ADMIN_PASSWORD` /
-`BOOTSTRAP_ADMINVIVERO_PASSWORD`.)
+(Las contraseñas se pueden fijar con `BOOTSTRAP_SUPERADMIN_PASSWORD` /
+`BOOTSTRAP_ADMIN_PASSWORD`.)
 
 ## Imagen del landing
 

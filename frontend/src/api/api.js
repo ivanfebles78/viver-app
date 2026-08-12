@@ -467,6 +467,21 @@ export const updateCliente = async (id, payload) => {
 };
 
 // =========================
+// SUPERADMIN — plataforma SaaS
+// =========================
+
+export const getSuperadminStats = async () => {
+  const { data } = await api.get("/superadmin/stats");
+  return data;
+};
+
+// Alta (enrollment) de un ayuntamiento nuevo + su administrador inicial.
+export const enrollAyuntamiento = async (payload) => {
+  const { data } = await api.post("/superadmin/enroll", payload);
+  return data;
+};
+
+// =========================
 // MAPA DEL VIVERO (imagen por ayuntamiento)
 // =========================
 

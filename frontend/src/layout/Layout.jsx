@@ -1465,12 +1465,16 @@ export default function Layout() {
   }, [navigate]);
 
   const rolReal = (me?.rol || me?.role || "").trim().toLowerCase();
-  // `admin_vivero` (administrador del vivero de un ayuntamiento) navega igual
+  // `superadmin` (plataforma) y `admin_vivero` (admin del vivero) navegan igual
   // que `admin`; el aislamiento por ayuntamiento lo garantiza el backend. Para
-  // la navegación lo tratamos como admin.
-  const rolActual = rolReal === "admin_vivero" ? "admin" : rolReal;
-  // Solo el super-admin GLOBAL puede elegir ayuntamiento de una lista.
-  const esAdminGlobal = !!me?.es_admin_global;
+  // la navegación los tratamos como admin.
+  const rolActual =
+    rolReal === "admin_vivero" || rolReal === "superadmin" ? "admin" : rolReal;
+  // superadmin = dueño global de la plataforma: elige ayuntamiento y ve el
+  // panel de plataforma.
+  const esSuperadmin =
+    !!(me?.es_superadmin || me?.es_admin_global) || rolReal === "superadmin";
+  const esAdminGlobal = esSuperadmin;
   const esEmpresaExternaRol = rolActual === "empresa_externa";
 
   // Recarga los datos que alimentan los badges del menú (pedidos y, para roles
@@ -1601,11 +1605,16 @@ export default function Layout() {
 
   useEffect(() => {
     if (!userRole) return;
-
-    if (!isPathAllowedForRole(location.pathname, userRole)) {
-      navigate(getDefaultRouteForRole(userRole), { replace: true });
+    // El superadmin, además de las rutas de admin, puede estar en /plataforma
+    // (su pantalla por defecto).
+    const allowed =
+      isPathAllowedForRole(location.pathname, userRole) ||
+      (esSuperadmin && location.pathname === "/plataforma");
+    if (!allowed) {
+      const destino = esSuperadmin ? "/plataforma" : getDefaultRouteForRole(userRole);
+      navigate(destino, { replace: true });
     }
-  }, [location.pathname, userRole, navigate]);
+  }, [location.pathname, userRole, navigate, esSuperadmin]);
 
   if (!me) {
     return <ViverAppLoadingScreen message="Cargando sesión y permisos del vivero..." />;
@@ -1720,6 +1729,24 @@ export default function Layout() {
           <ClienteSelector visible={esAdminGlobal} />
 
           <nav style={{ display: "grid", gap: 12 }}>
+            {esSuperadmin && (
+              <NavLink
+                to="/plataforma"
+                style={{
+                  ...navBtnStyle(location.pathname === "/plataforma"),
+                  justifyContent: "flex-start",
+                  padding: "0 18px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  background:
+                    location.pathname === "/plataforma" ? undefined : "#064e3b",
+                  color: location.pathname === "/plataforma" ? undefined : "#ecfdf5",
+                }}
+              >
+                <span>🛰️ Plataforma</span>
+              </NavLink>
+            )}
             {getVisibleNavItems(userRole).map((item) => {
               const active = location.pathname === item.to;
               const badge = navBadgeCounts[item.to] || 0;
