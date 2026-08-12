@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { getSuperadminStats, enrollAyuntamiento, setActiveClienteId, updateCliente } from "../api/api";
+import { getSuperadminStats, enrollAyuntamiento, setActiveClienteId, updateCliente, importClienteData } from "../api/api";
 
 // ── estilos base (inline, como el resto de la app) ──────────────────────────
 const card = {
@@ -146,6 +146,23 @@ export default function Plataforma() {
     window.location.assign("/dashboard");
   };
 
+  const [importBusyId, setImportBusyId] = useState(null);
+  const importarDatos = async (clienteId, file) => {
+    if (!file) return;
+    if (!window.confirm("Vas a importar los datos de la copia de seguridad a este ayuntamiento. ¿Continuar?")) return;
+    setImportBusyId(clienteId);
+    try {
+      const res = await importClienteData(clienteId, file);
+      const r = res.importado || {};
+      alert("Importación completada:\n" + Object.entries(r).map(([k, v]) => `· ${k}: ${v}`).join("\n"));
+      cargar();
+    } catch (err) {
+      alert(err?.response?.data?.detail || "No se pudo importar.");
+    } finally {
+      setImportBusyId(null);
+    }
+  };
+
   // Guarda la cuota de un ayuntamiento. value === "" o null => quita el
   // descuento (vuelve a la cuota por defecto de la plataforma).
   const guardarCuota = async (clienteId, value) => {
@@ -266,10 +283,23 @@ export default function Plataforma() {
                           </button>
                         )}
                       </td>
-                      <td style={{ padding: "8px 10px" }}>
-                        <button onClick={() => entrarComo(c.id)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#f8fafc", fontWeight: 700, cursor: "pointer", color: "#0f172a" }}>
+                      <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
+                        <button onClick={() => entrarComo(c.id)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#f8fafc", fontWeight: 700, cursor: "pointer", color: "#0f172a", marginRight: 6 }}>
                           Entrar
                         </button>
+                        <label
+                          title="Importar copia de seguridad del vivero a este ayuntamiento"
+                          style={{ padding: "6px 12px", borderRadius: 8, border: "1px dashed #94a3b8", background: "#fff", fontWeight: 700, cursor: importBusyId === c.id ? "default" : "pointer", color: "#334155", display: "inline-block" }}
+                        >
+                          {importBusyId === c.id ? "Importando…" : "Importar"}
+                          <input
+                            type="file"
+                            accept="application/json,.json"
+                            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; importarDatos(c.id, f); }}
+                            disabled={importBusyId === c.id}
+                            style={{ display: "none" }}
+                          />
+                        </label>
                       </td>
                     </tr>
                   ))}

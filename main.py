@@ -1812,6 +1812,143 @@ def superadmin_stats(
     }
 
 
+# Orden de importación (padres → hijos). Se preservan los IDs originales porque
+# las tablas de datos de un ayuntamiento recién creado están vacías. `usuarios`
+# se trata aparte (se remapean los IDs y se saltan colisiones).
+_IMPORT_ORDER = [
+    Producto,
+    CaducidadConfig,
+    ZonaPolygon,
+    Lote,
+    InventarioLote,
+    Pedido,
+    PedidoItem,
+    Movimiento,
+    MovimientoLoteDetalle,
+]
+
+
+@app.post("/superadmin/clientes/{cliente_id}/import")
+async def superadmin_import_cliente(
+    cliente_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_global_admin()),
+):
+    """Importa a un ayuntamiento el JSON de copia de seguridad de la app del
+    vivero (u otro viver-app). A todas las filas se les pone cliente_id=<este>.
+    Los usuarios se recrean con IDs nuevos (saltando los que ya existan por
+    username/email). Solo el superadmin. No borra nada; se niega a reimportar si
+    el ayuntamiento ya tiene productos (para no duplicar)."""
+    set_session_cliente(db, None)  # operación global
+
+    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Ayuntamiento no encontrado")
+
+    ya_tiene = (
+        db.query(Producto)
+        .filter(Producto.cliente_id == cliente_id)
+        .execution_options(skip_tenant=True)
+        .count()
+    )
+    if ya_tiene > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Este ayuntamiento ya tiene productos. La importación se ha cancelado para no duplicar datos.",
+        )
+
+    try:
+        data = json.loads((await file.read()).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="El fichero no es un JSON de copia de seguridad válido.")
+    tables = data.get("tables")
+    if not isinstance(tables, dict):
+        raise HTTPException(status_code=400, detail="El JSON no tiene el formato de copia de seguridad esperado.")
+
+    resumen = {}
+    try:
+        # 1) Usuarios: IDs nuevos, cliente_id fijo, saltando colisiones globales.
+        cols_u = {c.key: c for c in sa_inspect(Usuario).mapper.columns}
+        n_users = 0
+        for fila in (tables.get("usuarios") or []):
+            uname = (fila.get("username") or "").strip()
+            email = (fila.get("email") or "").strip().lower() or None
+            if not uname:
+                continue
+            existe = (
+                db.query(Usuario)
+                .filter(func.lower(Usuario.username) == uname.lower())
+                .execution_options(skip_tenant=True)
+                .first()
+            )
+            if existe:
+                continue
+            if email:
+                dup_mail = (
+                    db.query(Usuario)
+                    .filter(func.lower(Usuario.email) == email)
+                    .execution_options(skip_tenant=True)
+                    .first()
+                )
+                if dup_mail:
+                    email = None  # evita choque de email único; el usuario entra sin email
+            kwargs = {}
+            for k, v in fila.items():
+                col = cols_u.get(k)
+                if col is None or k in ("id", "cliente_id"):
+                    continue
+                kwargs[k] = _coerce_col(col, v)
+            kwargs["email"] = email
+            kwargs["cliente_id"] = cliente_id
+            if not kwargs.get("password_hash"):
+                kwargs["password_hash"] = pwd_context.hash(uuid.uuid4().hex)
+            db.add(Usuario(**kwargs))
+            n_users += 1
+        db.flush()
+        resumen["usuarios"] = n_users
+
+        # 2) Resto de tablas: se preservan los IDs originales + cliente_id.
+        for model in _IMPORT_ORDER:
+            filas = tables.get(model.__tablename__, []) or []
+            cols_map = {c.key: c for c in sa_inspect(model).mapper.columns}
+            for fila in filas:
+                kwargs = {}
+                for k, v in fila.items():
+                    col = cols_map.get(k)
+                    if col is None or k == "cliente_id":
+                        continue
+                    kwargs[k] = _coerce_col(col, v)
+                kwargs["cliente_id"] = cliente_id
+                db.add(model(**kwargs))
+            db.flush()
+            resumen[model.__tablename__] = len(filas)
+
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"No se pudo importar: {type(e).__name__}: {str(e)[:300]}")
+
+    # 3) Reajustar las secuencias de las tablas con IDs preservados (Postgres).
+    for model in _IMPORT_ORDER:
+        tbl = model.__tablename__
+        pk_cols = [c.name for c in sa_inspect(model).mapper.primary_key]
+        if pk_cols != ["id"]:
+            continue  # p.ej. zona_polygons tiene PK compuesta, no lleva secuencia
+        try:
+            db.execute(text(
+                f"SELECT setval(pg_get_serial_sequence('{tbl}', 'id'), "
+                f"COALESCE((SELECT MAX(id) FROM {tbl}), 1))"
+            ))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    return {"ok": True, "cliente_id": cliente_id, "importado": resumen}
+
+
 # =============================
 # PRODUCTOS
 # =============================

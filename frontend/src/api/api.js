@@ -490,6 +490,14 @@ export const enrollAyuntamiento = async (payload) => {
   return data;
 };
 
+// Importa el JSON de copia de seguridad del vivero a un ayuntamiento (cliente_id).
+export const importClienteData = async (clienteId, file) => {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post(`/superadmin/clientes/${clienteId}/import`, form);
+  return data;
+};
+
 // =========================
 // MAPA DEL VIVERO (imagen por ayuntamiento)
 // =========================
