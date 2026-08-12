@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { getSuperadminStats, enrollAyuntamiento, setActiveClienteId } from "../api/api";
+import { getSuperadminStats, enrollAyuntamiento, setActiveClienteId, updateCliente } from "../api/api";
 
 // ── estilos base (inline, como el resto de la app) ──────────────────────────
 const card = {
@@ -73,6 +73,9 @@ export default function Plataforma() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [enrollBusy, setEnrollBusy] = useState(false);
   const [enrollMsg, setEnrollMsg] = useState(null);
+  // Edición de la cuota de un ayuntamiento: {id, value} o null.
+  const [editCuota, setEditCuota] = useState(null);
+  const [cuotaBusy, setCuotaBusy] = useState(false);
 
   const cargar = async () => {
     setLoading(true);
@@ -143,6 +146,28 @@ export default function Plataforma() {
     window.location.assign("/dashboard");
   };
 
+  // Guarda la cuota de un ayuntamiento. value === "" o null => quita el
+  // descuento (vuelve a la cuota por defecto de la plataforma).
+  const guardarCuota = async (clienteId, value) => {
+    setCuotaBusy(true);
+    try {
+      const raw = String(value ?? "").trim().replace(",", ".");
+      const num = raw === "" ? null : Number(raw);
+      if (num !== null && (Number.isNaN(num) || num < 0)) {
+        alert("Introduce una cuota válida (número ≥ 0) o vacío para la cuota por defecto.");
+        setCuotaBusy(false);
+        return;
+      }
+      await updateCliente(clienteId, { set_cuota: true, cuota_mensual: num });
+      setEditCuota(null);
+      cargar();
+    } catch (err) {
+      alert(err?.response?.data?.detail || "No se pudo actualizar la cuota.");
+    } finally {
+      setCuotaBusy(false);
+    }
+  };
+
   return (
     <div style={{ display: "grid", gap: 18 }}>
       <div>
@@ -177,7 +202,7 @@ export default function Plataforma() {
               <div style={{ fontSize: 34, fontWeight: 900, marginTop: 6 }}>{money(fact?.ingreso_mensual_estimado)}<span style={{ fontSize: 15, fontWeight: 700 }}>/mes</span></div>
               <div style={{ marginTop: 4, color: "#d1fae5" }}>{money(fact?.ingreso_anual_estimado)} / año</div>
               <div style={{ marginTop: 12, fontSize: 13, color: "#d1fae5" }}>
-                {fact?.ayuntamientos_facturables} ayuntamientos × {money(fact?.cuota_mensual_por_ayuntamiento)}/mes
+                {fact?.ayuntamientos_facturables} ayuntamientos facturables · cuota por defecto {money(fact?.cuota_mensual_por_defecto)}/mes
               </div>
             </div>
             <div style={card}>
@@ -216,7 +241,31 @@ export default function Plataforma() {
                       <td style={{ padding: "8px 10px" }}>{c.productos}</td>
                       <td style={{ padding: "8px 10px" }}>{c.pedidos}</td>
                       <td style={{ padding: "8px 10px" }}>{c.movimientos}</td>
-                      <td style={{ padding: "8px 10px" }}>{money(c.cuota_mensual)}</td>
+                      <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
+                        {editCuota && editCuota.id === c.id ? (
+                          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                            <input
+                              type="number" min="0" step="1" autoFocus
+                              value={editCuota.value}
+                              onChange={(e) => setEditCuota({ id: c.id, value: e.target.value })}
+                              placeholder="por defecto"
+                              style={{ width: 90, padding: "5px 8px", borderRadius: 8, border: "1px solid #cbd5e1" }}
+                            />
+                            <button onClick={() => guardarCuota(c.id, editCuota.value)} disabled={cuotaBusy}
+                              style={{ padding: "5px 10px", borderRadius: 8, border: "none", background: "#059669", color: "#fff", fontWeight: 700, cursor: "pointer" }}>✓</button>
+                            <button onClick={() => setEditCuota(null)} disabled={cuotaBusy}
+                              style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer" }}>✕</button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setEditCuota({ id: c.id, value: c.cuota_personalizada ? c.cuota_mensual : "" })}
+                            title="Editar cuota (vacío = cuota por defecto)"
+                            style={{ padding: "5px 10px", borderRadius: 8, border: "1px dashed #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 700, color: "#0f172a" }}
+                          >
+                            {money(c.cuota_mensual)}{c.cuota_personalizada && <span style={{ color: "#059669", fontSize: 11, marginLeft: 4 }} title="Cuota personalizada">●</span>}
+                          </button>
+                        )}
+                      </td>
                       <td style={{ padding: "8px 10px" }}>
                         <button onClick={() => entrarComo(c.id)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#f8fafc", fontWeight: 700, cursor: "pointer", color: "#0f172a" }}>
                           Entrar

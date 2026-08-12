@@ -80,6 +80,7 @@ def _ensure_schema() -> None:
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS mapa_imagen BYTEA",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS mapa_mimetype VARCHAR(60)",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS mapa_updated_at TIMESTAMP",
+        "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS cuota_mensual NUMERIC(10,2)",
     ]
     try:
         with engine.begin() as conn:
@@ -168,6 +169,8 @@ _cors_origins = [
 _extra = _os_cors.getenv("EXTRA_CORS_ORIGINS", "")
 _cors_origins += [o.strip() for o in _extra.split(",") if o.strip()]
 
+_CORS_REGEX = __import__("re").compile(r"https://.*\.railway\.app")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -181,12 +184,29 @@ logger = logging.getLogger("viverapp")
 logging.basicConfig(level=logging.INFO)
 
 
-# Cuando un endpoint crashea con una excepción no controlada, FastAPI
-# devuelve un 500 cuyo cuerpo no pasa por el CORSMiddleware → el navegador
-# muestra un "CORS error" engañoso (net::ERR_FAILED). Este handler atrapa
-# cualquier excepción, registra el traceback completo en los logs de
-# Railway y devuelve un JSON con detalle útil que sí lleva los headers
-# CORS, así el frontend puede mostrar el mensaje real al usuario.
+def _cors_headers_for(request: Request) -> dict:
+    """Cabeceras CORS para una respuesta de error. El CORSMiddleware NO se aplica
+    a las respuestas 500 no controladas (van por una capa exterior), así que las
+    añadimos a mano para que el navegador pueda LEER el mensaje de error en vez
+    de mostrar un 'CORS error' engañoso que oculta la causa real."""
+    origin = request.headers.get("origin")
+    if not origin:
+        return {}
+    if origin in _cors_origins or _CORS_REGEX.fullmatch(origin):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+            "Vary": "Origin",
+        }
+    return {}
+
+
+# Cuando un endpoint crashea con una excepción no controlada, FastAPI devuelve
+# un 500 cuyo cuerpo NO pasa por el CORSMiddleware. Este handler registra el
+# traceback completo en los logs de Railway y devuelve un JSON con detalle útil
+# AL QUE le añadimos las cabeceras CORS a mano, para que el frontend muestre el
+# error real al usuario en lugar de un net::ERR_FAILED.
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.error(
@@ -200,6 +220,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         content={
             "detail": f"Error interno: {type(exc).__name__}: {str(exc)[:300]}",
         },
+        headers=_cors_headers_for(request),
     )
 
 # =============================
@@ -1373,6 +1394,8 @@ def _cliente_to_dict(c: Cliente, with_mapa: bool = False) -> dict:
         "telefono": c.telefono,
         "tiene_mapa": c.mapa_imagen is not None,
         "mapa_updated_at": c.mapa_updated_at.isoformat() if c.mapa_updated_at else None,
+        # Cuota propia del ayuntamiento (NULL = usa la de la plataforma).
+        "cuota_mensual": float(c.cuota_mensual) if c.cuota_mensual is not None else None,
     }
     return out
 
@@ -1395,6 +1418,11 @@ class ClienteUpdate(BaseModel):
     email_contacto: Optional[str] = None
     telefono: Optional[str] = None
     activo: Optional[bool] = None
+    # Cuota mensual propia (EUR). Envía null para volver a la cuota por defecto.
+    # Se distingue "no tocar" de "poner a null" con el flag interno de abajo.
+    cuota_mensual: Optional[float] = None
+    # Si True, aplica el valor de cuota_mensual (incluido null = quitar descuento).
+    set_cuota: Optional[bool] = None
 
 
 @app.get("/clientes")
@@ -1473,6 +1501,15 @@ def update_cliente(
         c.telefono = payload.telefono or None
     if payload.activo is not None:
         c.activo = bool(payload.activo)
+    # Cuota propia: solo se toca si viene set_cuota=True. cuota_mensual=null con
+    # set_cuota=True quita el descuento (vuelve a la cuota por defecto).
+    if payload.set_cuota:
+        if payload.cuota_mensual is None:
+            c.cuota_mensual = None
+        else:
+            if payload.cuota_mensual < 0:
+                raise HTTPException(status_code=400, detail="La cuota no puede ser negativa.")
+            c.cuota_mensual = payload.cuota_mensual
     db.add(c)
     db.commit()
     db.refresh(c)
@@ -1673,11 +1710,14 @@ def superadmin_enroll(
 
 
 # Cuota mensual por ayuntamiento activo (facturación). Configurable por entorno.
-def _cuota_mensual() -> float:
+def _cuota_mensual_default() -> float:
+    """Cuota mensual por defecto (misma para todos), configurable por entorno.
+    Cada ayuntamiento puede tener su propia cuota (descuento) en
+    Cliente.cuota_mensual; si es NULL se usa esta."""
     try:
-        return float(_os.getenv("FACTURACION_CUOTA_MENSUAL", "49"))
+        return float(_os.getenv("FACTURACION_CUOTA_MENSUAL", "199"))
     except (TypeError, ValueError):
-        return 49.0
+        return 199.0
 
 
 @app.get("/superadmin/stats")
@@ -1705,11 +1745,20 @@ def superadmin_stats(
     pedidos_por = _counts_by_cliente(Pedido)
     movimientos_por = _counts_by_cliente(Movimiento)
 
-    cuota = _cuota_mensual()
+    cuota_default = _cuota_mensual_default()
     activos = [c for c in clientes if c.activo]
 
+    # Cuota efectiva de cada ayuntamiento: la suya propia si la tiene fijada
+    # (descuento/precio especial), o la de la plataforma por defecto.
+    def _cuota_de(c) -> float:
+        return float(c.cuota_mensual) if c.cuota_mensual is not None else cuota_default
+
+    ingreso_mensual = 0.0
     por_cliente = []
     for c in clientes:
+        cuota_c = _cuota_de(c)
+        if c.activo:
+            ingreso_mensual += cuota_c
         por_cliente.append({
             "id": c.id,
             "nombre": c.nombre,
@@ -1720,8 +1769,12 @@ def superadmin_stats(
             "productos": int(productos_por.get(c.id, 0)),
             "pedidos": int(pedidos_por.get(c.id, 0)),
             "movimientos": int(movimientos_por.get(c.id, 0)),
-            "cuota_mensual": cuota if c.activo else 0.0,
+            # cuota_mensual = la que se le factura (efectiva).
+            "cuota_mensual": round(cuota_c, 2),
+            # cuota_personalizada = True si tiene precio propio (descuento).
+            "cuota_personalizada": c.cuota_mensual is not None,
         })
+    ingreso_mensual = round(ingreso_mensual, 2)
 
     # --- Evolución de altas por mes (acumulado) ---
     por_mes: dict[str, int] = {}
@@ -1748,10 +1801,10 @@ def superadmin_stats(
             "movimientos_total": int(sum(movimientos_por.values())),
         },
         "facturacion": {
-            "cuota_mensual_por_ayuntamiento": cuota,
+            "cuota_mensual_por_defecto": cuota_default,
             "ayuntamientos_facturables": len(activos),
-            "ingreso_mensual_estimado": round(cuota * len(activos), 2),
-            "ingreso_anual_estimado": round(cuota * len(activos) * 12, 2),
+            "ingreso_mensual_estimado": ingreso_mensual,
+            "ingreso_anual_estimado": round(ingreso_mensual * 12, 2),
             "moneda": "EUR",
         },
         "evolucion_altas": evolucion,

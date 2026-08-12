@@ -25,6 +25,11 @@ class Cliente(Base):
     email_contacto = Column(String(255), nullable=True)
     telefono = Column(String(30), nullable=True)
 
+    # Cuota mensual (EUR) de facturación de ESTE ayuntamiento. Si es NULL se usa
+    # la cuota por defecto de la plataforma (FACTURACION_CUOTA_MENSUAL). Permite
+    # aplicar un descuento o precio especial a un ayuntamiento concreto.
+    cuota_mensual = Column(Numeric(10, 2), nullable=True)
+
     # Imagen del mapa del vivero, subida por el admin_vivero de este cliente.
     # Se guarda en la propia BD (bytea) — Railway tiene disco efímero.
     mapa_imagen = Column(LargeBinary, nullable=True)
