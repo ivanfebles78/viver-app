@@ -1332,6 +1332,32 @@ def auth_me(
     }
 
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/auth/change-password")
+def auth_change_password(
+    payload: ChangePasswordIn,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Cambio de contraseña self-service: el propio usuario logueado indica su
+    contraseña actual y la nueva. No depende del correo."""
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="La contraseña actual no es correcta.")
+    new_pwd = _validate_password_or_400(payload.new_password)  # mínimo 8 caracteres
+    if verify_password(new_pwd, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="La nueva contraseña debe ser distinta de la actual.")
+    current_user.password_hash = pwd_context.hash(new_pwd)
+    # Cambiar la contraseña también resetea el contador de intentos fallidos.
+    current_user.failed_login_attempts = 0
+    db.add(current_user)
+    db.commit()
+    return {"ok": True}
+
+
 # =============================
 # CLIENTES (AYUNTAMIENTOS / ENTIDADES)
 # =============================

@@ -120,6 +120,15 @@ export const getMe = async () => {
   return data;
 };
 
+// Cambio de contraseña self-service del usuario logueado.
+export const changePassword = async (currentPassword, newPassword) => {
+  const { data } = await api.post("/auth/change-password", {
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+  return data;
+};
+
 // ---------------- PRODUCTOS ----------------
 
 export const getProductos = async () => {

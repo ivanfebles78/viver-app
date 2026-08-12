@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { clearStoredToken, getMe, getProductos, getZonaItems, getPedidos, marcarZonaInterna } from "../api/api";
 import ClienteSelector from "../components/common/ClienteSelector";
+import CambiarPasswordModal from "../components/common/CambiarPasswordModal";
 import mapaVivero from "../assets/mapa-vivero.png";
 import zonasDefault from "../components/vivero/zonasConfig";
 import ZoneEditor from "../components/vivero/ZoneEditor";
@@ -1425,6 +1426,7 @@ export default function Layout() {
   const [pedidosUsuario, setPedidosUsuario] = useState([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [readNotificationIds, setReadNotificationIds] = useState(() =>
     getReadNotificationsFromStorage()
   );
@@ -1956,6 +1958,23 @@ export default function Layout() {
             </button>
 
             <button
+              type="button"
+              onClick={() => setPasswordModalOpen(true)}
+              style={{
+                fontWeight: 800,
+                color: "#334155",
+                background: "rgba(255,255,255,0.9)",
+                border: "1px solid rgba(15,23,42,0.12)",
+                borderRadius: 14,
+                padding: "10px 14px",
+                cursor: "pointer",
+                boxShadow: "0 8px 18px rgba(2,6,23,0.04)",
+              }}
+            >
+              🔒 Cambiar contraseña
+            </button>
+
+            <button
               onClick={() => {
                 clearStoredToken();
                 try {
@@ -1970,6 +1989,11 @@ export default function Layout() {
               Salir
             </button>
           </div>
+
+          <CambiarPasswordModal
+            open={passwordModalOpen}
+            onClose={() => setPasswordModalOpen(false)}
+          />
 
           <Outlet context={{ me, isAdmin, collapsed: false }} />
         </main>
