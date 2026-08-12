@@ -251,6 +251,21 @@ export default function AdminUsuarios() {
   const [emailBusy, setEmailBusy] = useState(false);
   const [testTo, setTestTo] = useState("");
 
+  // ¿El usuario actual es el superadmin de la plataforma? Las herramientas
+  // globales (copia de seguridad de TODA la BD y config de correo) son solo
+  // suyas; un admin de un ayuntamiento no debe verlas.
+  const esSuperadmin = useMemo(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem("user") || "null");
+      return (
+        !!(u?.es_superadmin || u?.es_admin_global) ||
+        (u?.rol || "").toLowerCase() === "superadmin"
+      );
+    } catch {
+      return false;
+    }
+  }, []);
+
   const reload = async () => {
     setLoading(true);
     setError("");
@@ -462,7 +477,10 @@ export default function AdminUsuarios() {
         </div>
       )}
 
-      {/* Copia de seguridad / restauración — solo admin (esta página lo es) */}
+      {/* Herramientas GLOBALES de plataforma (copia de seguridad de toda la BD y
+          diagnóstico de correo): SOLO el superadmin. Un admin de ayuntamiento
+          no debe verlas. */}
+      {esSuperadmin && (<>
       <div
         style={{
           marginTop: 18,
@@ -573,6 +591,7 @@ export default function AdminUsuarios() {
           </div>
         )}
       </div>
+      </>)}
 
       <div
         style={{
