@@ -31,14 +31,10 @@ export default function ClienteSelector({ visible }) {
       try {
         const data = await getClientes();
         if (cancelled) return;
-        const lista = Array.isArray(data) ? data : [];
-        setClientes(lista);
-        // Si el admin aún no ha elegido ayuntamiento, seleccionamos el primero
-        // automáticamente para que no vea datos mezclados de todos.
-        if (!getActiveClienteId() && lista.length > 0) {
-          setActiveClienteId(lista[0].id);
-          window.location.reload();
-        }
+        setClientes(Array.isArray(data) ? data : []);
+        // NO auto-seleccionamos ninguno: el superadmin no está asociado a ningún
+        // ayuntamiento. Arranca en "Todos" (vista global) y entra en uno solo si
+        // lo elige aquí o pulsa "Entrar" en el panel de plataforma.
       } catch (e) {
         if (!cancelled) setError("No se pudieron cargar los ayuntamientos");
       }
@@ -53,8 +49,9 @@ export default function ClienteSelector({ visible }) {
   const onChange = (e) => {
     const val = e.target.value;
     setActivo(val);
-    setActiveClienteId(val);
-    // Recargamos para refrescar todos los datos con el nuevo ayuntamiento.
+    // val === "" => sin ayuntamiento activo (vista de todos / plataforma).
+    setActiveClienteId(val === "" ? null : val);
+    // Recargamos para refrescar todos los datos con el nuevo ámbito.
     window.location.reload();
   };
 
@@ -95,7 +92,7 @@ export default function ClienteSelector({ visible }) {
           cursor: "pointer",
         }}
       >
-        {!activo && <option value="">— Elige uno —</option>}
+        <option value="">Todos los ayuntamientos</option>
         {clientes.map((c) => (
           <option key={c.id} value={c.id}>
             {shortInst(c.nombre)}
