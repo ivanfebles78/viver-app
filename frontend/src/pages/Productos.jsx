@@ -9,7 +9,8 @@ import {
   deleteProducto,
   importarProductos,
 } from "../api/api";
-import { formatCantidad, formatCantidadConUnidad } from "../utils/numero";
+import { formatCantidad, formatCantidadConUnidad, formatEnteroConUnidad } from "../utils/numero";
+import { rolEfectivo } from "../utils/roles";
 import {
   getUnidadProducto,
   getProductFormatoConfig,
@@ -82,7 +83,7 @@ const ProductoRow = memo(function ProductoRow({
       <td>{p.categoria ?? "-"}</td>
       <td>{p.subcategoria ?? "-"}</td>
       <td style={{ textAlign: "center", fontWeight: 800 }}>
-        {formatCantidadConUnidad(stock, unidad) || "0"}
+        {formatEnteroConUnidad(stock, unidad) || "0"}
       </td>
       {!esEmpresaExterna && (
         <td style={{ textAlign: "center" }}>
@@ -1446,7 +1447,7 @@ export default function Productos() {
     });
   }, [productos, q, categoriaSel, subcategoriaSel, soloConImagen, idsConImagen]);
 
-  const rol = me?.rol || me?.role;
+  const rol = rolEfectivo(me);  // superadmin/admin_vivero cuentan como admin
   const esEmpresaExterna = rol === "empresa_externa";
   const puedePedirMas = rol && rol !== "empresa_externa";
   const puedeMarcarInterno = rol === "admin" || rol === "manager";

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useOutletContext } from "react-router-dom";
 import { getPedidos, aprobarPedido, denegarPedido, decidirPedido, descargarPedidoPdf } from "../api/api";
+import { rolEfectivo } from "../utils/roles";
 import { formatUsername } from "../utils/format";
 import { formatCantidad } from "../utils/numero";
 
@@ -879,7 +880,7 @@ export default function Aprobaciones() {
     }
   };
 
-  const role = me?.rol || me?.role;
+  const role = rolEfectivo(me);  // superadmin/admin_vivero cuentan como admin
   const canApprove = role === "admin" || role === "manager";
 
   return (

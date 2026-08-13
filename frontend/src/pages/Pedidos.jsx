@@ -4,6 +4,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import logoViverApp from "../assets/logo.png";
 import { formatUsername } from "../utils/format";
+import { rolEfectivo } from "../utils/roles";
 import { formatFechaCanaria } from "../utils/fecha";
 import { getProductFormatoConfig, getFormatoOptions } from "../utils/formato";
 import { formatCantidad } from "../utils/numero";
@@ -2376,7 +2377,7 @@ export default function Pedidos() {
   const [imprimirOpen, setImprimirOpen] = useState(false);
   const [expandedRows, setExpandedRows] = useState({});
 
-  const role = me?.rol || me?.role;
+  const role = rolEfectivo(me);  // superadmin/admin_vivero cuentan como admin
   // Proveedor es estrictamente de lectura: no edita ni cancela ni crea.
   const isProveedor = role === "proveedor";
   const isReadOnly = role === "tecnico" || role === "gestor_vivero" || isProveedor;

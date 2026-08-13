@@ -32,3 +32,20 @@ export function formatCantidadConUnidad(value, unidad) {
   if (!unidad) return f;
   return `${f} ${unidad}`;
 }
+
+// Cantidad redondeada a ENTERO (sin decimales). Se usa para el stock total de
+// productos, que se cuenta en unidades enteras (plantas, sacos, etc.).
+export function formatEntero(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  return String(Math.round(n));
+}
+
+// Variante entera con sufijo de unidad ("25 unidades", "3 Kg", etc.).
+export function formatEnteroConUnidad(value, unidad) {
+  const f = formatEntero(value);
+  if (!f) return "";
+  if (!unidad) return f;
+  return `${f} ${unidad}`;
+}

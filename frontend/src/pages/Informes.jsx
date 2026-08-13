@@ -5,6 +5,7 @@ import autoTable from "jspdf-autotable";
 import logoViverApp from "../assets/logo.png";
 import { formatFechaCanaria, formatFechaHoraCanaria } from "../utils/fecha";
 import { getZonaLabel } from "../utils/zonas";
+import { rolEfectivo } from "../utils/roles";
 import {
   getDistribucionReporte,
   getMovimientosExternosReporte,
@@ -1554,7 +1555,7 @@ function EmptyState({ text = "No hay datos para mostrar." }) {
 export default function Informes() {
   const { me } = useOutletContext();
 
-  const role = me?.rol || me?.role;
+  const role = rolEfectivo(me);  // superadmin/admin_vivero cuentan como admin
   // Acceso restringido por rol a informes concretos:
   //   - empresa externa → solo "Movimientos externos".
   //   - técnico → "Distribución", "Inventario vivero" y "Existencias".
