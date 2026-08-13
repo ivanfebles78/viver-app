@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { getClientes, getActiveClienteId, setActiveClienteId } from "../../api/api";
 
+// Nombre corto: quita el prefijo "Ayuntamiento de/del " (redundante, ya que el
+// selector lleva la etiqueta "Ayuntamiento" encima).
+function shortInst(nombre) {
+  if (!nombre) return "";
+  return nombre.replace(/^Ayuntamiento\s+(de\s+la\s+|de\s+|del\s+|de\s+las\s+|de\s+los\s+)?/i, "").trim() || nombre;
+}
+
 /**
  * Selector de ayuntamiento para el super-admin GLOBAL.
  *
@@ -88,10 +95,10 @@ export default function ClienteSelector({ visible }) {
           cursor: "pointer",
         }}
       >
-        {!activo && <option value="">— Elige un ayuntamiento —</option>}
+        {!activo && <option value="">— Elige uno —</option>}
         {clientes.map((c) => (
           <option key={c.id} value={c.id}>
-            {c.nombre}
+            {shortInst(c.nombre)}
           </option>
         ))}
       </select>

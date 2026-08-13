@@ -1930,7 +1930,7 @@ export default function Layout() {
               }}
             >
               Usuario: <span style={{ color: "#0f172a" }}>{formatUsername(me?.username) || "—"}</span> · Rol:{" "}
-              <span style={{ color: "#0f172a" }}>{userRole || "—"}</span>
+              <span style={{ color: "#0f172a" }}>{rolReal || "—"}</span>
             </div>
 
             <button

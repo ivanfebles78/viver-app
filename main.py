@@ -4218,12 +4218,19 @@ class AdminUserCreate(BaseModel):
     # Solo lo usa el admin global para asignar el usuario a un ayuntamiento. El
     # admin_vivero lo ignora: sus usuarios se atan automáticamente a su cliente.
     cliente_id: Optional[int] = None
+    # Contraseña directa (opcional). Si se indica, el usuario se crea ACTIVO con
+    # esa clave, sin flujo de email. Útil cuando el correo no está configurado.
+    password: Optional[str] = None
 
 
 class AdminUserUpdate(BaseModel):
     email: Optional[str] = None
     rol: Optional[str] = None
     status: Optional[str] = None
+    # Cambiar el ayuntamiento del usuario (solo superadmin). set_cliente=True para
+    # aplicar cliente_id (incluido null = quitar de todo ayuntamiento).
+    cliente_id: Optional[int] = None
+    set_cliente: Optional[bool] = None
 
 
 def _user_admin_dict(u: Usuario) -> dict:
@@ -4261,7 +4268,17 @@ def admin_list_users(
     current_user: Usuario = Depends(require_roles(["admin"])),
 ):
     users = db.query(Usuario).order_by(Usuario.username.asc()).all()
-    return [_user_admin_dict(u) for u in users]
+    # Mapa cliente_id -> nombre para mostrar la institución de cada usuario.
+    nombres = {
+        c.id: c.nombre
+        for c in db.query(Cliente).execution_options(skip_tenant=True).all()
+    }
+    out = []
+    for u in users:
+        d = _user_admin_dict(u)
+        d["cliente_nombre"] = nombres.get(u.cliente_id) if u.cliente_id else None
+        out.append(d)
+    return out
 
 
 @app.post("/admin/users", status_code=201)
@@ -4327,13 +4344,22 @@ def admin_create_user(
     if existing_email:
         raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email.")
 
-    # Password placeholder hasheado: nunca conocido por nadie. Se reemplaza al activar.
-    placeholder = pwd_context.hash(uuid.uuid4().hex)
+    # Si se indica una contraseña directa (útil cuando el correo no está
+    # configurado), el usuario se crea ACTIVO con esa clave y sin flujo de email.
+    # Si no, se crea con un placeholder y se envía invitación de activación.
+    password_directa = (payload.password or "").strip()
+    if password_directa:
+        _validate_password_or_400(password_directa)  # mínimo 8 caracteres
+        password_hash = pwd_context.hash(password_directa)
+        status_norm = "activo"
+    else:
+        # Placeholder hasheado: nunca conocido por nadie. Se reemplaza al activar.
+        password_hash = pwd_context.hash(uuid.uuid4().hex)
 
     user = Usuario(
         username=username,
         email=email,
-        password_hash=placeholder,
+        password_hash=password_hash,
         status=status_norm,
         rol=rol,
         failed_login_attempts=0,
@@ -4343,6 +4369,7 @@ def admin_create_user(
     db.flush()
 
     # Generar token de activación + enviar email solo si queda en pendiente
+    # (es decir, cuando NO se ha fijado una contraseña directa).
     if status_norm == "pendiente":
         raw_token = account_tokens.issue_token(
             db, user, "activate", created_by=current_user.username
@@ -4418,6 +4445,18 @@ def admin_update_user(
                     detail="No puedes desactivar al último administrador activo.",
                 )
         user.status = new_status
+
+    # Cambio de ayuntamiento (institución): SOLO el superadmin puede mover un
+    # usuario entre ayuntamientos (o dejarlo global con null). Un admin/admin_vivero
+    # no puede reasignar usuarios fuera de su propio ayuntamiento.
+    if payload.set_cliente:
+        if (current_user.rol or "").strip().lower() != ROL_ADMIN_GLOBAL:
+            raise HTTPException(status_code=403, detail="Solo el superadmin puede cambiar la institución de un usuario.")
+        if payload.cliente_id is not None:
+            existe_cli = db.query(Cliente).filter(Cliente.id == payload.cliente_id).first()
+            if not existe_cli:
+                raise HTTPException(status_code=400, detail="El ayuntamiento indicado no existe.")
+        user.cliente_id = payload.cliente_id
 
     db.add(user)
     db.commit()

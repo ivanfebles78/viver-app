@@ -11,16 +11,27 @@ import {
   restaurarBackup,
   adminEmailConfig,
   adminEmailTest,
+  getClientes,
 } from "../api/api";
 import Modal from "../components/common/Modal";
 
 const ROLES = [
-  { value: "admin", label: "Administrador" },
-  { value: "manager", label: "Manager" },
+  { value: "superadmin", label: "Superadmin (plataforma)", superadminOnly: true },
+  { value: "admin", label: "Administrador del ayuntamiento" },
+  { value: "admin_vivero", label: "Admin de vivero" },
   { value: "gestor_vivero", label: "Gestor de vivero" },
+  { value: "manager", label: "Manager" },
   { value: "tecnico", label: "Técnico" },
   { value: "empresa_externa", label: "Empresa externa" },
+  { value: "proveedor", label: "Proveedor" },
 ];
+
+// Nombre corto de la institución: quita el prefijo "Ayuntamiento de/del ".
+function shortInst(nombre) {
+  if (!nombre) return "";
+  return nombre.replace(/^Ayuntamiento\s+(de\s+la\s+|de\s+|del\s+|de\s+las\s+|de\s+los\s+)?/i, "").trim() || nombre;
+}
+const rolesParaUsuario = (esSuperadmin) => ROLES.filter((r) => !r.superadminOnly || esSuperadmin);
 
 const PAGE_SIZE = 10;
 
@@ -65,11 +76,16 @@ function StatusBadge({ status }) {
   );
 }
 
-function NewUserForm({ onCancel, onCreated, onError }) {
+function NewUserForm({ onCancel, onCreated, onError, esSuperadmin, clientes }) {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [rol, setRol] = useState("tecnico");
+  const [clienteId, setClienteId] = useState("");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const rolesDisp = rolesParaUsuario(esSuperadmin);
+  const esRolSuperadmin = rol === "superadmin";
 
   const submit = async (e) => {
     e.preventDefault();
@@ -81,14 +97,26 @@ function NewUserForm({ onCancel, onCreated, onError }) {
       onError("Email inválido.");
       return;
     }
+    // El superadmin debe indicar el ayuntamiento salvo que cree otro superadmin.
+    if (esSuperadmin && !esRolSuperadmin && !clienteId) {
+      onError("Selecciona la institución (ayuntamiento) del usuario.");
+      return;
+    }
+    if (password && password.length < 8) {
+      onError("La contraseña directa debe tener al menos 8 caracteres.");
+      return;
+    }
     setSubmitting(true);
     try {
-      await adminCreateUser({
+      const payload = {
         username: username.trim(),
         email: email.trim(),
         rol,
-        status: "pendiente",
-      });
+        status: password ? "activo" : "pendiente",
+      };
+      if (esSuperadmin && !esRolSuperadmin && clienteId) payload.cliente_id = Number(clienteId);
+      if (password) payload.password = password;
+      await adminCreateUser(payload);
       onCreated();
     } catch (err) {
       onError(extractError(err, "No se pudo crear el usuario."));
@@ -101,8 +129,8 @@ function NewUserForm({ onCancel, onCreated, onError }) {
     <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <h2 style={{ margin: 0, color: "#10231a" }}>Nuevo usuario</h2>
       <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
-        El usuario quedará en estado <strong>pendiente</strong> hasta que active su cuenta desde el
-        email que le enviaremos.
+        Si NO indicas contraseña, el usuario quedará <strong>pendiente</strong> y recibirá un email
+        para activarse. Si indicas una contraseña, se crea <strong>activo</strong> y puede entrar ya.
       </p>
 
       <label style={labelStyle}>
@@ -133,7 +161,7 @@ function NewUserForm({ onCancel, onCreated, onError }) {
       <label style={labelStyle}>
         Rol
         <select style={inputStyle} value={rol} onChange={(e) => setRol(e.target.value)}>
-          {ROLES.map((r) => (
+          {rolesDisp.map((r) => (
             <option key={r.value} value={r.value}>
               {r.label}
             </option>
@@ -141,23 +169,51 @@ function NewUserForm({ onCancel, onCreated, onError }) {
         </select>
       </label>
 
+      {esSuperadmin && !esRolSuperadmin && (
+        <label style={labelStyle}>
+          Institución (ayuntamiento)
+          <select style={inputStyle} value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+            <option value="">— Elige un ayuntamiento —</option>
+            {(clientes || []).map((c) => (
+              <option key={c.id} value={c.id}>{shortInst(c.nombre)}</option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      <label style={labelStyle}>
+        Contraseña (opcional)
+        <input
+          style={inputStyle}
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Déjalo vacío para enviar invitación por email"
+          autoComplete="new-password"
+        />
+      </label>
+
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
         <button type="button" onClick={onCancel} style={btnSecondary} disabled={submitting}>
           Cancelar
         </button>
         <button type="submit" style={btnPrimary} disabled={submitting}>
-          {submitting ? "Creando…" : "Crear y enviar invitación"}
+          {submitting ? "Creando…" : (password ? "Crear usuario" : "Crear y enviar invitación")}
         </button>
       </div>
     </form>
   );
 }
 
-function EditUserForm({ user, onCancel, onUpdated, onError }) {
+function EditUserForm({ user, onCancel, onUpdated, onError, esSuperadmin, clientes }) {
   const [email, setEmail] = useState(user.email || "");
   const [rol, setRol] = useState(user.rol || "tecnico");
   const [status, setStatus] = useState(user.status || "activo");
+  const [clienteId, setClienteId] = useState(user.cliente_id != null ? String(user.cliente_id) : "");
   const [submitting, setSubmitting] = useState(false);
+
+  const rolesDisp = rolesParaUsuario(esSuperadmin);
+  const esRolSuperadmin = rol === "superadmin";
 
   const submit = async (e) => {
     e.preventDefault();
@@ -167,7 +223,13 @@ function EditUserForm({ user, onCancel, onUpdated, onError }) {
     }
     setSubmitting(true);
     try {
-      await adminUpdateUser(user.id, { email: email.trim(), rol, status });
+      const payload = { email: email.trim(), rol, status };
+      // Solo el superadmin puede reasignar la institución del usuario.
+      if (esSuperadmin) {
+        payload.set_cliente = true;
+        payload.cliente_id = esRolSuperadmin || !clienteId ? null : Number(clienteId);
+      }
+      await adminUpdateUser(user.id, payload);
       onUpdated();
     } catch (err) {
       onError(extractError(err, "No se pudo actualizar el usuario."));
@@ -197,13 +259,30 @@ function EditUserForm({ user, onCancel, onUpdated, onError }) {
       <label style={labelStyle}>
         Rol
         <select style={inputStyle} value={rol} onChange={(e) => setRol(e.target.value)}>
-          {ROLES.map((r) => (
+          {rolesDisp.map((r) => (
             <option key={r.value} value={r.value}>
               {r.label}
             </option>
           ))}
         </select>
       </label>
+
+      {esSuperadmin && (
+        <label style={labelStyle}>
+          Institución (ayuntamiento)
+          <select
+            style={inputStyle}
+            value={esRolSuperadmin ? "" : clienteId}
+            onChange={(e) => setClienteId(e.target.value)}
+            disabled={esRolSuperadmin}
+          >
+            <option value="">{esRolSuperadmin ? "— Ninguno (plataforma) —" : "— Elige un ayuntamiento —"}</option>
+            {(clientes || []).map((c) => (
+              <option key={c.id} value={c.id}>{shortInst(c.nombre)}</option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <label style={labelStyle}>
         Estado
@@ -266,6 +345,10 @@ export default function AdminUsuarios() {
     }
   }, []);
 
+  // Lista de ayuntamientos (para el selector de institución). El superadmin ve
+  // todos; el resto de admins ven solo el suyo.
+  const [clientes, setClientes] = useState([]);
+
   const reload = async () => {
     setLoading(true);
     setError("");
@@ -281,6 +364,7 @@ export default function AdminUsuarios() {
 
   useEffect(() => {
     reload();
+    getClientes().then((cs) => setClientes(Array.isArray(cs) ? cs : [])).catch(() => {});
   }, []);
 
   const flash = (msg) => {
@@ -682,6 +766,7 @@ export default function AdminUsuarios() {
               <th style={th}>Usuario</th>
               <th style={th}>Email</th>
               <th style={th}>Rol</th>
+              <th style={th}>Institución</th>
               <th style={th}>Estado</th>
               <th style={{ ...th, textAlign: "center" }}>Fallos</th>
               <th style={{ ...th, textAlign: "right" }}>Acciones</th>
@@ -690,13 +775,13 @@ export default function AdminUsuarios() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} style={{ ...td, textAlign: "center", color: "#64748b", padding: 28 }}>
+                <td colSpan={7} style={{ ...td, textAlign: "center", color: "#64748b", padding: 28 }}>
                   Cargando…
                 </td>
               </tr>
             ) : filteredUsers.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ ...td, textAlign: "center", color: "#64748b", padding: 28 }}>
+                <td colSpan={7} style={{ ...td, textAlign: "center", color: "#64748b", padding: 28 }}>
                   {hasActiveFilters
                     ? "Ningún usuario coincide con los filtros aplicados."
                     : "No hay usuarios."}
@@ -711,6 +796,11 @@ export default function AdminUsuarios() {
                     <td style={{ ...td, fontWeight: 800 }}>{u.username}</td>
                     <td style={td}>{u.email || <span style={{ color: "#94a3b8" }}>—</span>}</td>
                     <td style={td}>{ROLES.find((r) => r.value === u.rol)?.label || u.rol}</td>
+                    <td style={td}>
+                      {u.cliente_nombre
+                        ? shortInst(u.cliente_nombre)
+                        : <span style={{ color: "#059669", fontWeight: 700 }} title="Sin ayuntamiento (plataforma)">Plataforma</span>}
+                    </td>
                     <td style={td}><StatusBadge status={status} /></td>
                     <td style={{ ...td, textAlign: "center", color: u.failed_login_attempts ? "#991b1b" : "#94a3b8" }}>
                       {u.failed_login_attempts || 0}
@@ -805,10 +895,12 @@ export default function AdminUsuarios() {
       {modal?.type === "new" && (
         <Modal onClose={() => setModal(null)}>
           <NewUserForm
+            esSuperadmin={esSuperadmin}
+            clientes={clientes}
             onCancel={() => setModal(null)}
             onCreated={() => {
               setModal(null);
-              flash("Usuario creado. Invitación enviada por email.");
+              flash("Usuario creado.");
               reload();
             }}
             onError={(msg) => setError(msg)}
@@ -820,6 +912,8 @@ export default function AdminUsuarios() {
         <Modal onClose={() => setModal(null)}>
           <EditUserForm
             user={modal.user}
+            esSuperadmin={esSuperadmin}
+            clientes={clientes}
             onCancel={() => setModal(null)}
             onUpdated={() => {
               setModal(null);
