@@ -65,8 +65,19 @@ export default function ClienteSelector({ visible }) {
         border: "1px solid #a7f3d0",
       }}
     >
-      <div
+      {/*
+        Era un <div> suelto que solo PARECÍA una etiqueta. El <select> no tenía
+        nombre accesible: un lector de pantalla anunciaba "cuadro combinado" sin
+        decir de qué. Y este control cambia el AYUNTAMIENTO activo — el más
+        consecuente del shell para un super-admin.
+
+        Se convierte en un <label for> real. El aspecto no cambia; el resto de
+        la migración de esta pantalla pertenece a una fase posterior.
+      */}
+      <label
+        htmlFor="selector-ayuntamiento"
         style={{
+          display: "block",
           fontSize: 11,
           fontWeight: 800,
           color: "#047857",
@@ -76,8 +87,9 @@ export default function ClienteSelector({ visible }) {
         }}
       >
         Ayuntamiento
-      </div>
+      </label>
       <select
+        id="selector-ayuntamiento"
         value={activo || ""}
         onChange={onChange}
         style={{
@@ -100,7 +112,12 @@ export default function ClienteSelector({ visible }) {
         ))}
       </select>
       {error && (
-        <div style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>{error}</div>
+        // role="alert": si falla la carga de ayuntamientos, un usuario de
+        // lector de pantalla debe enterarse, no quedarse con un desplegable
+        // vacío y sin explicación.
+        <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>
+          {error}
+        </div>
       )}
     </div>
   );

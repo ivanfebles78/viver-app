@@ -1,0 +1,272 @@
+/*
+ * TAILWIND BRIDGE — the single point where Tailwind's utility vocabulary is
+ * bound to the DevCon8 Design System.
+ *
+ * The strategy, and the reason this file is short:
+ *
+ *   shadcn/ui is the STRUCTURAL layer. DevCon8 tokens are the VISUAL authority.
+ *
+ * Tailwind v4 generates utilities from @theme variables. By mapping each theme
+ * variable to an existing DevCon8 token — never to a literal — a shadcn class
+ * like `bg-primary` resolves to `var(--primary)`, which resolves to
+ * `var(--ds-blue-600)`. Adapting shadcn to DevCon8 therefore requires no
+ * restyling: the utilities simply cannot produce a non-DevCon8 value.
+ *
+ * There is exactly ONE token vocabulary in this repository. Nothing below
+ * introduces a colour, spacing, radius, shadow, duration or type value; every
+ * right-hand side is a var() pointing at tokens.css.
+ *
+ * Tailwind's DEFAULT palette is disabled deliberately (see the end of this
+ * file). Without that, `bg-blue-600` would silently keep working and the
+ * Design System would stop being authoritative.
+ */
+
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* Dark mode is driven by the Design System's own selectors, not Tailwind's. */
+@custom-variant dark (&:where(.dark, [data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  /* ── Colour ─────────────────────────────────────────────────────────── */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-secondary-active: var(--secondary-active);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-active: var(--destructive-active);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-destructive-subtle-foreground: var(--destructive-subtle-foreground);
+
+  /* --border is DECORATIVE. --input is the CONTROL BOUNDARY and is the only
+   * one meeting the 3:1 non-text contrast requirement. They are kept as
+   * separate utilities so a focusable control can never be given --border. */
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  /* ── Type ───────────────────────────────────────────────────────────── */
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --text-display: var(--text-display);
+  --text-display--line-height: var(--leading-display);
+  --text-display--letter-spacing: var(--tracking-display);
+  --text-h1: var(--text-h1);
+  --text-h1--line-height: var(--leading-h1);
+  --text-h1--letter-spacing: var(--tracking-h1);
+  --text-h2: var(--text-h2);
+  --text-h2--line-height: var(--leading-h2);
+  --text-h3: var(--text-h3);
+  --text-h3--line-height: var(--leading-h3);
+  --text-h4: var(--text-h4);
+  --text-h4--line-height: var(--leading-h4);
+  --text-h5: var(--text-h5);
+  --text-h5--line-height: var(--leading-h5);
+  --text-body-lg: var(--text-body-lg);
+  --text-body-lg--line-height: var(--leading-body-lg);
+  --text-body: var(--text-body);
+  --text-body--line-height: var(--leading-body);
+  --text-body-sm: var(--text-body-sm);
+  --text-body-sm--line-height: var(--leading-body-sm);
+  --text-caption: var(--text-caption);
+  --text-caption--line-height: var(--leading-caption);
+  --text-label: var(--text-label);
+  --text-label--line-height: var(--leading-label);
+  --text-overline: var(--text-overline);
+
+  --font-weight-regular: var(--font-weight-regular);
+  --font-weight-medium: var(--font-weight-medium);
+  --font-weight-semibold: var(--font-weight-semibold);
+  --font-weight-bold: var(--font-weight-bold);
+
+  /* ── Spacing ────────────────────────────────────────────────────────── */
+  --spacing-0: var(--space-0);
+  --spacing-1: var(--space-1);
+  --spacing-2: var(--space-2);
+  --spacing-3: var(--space-3);
+  --spacing-4: var(--space-4);
+  --spacing-5: var(--space-5);
+  --spacing-6: var(--space-6);
+  --spacing-7: var(--space-7);
+  --spacing-8: var(--space-8);
+  --spacing-10: var(--space-10);
+  --spacing-12: var(--space-12);
+  --spacing-14: var(--space-14);
+  --spacing-16: var(--space-16);
+  --spacing-20: var(--space-20);
+  --spacing-24: var(--space-24);
+
+  /* ── Radius, shadow, motion ─────────────────────────────────────────── */
+  --radius-none: var(--radius-none);
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-full: var(--radius-full);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  --ease-standard: var(--ease-standard);
+  --ease-out: var(--ease-out);
+  --ease-in-out: var(--ease-in-out);
+
+}
+
+/*
+ * Breakpoints.
+ *
+ * The Design System does not define breakpoint tokens; tokens.css documents the
+ * bridge and sanctions exactly one addition, `--breakpoint-xs: 390px`. Per the
+ * "when the system is silent" rule, nothing is invented here: Tailwind's
+ * defaults (sm 640 / md 768 / lg 1024 / xl 1280 / 2xl 1536) are left intact —
+ * they already match the responsive targets the Design System tests against —
+ * and only the sanctioned xs step is added, for the 390px viewport.
+ */
+@theme {
+  --breakpoint-xs: 390px;
+}
+
+/*
+ * OVERLAY MOTION.
+ *
+ * The shadcn components arrive using `animate-in`, `fade-in-0`,
+ * `slide-in-from-left` and friends, which come from `tailwindcss-animate` — a
+ * package this repository does not have. Left as-is those classes generate
+ * NOTHING: overlays snap in and out, `motion-reduce:animate-none` guards
+ * nothing, and a "reduced motion is respected" test passes by counting zero
+ * animations whether or not the preference is set. A silent no-op that looks
+ * like working code.
+ *
+ * They are implemented here rather than by adding the dependency, because that
+ * package ships its own durations and easings. Motion is a Design System
+ * decision, and importing a second opinion on it would fork the system in the
+ * one dimension the token bridge above exists to keep single. Every value below
+ * is a DevCon8 token.
+ *
+ * Composition follows the same model as the original: `animate-in` supplies the
+ * animation, and the modifier classes set the custom properties its keyframes
+ * read. Deliberately NO scale modifier is provided — the dialog is centred with
+ * `-translate-x-1/2 -translate-y-1/2`, and a keyframe that writes `transform`
+ * would fight that positioning and animate the panel in from the corner.
+ */
+@keyframes devcon8-enter {
+  from {
+    opacity: var(--devcon8-enter-opacity, 1);
+    translate: var(--devcon8-enter-x, 0) var(--devcon8-enter-y, 0);
+  }
+}
+
+@keyframes devcon8-exit {
+  to {
+    opacity: var(--devcon8-exit-opacity, 1);
+    translate: var(--devcon8-exit-x, 0) var(--devcon8-exit-y, 0);
+  }
+}
+
+/* `translate` is used rather than `transform` precisely so these compose with
+ * a `transform`-based centring utility instead of overwriting it. */
+@utility animate-in {
+  animation: devcon8-enter var(--duration-base) var(--ease-out) both;
+}
+
+@utility animate-out {
+  animation: devcon8-exit var(--duration-fast) var(--ease-in) both;
+}
+
+@utility fade-in-0 { --devcon8-enter-opacity: 0; }
+@utility fade-out-0 { --devcon8-exit-opacity: 0; }
+
+@utility slide-in-from-left { --devcon8-enter-x: -100%; }
+@utility slide-in-from-right { --devcon8-enter-x: 100%; }
+@utility slide-in-from-top { --devcon8-enter-y: -100%; }
+@utility slide-in-from-bottom { --devcon8-enter-y: 100%; }
+
+@utility slide-out-to-left { --devcon8-exit-x: -100%; }
+@utility slide-out-to-right { --devcon8-exit-x: 100%; }
+@utility slide-out-to-top { --devcon8-exit-y: -100%; }
+@utility slide-out-to-bottom { --devcon8-exit-y: 100%; }
+
+/*
+ * Remove Tailwind's default palette.
+ *
+ * This is the load-bearing line of the whole bridge. Tailwind ships blue-600,
+ * gray-500 and the rest as theme variables; left in place, `bg-blue-600` keeps
+ * working and every enforcement rule about arbitrary colour becomes advisory.
+ * Clearing the namespace makes a non-DevCon8 colour utility simply not exist.
+ */
+@theme {
+  --color-*: initial;
+}
+
+/* Re-declare only the DevCon8 colours after the reset. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-secondary-active: var(--secondary-active);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-active: var(--destructive-active);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-destructive-subtle-foreground: var(--destructive-subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-transparent: transparent;
+  --color-current: currentColor;
+}

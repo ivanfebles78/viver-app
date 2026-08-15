@@ -266,7 +266,9 @@ export const descargarPedidoPdf = async (id) => {
 // ---------------- LOTES / TRAZABILIDAD ----------------
 
 export const getLote = async (uuid) => {
-  const { data } = await api.get(`/lotes/${uuid}`);
+  // El UUID llega de un campo de texto libre: se codifica para que un valor con
+  // `/`, `?` o `#` no reescriba la ruta que se acaba llamando.
+  const { data } = await api.get(`/lotes/${encodeURIComponent(String(uuid ?? "").trim())}`);
   return data;
 };
 
