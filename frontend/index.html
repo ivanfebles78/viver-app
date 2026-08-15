@@ -1,10 +1,54 @@
 <!doctype html>
-<html lang="en">
+<!--
+  lang="es": la aplicación está íntegramente en español. Declararla como inglés
+  hacía que un lector de pantalla pronunciara cada cadena con fonética inglesa
+  (WCAG 2.2 SC 3.1.1), y es un requisito explícito para el sector público.
+-->
+<!--
+  data-density="compact": decisión deliberada, no un descuido. El sistema de
+  diseño nombra la gestión de expedientes del sector público y las tablas de
+  datos grandes como el caso exacto de la densidad compacta, y Movimientos e
+  Informes son justamente eso. Bajo (pointer: coarse) los tokens devuelven cada
+  control a 40px, así que el modo compacto nunca se aplica al táctil.
+-->
+<html lang="es" data-density="compact">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="ViverApp — gestión de inventario, pedidos y trazabilidad del vivero municipal."
+    />
+    <title>ViverApp — Gestión del vivero municipal</title>
+
+    <!--
+      TEMA — fijado en claro en esta entrega. Decisión deliberada, documentada.
+
+      Los tokens de DevCon8 traen la paleta oscura completa y el shell está
+      construido para ambos modos. Las 11 pantallas que aún no se han migrado,
+      en cambio, llevan sus colores en crudo dentro del marcado: `background:
+      white`, `color: #0f172a`. Sobre el fondo oscuro (#020617) ese titular da
+      1,13:1 — medido, no estimado — frente al 4,5:1 que exige la SC 1.4.3.
+
+      Exponer el conmutador ahora significaría entregar un modo oscuro que
+      vuelve ilegibles once pantallas. Se activa cuando esas pantallas se
+      migren; hasta entonces la aplicación se fija en claro y el conmutador no
+      se monta. Habilitarlo después es restaurar este script a la versión de
+      THEME_SCRIPT (src/ui/theme/theme-provider.tsx) y volver a montar
+      <ThemeToggle> en la cabecera.
+    -->
+    <script>
+      (function () {
+        try {
+          var e = document.documentElement;
+          e.classList.remove('dark');
+          e.setAttribute('data-theme', 'light');
+          e.style.colorScheme = 'light';
+        } catch (_) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

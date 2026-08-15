@@ -1,0 +1,32 @@
+{
+  // TypeScript entra SOLO para el código vendorizado de @devcon8/ui, que se
+  // mantiene en .tsx tal y como está aguas arriba. Conservar la extensión
+  // original hace que una futura resincronización sea un diff y no una
+  // retraducción a mano.
+  //
+  // La aplicación sigue en .js/.jsx y no se comprueba aquí: `allowJs` está
+  // desactivado a propósito para que `npm run typecheck` verifique el paquete
+  // de UI sin arrastrar 22.000 líneas sin tipar.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "forceConsistentCasingInFileNames": true,
+    // `node` está por el `process.env.NODE_ENV` que usa button.tsx para avisar
+    // en desarrollo de un botón de icono sin nombre accesible. Es la misma
+    // dependencia que declara devcon8-platform; se mantiene para que el
+    // fichero vendorizado siga siendo idéntico al de aguas arriba.
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src/ui/**/*.ts", "src/ui/**/*.tsx"]
+}

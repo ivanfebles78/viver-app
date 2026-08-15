@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32">
+  <!--
+    Favicon de ViverApp: el brote de la marca.
+
+    Se usa SVG y no el PNG del logotipo porque ese pesa 1,5 MB — descargarlo en
+    cada carga solo para el icono de la pestaña no tiene sentido. Aquí son unos
+    cientos de bytes y además escala sin perder nitidez.
+
+    Los dos colores son los tokens --primary del sistema de diseño en cada modo
+    (#2563EB en claro, #60A5FA en oscuro), para que el icono se lea tanto en una
+    barra de pestañas clara como en una oscura.
+  -->
+  <style>
+    .mark { fill: none; stroke: #2563EB; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    @media (prefers-color-scheme: dark) { .mark { stroke: #60A5FA; } }
+  </style>
+  <g class="mark">
+    <path d="M7 20h10" />
+    <path d="M10 20c5.5-2.5.8-6.4 3-10" />
+    <path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" />
+    <path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" />
+  </g>
+</svg>

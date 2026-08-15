@@ -1,0 +1,827 @@
+/* ==========================================================================
+   DevCon8 Design System — Executable Tokens
+   Version 2.0.0 · 2026-08-13
+   --------------------------------------------------------------------------
+   NORMATIVE SOURCE OF TRUTH. docs/design-system.md explains this file and
+   never overrides it. Applications MUST NOT declare raw colour, size, radius,
+   shadow or duration values. If a token is missing, follow the silence
+   protocol in docs/design-system.md §21 — propose it here first.
+
+   Layers
+     1. --ds-*        primitives   (never consumed by applications)
+     2. unprefixed    semantic     (shadcn/ui compatible vocabulary)
+     3. --btn-* etc.  component    (built from semantics)
+
+   Theme switching is class based, matching shadcn/ui: add `.dark` (or
+   data-theme="dark") to <html>. Density is data-density on <html> or subtree.
+   ========================================================================== */
+
+/* ==========================================================================
+   1. PRIMITIVES — layer 1. Do not reference these in application code.
+   ========================================================================== */
+:root {
+  --ds-white: #FFFFFF;
+  --ds-black: #000000;
+
+  --ds-gray-50: #F8FAFC;   --ds-gray-100: #F1F5F9; --ds-gray-200: #E2E8F0;
+  --ds-gray-300: #CBD5E1;  --ds-gray-400: #94A3B8; --ds-gray-450: #7A89A0;
+  --ds-gray-500: #64748B;  --ds-gray-600: #475569; --ds-gray-700: #334155;
+  --ds-gray-800: #1E293B;  --ds-gray-900: #0F172A; --ds-gray-950: #020617;
+
+  --ds-blue-50: #EFF6FF;   --ds-blue-100: #DBEAFE; --ds-blue-200: #BFDBFE;
+  --ds-blue-300: #93C5FD;  --ds-blue-400: #60A5FA; --ds-blue-500: #3B82F6;
+  --ds-blue-600: #2563EB;  --ds-blue-700: #1D4ED8; --ds-blue-800: #1E40AF;
+  --ds-blue-900: #1E3A8A;  --ds-blue-950: #172554;
+
+  --ds-green-50: #F0FDF4;  --ds-green-100: #DCFCE7; --ds-green-200: #BBF7D0;
+  --ds-green-300: #86EFAC; --ds-green-400: #4ADE80; --ds-green-500: #22C55E;
+  --ds-green-600: #16A34A; --ds-green-700: #15803D; --ds-green-800: #166534;
+  --ds-green-900: #14532D; --ds-green-950: #052E16;
+
+  --ds-amber-50: #FFFBEB;  --ds-amber-100: #FEF3C7; --ds-amber-200: #FDE68A;
+  --ds-amber-300: #FCD34D; --ds-amber-400: #FBBF24; --ds-amber-500: #F59E0B;
+  --ds-amber-600: #D97706; --ds-amber-700: #B45309; --ds-amber-800: #92400E;
+  --ds-amber-900: #78350F; --ds-amber-950: #451A03;
+
+  --ds-red-50: #FEF2F2;    --ds-red-100: #FEE2E2;  --ds-red-200: #FECACA;
+  --ds-red-300: #FCA5A5;   --ds-red-400: #F87171;  --ds-red-500: #EF4444;
+  --ds-red-600: #DC2626;   --ds-red-700: #B91C1C;  --ds-red-800: #991B1B;
+  --ds-red-900: #7F1D1D;   --ds-red-950: #450A0A;
+
+  --ds-sky-50: #F0F9FF;    --ds-sky-100: #E0F2FE;  --ds-sky-200: #BAE6FD;
+  --ds-sky-300: #7DD3FC;   --ds-sky-400: #38BDF8;  --ds-sky-500: #0EA5E9;
+  --ds-sky-600: #0284C7;   --ds-sky-700: #0369A1;  --ds-sky-800: #075985;
+  --ds-sky-900: #0C4A6E;   --ds-sky-950: #082F49;
+
+  --ds-violet-50: #F5F3FF; --ds-violet-100: #EDE9FE; --ds-violet-200: #DDD6FE;
+  --ds-violet-300: #C4B5FD;--ds-violet-400: #A78BFA; --ds-violet-500: #8B5CF6;
+  --ds-violet-600: #7C3AED;--ds-violet-700: #6D28D9; --ds-violet-800: #5B21B6;
+  --ds-violet-900: #4C1D95;--ds-violet-950: #2E1065;
+
+  --ds-orange-50: #FFF7ED; --ds-orange-100: #FFEDD5; --ds-orange-200: #FED7AA;
+  --ds-orange-300: #FDBA74;--ds-orange-400: #FB923C; --ds-orange-500: #F97316;
+  --ds-orange-600: #EA580C;--ds-orange-700: #C2410C; --ds-orange-800: #9A3412;
+  --ds-orange-900: #7C2D12;--ds-orange-950: #431407;
+
+  --ds-teal-50: #F0FDFA;   --ds-teal-100: #CCFBF1; --ds-teal-200: #99F6E4;
+  --ds-teal-300: #5EEAD4;  --ds-teal-400: #2DD4BF; --ds-teal-500: #14B8A6;
+  --ds-teal-600: #0D9488;  --ds-teal-700: #0F766E; --ds-teal-800: #115E59;
+  --ds-teal-900: #134E4A;  --ds-teal-950: #042F2E;
+
+  --ds-rose-400: #FB7185;  --ds-rose-600: #E11D48;
+  --ds-cyan-400: #22D3EE;  --ds-cyan-700: #0E7490;
+  --ds-lime-400: #A3E635;  --ds-lime-700: #4D7C0F;
+}
+
+/* ==========================================================================
+   2. MODE-INDEPENDENT TOKENS — typography, space, radius, motion, layout
+   ========================================================================== */
+:root {
+  /* --- Typography ------------------------------------------------------- */
+  --font-sans: "Geist", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --text-display: 48px;      --leading-display: 52px;      --tracking-display: -0.022em;
+  --text-h1: 36px;           --leading-h1: 40px;           --tracking-h1: -0.02em;
+  --text-h2: 30px;           --leading-h2: 36px;           --tracking-h2: -0.016em;
+  --text-h3: 24px;           --leading-h3: 32px;           --tracking-h3: -0.012em;
+  --text-h4: 20px;           --leading-h4: 28px;           --tracking-h4: -0.008em;
+  --text-h5: 18px;           --leading-h5: 26px;           --tracking-h5: -0.004em;
+  --text-body-lg: 18px;      --leading-body-lg: 28px;      --tracking-body-lg: 0;
+  --text-body: 16px;         --leading-body: 24px;         --tracking-body: 0;
+  --text-body-sm: 14px;      --leading-body-sm: 20px;      --tracking-body-sm: 0;
+  --text-label: 14px;        --leading-label: 20px;        --tracking-label: 0;
+  --text-button: 14px;       --leading-button: 20px;       --tracking-button: 0;
+  --text-caption: 12px;      --leading-caption: 16px;      --tracking-caption: 0.005em;
+  --text-overline: 11px;     --leading-overline: 16px;     --tracking-overline: 0.06em;
+  --text-table-header: 12px; --leading-table-header: 16px; --tracking-table-header: 0.04em;
+  --text-mono: 13px;         --leading-mono: 20px;
+  --text-mono-sm: 12px;      --leading-mono-sm: 18px;
+
+  /* --- Spacing (4px base) ----------------------------------------------- */
+  --space-0: 0px;   --space-px: 1px;  --space-0-5: 2px; --space-1: 4px;
+  --space-2: 8px;   --space-3: 12px;  --space-4: 16px;  --space-5: 20px;
+  --space-6: 24px;  --space-7: 28px;  --space-8: 32px;  --space-10: 40px;
+  --space-12: 48px; --space-14: 56px; --space-16: 64px; --space-20: 80px;
+  --space-24: 96px;
+
+  /* --- Radius (shadcn reads --radius; explicit steps override its calc) -- */
+  --radius: 8px;
+  --radius-none: 0px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* --- Borders ----------------------------------------------------------- */
+  --border-width: 1px;
+  --border-width-thick: 2px;
+
+  /* --- Focus ------------------------------------------------------------- */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* --- Z-index ----------------------------------------------------------- */
+  --z-base: 0;      --z-raised: 10;  --z-sticky: 20;  --z-header: 30;
+  --z-sidebar: 35;  --z-backdrop: 40; --z-drawer: 45; --z-modal: 50;
+  --z-dropdown: 60; --z-popover: 60; --z-toast: 70;   --z-tooltip: 80;
+  --z-debug: 9999;
+
+  /* --- Opacity ----------------------------------------------------------- */
+  --opacity-loading: 0.6;
+  --opacity-skeleton-min: 0.55;
+
+  /* --- Motion ------------------------------------------------------------ */
+  --duration-instant: 0ms;
+  --duration-fast: 120ms;
+  --duration-base: 160ms;
+  --duration-moderate: 200ms;
+  --duration-slow: 240ms;
+  --duration-deliberate: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* --- Layout ------------------------------------------------------------ */
+  --container-sm: 640px;  --container-md: 768px;  --container-lg: 1024px;
+  --container-xl: 1280px; --container-2xl: 1440px;
+  --content-max: 1280px;
+  --content-prose-max: 72ch;
+  --content-form-max: 640px;
+  --content-form-wide-max: 880px;
+
+  --page-padding-x: 16px;
+  --page-padding-y: 24px;
+
+  --grid-columns: 4;
+  --grid-gutter: 16px;
+
+  --sidebar-width: 264px;
+  --sidebar-width-collapsed: 64px;
+  --sidebar-width-mobile: 288px;
+  --sidebar-padding: 12px;
+  --sidebar-section-gap: 16px;
+
+  --modal-width-sm: 400px;  --modal-width-md: 520px;
+  --modal-width-lg: 720px;  --modal-width-xl: 960px;
+  --modal-margin-mobile: 16px;
+  --drawer-width-sm: 360px; --drawer-width-md: 480px; --drawer-width-lg: 640px;
+
+  /* --- Interaction targets ------------------------------------------------ */
+  --target-min: 24px;
+  --target-preferred: 40px;
+  --target-icon-min: 32px;
+  --target-gap: 8px;
+}
+
+@media (min-width: 768px) {
+  :root { --page-padding-x: 24px; --grid-columns: 8; --grid-gutter: 24px; }
+}
+@media (min-width: 1024px) {
+  :root { --grid-columns: 12; }
+}
+@media (min-width: 1280px) {
+  :root { --page-padding-x: 32px; }
+}
+
+/* ==========================================================================
+   3. SEMANTIC TOKENS — LIGHT (default). shadcn/ui vocabulary + extensions.
+   ========================================================================== */
+:root {
+  color-scheme: light;
+
+  --background: var(--ds-gray-50);
+  --foreground: var(--ds-gray-900);
+  --card: var(--ds-white);
+  --card-foreground: var(--ds-gray-900);
+  --popover: var(--ds-white);
+  --popover-foreground: var(--ds-gray-900);
+  --surface-sunken: var(--ds-gray-100);
+
+  --muted: var(--ds-gray-100);
+  --muted-foreground: var(--ds-gray-600);
+  --subtle-foreground: var(--ds-gray-500);
+  --accent: var(--ds-gray-100);
+  --accent-foreground: var(--ds-gray-900);
+
+  --primary: var(--ds-blue-600);
+  --primary-foreground: var(--ds-white);
+  --primary-hover: var(--ds-blue-700);
+  --primary-active: var(--ds-blue-800);
+  --primary-emphasis: var(--ds-blue-700);
+  --primary-subtle: var(--ds-blue-50);
+  --primary-subtle-foreground: var(--ds-blue-800);
+  --primary-subtle-border: var(--ds-blue-200);
+
+  --secondary: var(--ds-gray-100);
+  --secondary-foreground: var(--ds-gray-800);
+  --secondary-hover: var(--ds-gray-200);
+  --secondary-active: var(--ds-gray-300);
+
+  --destructive: var(--ds-red-600);
+  --destructive-foreground: var(--ds-white);
+  --destructive-hover: var(--ds-red-700);
+  --destructive-active: var(--ds-red-800);
+  --destructive-emphasis: var(--ds-red-700);
+  --destructive-subtle: var(--ds-red-50);
+  --destructive-subtle-foreground: var(--ds-red-800);
+  --destructive-subtle-border: var(--ds-red-200);
+
+  --success: var(--ds-green-700);
+  --success-foreground: var(--ds-white);
+  --success-hover: var(--ds-green-800);
+  --success-emphasis: var(--ds-green-700);
+  --success-subtle: var(--ds-green-50);
+  --success-subtle-foreground: var(--ds-green-800);
+  --success-subtle-border: var(--ds-green-200);
+
+  --warning: var(--ds-amber-700);
+  --warning-foreground: var(--ds-white);
+  --warning-hover: var(--ds-amber-800);
+  --warning-emphasis: var(--ds-amber-700);
+  --warning-subtle: var(--ds-amber-50);
+  --warning-subtle-foreground: var(--ds-amber-800);
+  --warning-subtle-border: var(--ds-amber-200);
+
+  --info: var(--ds-sky-700);
+  --info-foreground: var(--ds-white);
+  --info-hover: var(--ds-sky-800);
+  --info-emphasis: var(--ds-sky-700);
+  --info-subtle: var(--ds-sky-50);
+  --info-subtle-foreground: var(--ds-sky-800);
+  --info-subtle-border: var(--ds-sky-200);
+
+  /* --border is DECORATIVE ONLY (dividers, card edges).
+     --input is the CONTROL BOUNDARY and is the only one that meets 3:1. */
+  --border: var(--ds-gray-200);
+  --border-strong: var(--ds-gray-300);
+  --input: var(--ds-gray-450);
+  --input-background: var(--ds-white);
+  --input-placeholder: var(--ds-gray-500);
+
+  --ring: var(--ds-blue-600);
+  --ring-offset: var(--background);
+
+  --overlay: rgb(2 6 23 / 0.55);
+  --skeleton: var(--ds-gray-200);
+  --hover-overlay: rgb(15 23 42 / 0.04);
+  --active-overlay: rgb(15 23 42 / 0.08);
+
+  --selected-background: var(--ds-blue-50);
+  --selected-foreground: var(--ds-blue-800);
+  --selected-border: var(--ds-blue-600);
+
+  --link: var(--ds-blue-700);
+  --link-hover: var(--ds-blue-800);
+  --link-visited: var(--ds-violet-700);
+
+  --disabled-background: var(--ds-gray-100);
+  --disabled-foreground: var(--ds-gray-500);
+  --disabled-border: var(--ds-gray-200);
+
+  --shadow-none: none;
+  --shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.05), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --shadow-md: 0 2px 4px -1px rgb(15 23 42 / 0.06), 0 4px 12px -2px rgb(15 23 42 / 0.08);
+  --shadow-lg: 0 8px 24px -4px rgb(15 23 42 / 0.10), 0 2px 6px -2px rgb(15 23 42 / 0.06);
+
+  /* Charts — chart-1..5 are the shadcn names; 6..8 extend.
+     Order is solved, not aesthetic: it maximises luminance separation between
+     adjacent series in BOTH modes (min 1.14:1), and 1–4 are a CVD-safe
+     quartet. Assign series in order; never reshuffle per chart. */
+  --chart-1: var(--ds-blue-600);   --chart-2: var(--ds-amber-600);
+  --chart-3: var(--ds-rose-600);   --chart-4: var(--ds-teal-600);
+  --chart-5: var(--ds-violet-600); --chart-6: var(--ds-lime-700);
+  --chart-7: var(--ds-orange-600); --chart-8: var(--ds-cyan-700);
+  --chart-grid: var(--ds-gray-200);
+  --chart-axis: var(--ds-gray-600);
+
+  /* Sidebar — shadcn sidebar token names, mapped to DevCon8 surfaces. */
+  --sidebar: var(--ds-white);
+  --sidebar-foreground: var(--ds-gray-900);
+  --sidebar-primary: var(--ds-blue-600);
+  --sidebar-primary-foreground: var(--ds-white);
+  --sidebar-accent: var(--ds-gray-100);
+  --sidebar-accent-foreground: var(--ds-gray-900);
+  --sidebar-border: var(--ds-gray-200);
+  --sidebar-ring: var(--ds-blue-600);
+
+  /* Workflow status — deliberately separate from semantic feedback colours. */
+  --status-neutral-bg: var(--ds-gray-100);   --status-neutral-border: var(--ds-gray-300);   --status-neutral-fg: var(--ds-gray-700);   --status-neutral-solid: var(--ds-gray-700);   --status-neutral-solid-fg: var(--ds-white); --status-neutral-dot: var(--ds-gray-500);
+  --status-info-bg: var(--ds-sky-50);        --status-info-border: var(--ds-sky-200);       --status-info-fg: var(--ds-sky-800);       --status-info-solid: var(--ds-sky-700);       --status-info-solid-fg: var(--ds-white);    --status-info-dot: var(--ds-sky-600);
+  --status-pending-bg: var(--ds-amber-50);   --status-pending-border: var(--ds-amber-200);  --status-pending-fg: var(--ds-amber-800);  --status-pending-solid: var(--ds-amber-700);  --status-pending-solid-fg: var(--ds-white); --status-pending-dot: var(--ds-amber-600);
+  --status-review-bg: var(--ds-violet-50);   --status-review-border: var(--ds-violet-200);  --status-review-fg: var(--ds-violet-700);  --status-review-solid: var(--ds-violet-700);  --status-review-solid-fg: var(--ds-white);  --status-review-dot: var(--ds-violet-600);
+  --status-progress-bg: var(--ds-teal-50);   --status-progress-border: var(--ds-teal-200);  --status-progress-fg: var(--ds-teal-700);  --status-progress-solid: var(--ds-teal-700);  --status-progress-solid-fg: var(--ds-white);--status-progress-dot: var(--ds-teal-600);
+  --status-success-bg: var(--ds-green-50);   --status-success-border: var(--ds-green-200);  --status-success-fg: var(--ds-green-800);  --status-success-solid: var(--ds-green-700);  --status-success-solid-fg: var(--ds-white); --status-success-dot: var(--ds-green-600);
+  --status-danger-bg: var(--ds-red-50);      --status-danger-border: var(--ds-red-200);     --status-danger-fg: var(--ds-red-800);     --status-danger-solid: var(--ds-red-700);     --status-danger-solid-fg: var(--ds-white);  --status-danger-dot: var(--ds-red-600);
+  --status-hold-bg: var(--ds-orange-50);     --status-hold-border: var(--ds-orange-200);    --status-hold-fg: var(--ds-orange-700);    --status-hold-solid: var(--ds-orange-700);    --status-hold-solid-fg: var(--ds-white);    --status-hold-dot: var(--ds-orange-600);
+}
+
+/* ==========================================================================
+   4. SEMANTIC TOKENS — DARK. Inversion only; no new colour decisions.
+   In dark mode, filled actions become LIGHT surfaces with near-black text
+   (the shadcn dark idiom). This is the only combination that keeps every
+   action colour above 4.5:1 while still brightening on hover.
+   ========================================================================== */
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: var(--ds-gray-950);
+  --foreground: var(--ds-gray-50);
+  --card: var(--ds-gray-900);
+  --card-foreground: var(--ds-gray-50);
+  --popover: var(--ds-gray-800);
+  --popover-foreground: var(--ds-gray-50);
+  --surface-sunken: var(--ds-gray-950);
+
+  --muted: var(--ds-gray-800);
+  --muted-foreground: var(--ds-gray-400);
+  --subtle-foreground: var(--ds-gray-400);
+  --accent: var(--ds-gray-800);
+  --accent-foreground: var(--ds-gray-50);
+
+  --primary: var(--ds-blue-400);
+  --primary-foreground: var(--ds-gray-950);
+  --primary-hover: var(--ds-blue-300);
+  --primary-active: var(--ds-blue-200);
+  --primary-emphasis: var(--ds-blue-400);
+  --primary-subtle: var(--ds-blue-950);
+  --primary-subtle-foreground: var(--ds-blue-300);
+  --primary-subtle-border: var(--ds-blue-800);
+
+  --secondary: var(--ds-gray-800);
+  --secondary-foreground: var(--ds-gray-50);
+  --secondary-hover: var(--ds-gray-700);
+  --secondary-active: var(--ds-gray-600);
+
+  --destructive: var(--ds-red-400);
+  --destructive-foreground: var(--ds-gray-950);
+  --destructive-hover: var(--ds-red-300);
+  --destructive-active: var(--ds-red-200);
+  --destructive-emphasis: var(--ds-red-400);
+  --destructive-subtle: var(--ds-red-950);
+  --destructive-subtle-foreground: var(--ds-red-300);
+  --destructive-subtle-border: var(--ds-red-900);
+
+  --success: var(--ds-green-400);
+  --success-foreground: var(--ds-gray-950);
+  --success-hover: var(--ds-green-300);
+  --success-emphasis: var(--ds-green-400);
+  --success-subtle: var(--ds-green-950);
+  --success-subtle-foreground: var(--ds-green-300);
+  --success-subtle-border: var(--ds-green-900);
+
+  --warning: var(--ds-amber-400);
+  --warning-foreground: var(--ds-gray-950);
+  --warning-hover: var(--ds-amber-300);
+  --warning-emphasis: var(--ds-amber-400);
+  --warning-subtle: var(--ds-amber-950);
+  --warning-subtle-foreground: var(--ds-amber-300);
+  --warning-subtle-border: var(--ds-amber-900);
+
+  --info: var(--ds-sky-400);
+  --info-foreground: var(--ds-gray-950);
+  --info-hover: var(--ds-sky-300);
+  --info-emphasis: var(--ds-sky-400);
+  --info-subtle: var(--ds-sky-950);
+  --info-subtle-foreground: var(--ds-sky-300);
+  --info-subtle-border: var(--ds-sky-900);
+
+  --border: var(--ds-gray-700);
+  --border-strong: var(--ds-gray-600);
+  --input: var(--ds-gray-500);
+  --input-background: var(--ds-gray-900);
+  --input-placeholder: var(--ds-gray-400);
+
+  --ring: var(--ds-blue-400);
+  --ring-offset: var(--background);
+
+  --overlay: rgb(2 6 23 / 0.72);
+  --skeleton: var(--ds-gray-800);
+  --hover-overlay: rgb(248 250 252 / 0.06);
+  --active-overlay: rgb(248 250 252 / 0.10);
+
+  --selected-background: var(--ds-blue-950);
+  --selected-foreground: var(--ds-blue-300);
+  --selected-border: var(--ds-blue-400);
+
+  --link: var(--ds-blue-400);
+  --link-hover: var(--ds-blue-300);
+  --link-visited: var(--ds-violet-300);
+
+  --disabled-background: var(--ds-gray-800);
+  --disabled-foreground: var(--ds-gray-400);
+  --disabled-border: var(--ds-gray-700);
+
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.40);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.50);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.55);
+  --shadow-lg: 0 8px 24px -4px rgb(0 0 0 / 0.65);
+
+  --chart-1: var(--ds-blue-400);   --chart-2: var(--ds-amber-400);
+  --chart-3: var(--ds-rose-400);   --chart-4: var(--ds-teal-400);
+  --chart-5: var(--ds-violet-400); --chart-6: var(--ds-lime-400);
+  --chart-7: var(--ds-orange-400); --chart-8: var(--ds-cyan-400);
+  --chart-grid: var(--ds-gray-800);
+  --chart-axis: var(--ds-gray-400);
+
+  --sidebar: var(--ds-gray-900);
+  --sidebar-foreground: var(--ds-gray-50);
+  --sidebar-primary: var(--ds-blue-400);
+  --sidebar-primary-foreground: var(--ds-gray-950);
+  --sidebar-accent: var(--ds-gray-800);
+  --sidebar-accent-foreground: var(--ds-gray-50);
+  --sidebar-border: var(--ds-gray-700);
+  --sidebar-ring: var(--ds-blue-400);
+
+  --status-neutral-bg: var(--ds-gray-800);   --status-neutral-border: var(--ds-gray-600);   --status-neutral-fg: var(--ds-gray-300);   --status-neutral-solid: var(--ds-gray-300);   --status-neutral-solid-fg: var(--ds-gray-950); --status-neutral-dot: var(--ds-gray-400);
+  --status-info-bg: var(--ds-sky-950);       --status-info-border: var(--ds-sky-900);       --status-info-fg: var(--ds-sky-300);       --status-info-solid: var(--ds-sky-400);       --status-info-solid-fg: var(--ds-gray-950);    --status-info-dot: var(--ds-sky-400);
+  --status-pending-bg: var(--ds-amber-950);  --status-pending-border: var(--ds-amber-900);  --status-pending-fg: var(--ds-amber-300);  --status-pending-solid: var(--ds-amber-400);  --status-pending-solid-fg: var(--ds-gray-950); --status-pending-dot: var(--ds-amber-400);
+  --status-review-bg: var(--ds-violet-950);  --status-review-border: var(--ds-violet-900);  --status-review-fg: var(--ds-violet-300);  --status-review-solid: var(--ds-violet-400);  --status-review-solid-fg: var(--ds-gray-950);  --status-review-dot: var(--ds-violet-400);
+  --status-progress-bg: var(--ds-teal-950);  --status-progress-border: var(--ds-teal-900);  --status-progress-fg: var(--ds-teal-300);  --status-progress-solid: var(--ds-teal-400);  --status-progress-solid-fg: var(--ds-gray-950);--status-progress-dot: var(--ds-teal-400);
+  --status-success-bg: var(--ds-green-950);  --status-success-border: var(--ds-green-900);  --status-success-fg: var(--ds-green-300);  --status-success-solid: var(--ds-green-400);  --status-success-solid-fg: var(--ds-gray-950); --status-success-dot: var(--ds-green-400);
+  --status-danger-bg: var(--ds-red-950);     --status-danger-border: var(--ds-red-900);     --status-danger-fg: var(--ds-red-300);     --status-danger-solid: var(--ds-red-400);     --status-danger-solid-fg: var(--ds-gray-950);  --status-danger-dot: var(--ds-red-400);
+  --status-hold-bg: var(--ds-orange-950);    --status-hold-border: var(--ds-orange-900);    --status-hold-fg: var(--ds-orange-300);    --status-hold-solid: var(--ds-orange-400);    --status-hold-solid-fg: var(--ds-gray-950);    --status-hold-dot: var(--ds-orange-400);
+}
+
+/* ==========================================================================
+   5. DENSITY — comfortable (default) and compact.
+   Apply with data-density on <html> or on any subtree (e.g. one dense table).
+   ========================================================================== */
+:root,
+[data-density="comfortable"] {
+  --control-height-sm: 32px;
+  --control-height-md: 40px;
+  --control-height-lg: 44px;
+  --control-padding-x-sm: 12px;
+  --control-padding-x-md: 16px;
+  --control-padding-x-lg: 20px;
+  --control-gap: 8px;
+
+  --input-height: 40px;
+  --input-height-lg: 44px;
+  --input-padding-x: 12px;
+
+  --table-header-height: 44px;
+  --table-row-height: 52px;
+  --table-cell-padding-x: 16px;
+  --table-cell-padding-y: 12px;
+
+  --card-padding: 24px;
+  --card-gap: 24px;
+  --section-gap: 40px;
+  --stack-gap: 16px;
+
+  --form-field-gap: 20px;
+  --form-label-gap: 8px;
+
+  --header-height: 56px;
+  --sidebar-item-height: 36px;
+  --sidebar-item-gap: 2px;
+  --menu-item-height: 36px;
+}
+
+[data-density="compact"] {
+  --control-height-sm: 28px;
+  --control-height-md: 36px;
+  --control-height-lg: 40px;
+  --control-padding-x-sm: 10px;
+  --control-padding-x-md: 12px;
+  --control-padding-x-lg: 16px;
+  --control-gap: 6px;
+
+  --input-height: 36px;
+  --input-height-lg: 40px;
+  --input-padding-x: 10px;
+
+  --table-header-height: 36px;
+  --table-row-height: 36px;
+  --table-cell-padding-x: 12px;
+  --table-cell-padding-y: 6px;
+
+  --card-padding: 16px;
+  --card-gap: 16px;
+  --section-gap: 24px;
+  --stack-gap: 12px;
+
+  --form-field-gap: 16px;
+  --form-label-gap: 6px;
+
+  --header-height: 48px;
+  --sidebar-item-height: 32px;
+  --sidebar-item-gap: 2px;
+  --menu-item-height: 32px;
+
+  --target-gap: 6px;
+}
+
+/* Touch floor: compact never applies to coarse pointers (SC 2.5.8). */
+@media (pointer: coarse) {
+  :root,
+  [data-density="compact"] {
+    --control-height-sm: 40px;
+    --control-height-md: 44px;
+    --control-height-lg: 48px;
+    --input-height: 44px;
+    --table-row-height: 52px;
+    --menu-item-height: 44px;
+    --sidebar-item-height: 44px;
+    --target-gap: 8px;
+  }
+}
+
+/* ==========================================================================
+   6. COMPONENT TOKENS — layer 3. Built only from semantic tokens.
+   ========================================================================== */
+:root {
+  /* Button — there is deliberately NO success/green variant. */
+  --btn-radius: var(--radius-md);
+  --btn-font-size: var(--text-button);
+  --btn-font-weight: var(--font-weight-semibold);
+  --btn-icon-sm: 14px; --btn-icon-md: 16px; --btn-icon-lg: 18px;
+  --btn-icon-gap-sm: 6px; --btn-icon-gap-md: 8px; --btn-icon-gap-lg: 8px;
+
+  --btn-primary-bg: var(--primary);
+  --btn-primary-fg: var(--primary-foreground);
+  --btn-primary-border: transparent;
+  --btn-primary-hover-bg: var(--primary-hover);
+  --btn-primary-active-bg: var(--primary-active);
+
+  --btn-secondary-bg: var(--secondary);
+  --btn-secondary-fg: var(--secondary-foreground);
+  --btn-secondary-border: var(--border);
+  --btn-secondary-hover-bg: var(--secondary-hover);
+  --btn-secondary-active-bg: var(--secondary-active);
+
+  --btn-outline-bg: transparent;
+  --btn-outline-fg: var(--foreground);
+  --btn-outline-border: var(--input);
+  --btn-outline-hover-bg: var(--accent);
+  --btn-outline-active-bg: var(--secondary-active);
+
+  --btn-ghost-bg: transparent;
+  --btn-ghost-fg: var(--foreground);
+  --btn-ghost-hover-bg: var(--accent);
+  --btn-ghost-active-bg: var(--secondary-active);
+
+  --btn-destructive-bg: var(--destructive);
+  --btn-destructive-fg: var(--destructive-foreground);
+  --btn-destructive-hover-bg: var(--destructive-hover);
+  --btn-destructive-active-bg: var(--destructive-active);
+
+  --btn-disabled-bg: var(--disabled-background);
+  --btn-disabled-fg: var(--disabled-foreground);
+  --btn-disabled-border: var(--disabled-border);
+
+  /* Input family */
+  --input-radius: var(--radius-md);
+  --input-fg: var(--foreground);
+  --input-border-hover: var(--border-strong);
+  --input-border-focus: var(--ring);
+  --input-border-error: var(--destructive);
+  --input-border-success: var(--success);
+  --input-error-fg: var(--destructive-emphasis);
+  --input-readonly-bg: var(--muted);
+  --control-box-size: 16px;
+
+  /* Card */
+  --card-radius: var(--radius-lg);
+  --card-border: var(--border);
+  --card-shadow: var(--shadow-none);
+  --card-hover-border: var(--border-strong);
+  --card-selected-border: var(--selected-border);
+  --card-selected-bg: var(--selected-background);
+
+  /* Table */
+  --table-radius: var(--radius-lg);
+  --table-header-bg: var(--muted);
+  --table-header-fg: var(--muted-foreground);
+  --table-border: var(--border);
+  --table-row-hover-bg: var(--accent);
+  --table-row-selected-bg: var(--selected-background);
+  --table-row-selected-border: var(--selected-border);
+  --table-sticky-shadow: var(--shadow-xs);
+
+  /* Sidebar item */
+  --sidebar-item-radius: var(--radius-md);
+  --sidebar-item-fg: var(--muted-foreground);
+  --sidebar-item-hover-bg: var(--sidebar-accent);
+  --sidebar-item-hover-fg: var(--foreground);
+  --sidebar-item-active-bg: var(--selected-background);
+  --sidebar-item-active-fg: var(--selected-foreground);
+  --sidebar-item-active-indicator: var(--primary);
+
+  /* Tabs */
+  --tab-fg: var(--muted-foreground);
+  --tab-hover-fg: var(--foreground);
+  --tab-active-fg: var(--foreground);
+  --tab-active-indicator: var(--primary);
+  --tab-indicator-width: 2px;
+
+  /* Overlays */
+  --menu-bg: var(--popover);
+  --menu-fg: var(--popover-foreground);
+  --menu-border: var(--border);
+  --menu-radius: var(--radius-md);
+  --menu-shadow: var(--shadow-md);
+  --menu-item-hover-bg: var(--accent);
+  --menu-item-selected-bg: var(--selected-background);
+  --menu-item-selected-fg: var(--selected-foreground);
+  --menu-item-destructive-fg: var(--destructive-emphasis);
+
+  --modal-radius: var(--radius-xl);
+  --modal-shadow: var(--shadow-lg);
+  --modal-padding: 24px;
+  --modal-backdrop: var(--overlay);
+
+  --drawer-radius: var(--radius-xl);
+  --drawer-shadow: var(--shadow-lg);
+
+  --command-radius: var(--radius-xl);
+  --command-shadow: var(--shadow-lg);
+  --command-width: 640px;
+  --command-input-height: 52px;
+  --command-item-height: 40px;
+
+  --toast-radius: var(--radius-lg);
+  --toast-shadow: var(--shadow-lg);
+  --toast-width: 380px;
+  --toast-duration: 6000ms;
+
+  --tooltip-bg: var(--foreground);
+  --tooltip-fg: var(--background);
+  --tooltip-radius: var(--radius-sm);
+  --tooltip-shadow: var(--shadow-md);
+  --tooltip-delay: 300ms;
+
+  /* Badge — never pill shaped, never colour only. */
+  --badge-radius: var(--radius-sm);
+  --badge-height: 20px;
+  --badge-padding-x: 8px;
+  --badge-font-size: var(--text-caption);
+  --badge-dot-size: 6px;
+
+  /* Misc */
+  --skeleton-radius: var(--radius-sm);
+  --progress-height: 6px;
+  --progress-track: var(--muted);
+  --progress-fill: var(--primary);
+  --avatar-xs: 20px; --avatar-sm: 24px; --avatar-md: 32px;
+  --avatar-lg: 40px; --avatar-xl: 56px;
+  --empty-state-max: 420px;
+}
+
+/* ==========================================================================
+   7. PRODUCT THEMES — layer 4.
+   A product may re-tint the accent and NOTHING else. Copy this block, change
+   only these declarations, and verify contrast before shipping. Any other
+   override is a violation of the design system.
+   ========================================================================== */
+/*
+[data-product="example"] {
+  --primary: #<accent-600>;
+  --primary-foreground: #FFFFFF;
+  --primary-hover: #<accent-700>;
+  --primary-active: #<accent-800>;
+  --primary-emphasis: #<accent-700>;
+  --primary-subtle: #<accent-50>;
+  --primary-subtle-foreground: #<accent-800>;
+  --primary-subtle-border: #<accent-200>;
+  --ring: #<accent-600>;
+  --selected-background: #<accent-50>;
+  --selected-foreground: #<accent-800>;
+  --selected-border: #<accent-600>;
+  --link: #<accent-700>;
+  --link-hover: #<accent-800>;
+  --chart-1: #<accent-600>;
+  --sidebar-primary: #<accent-600>;
+  --sidebar-ring: #<accent-600>;
+}
+.dark[data-product="example"], [data-product="example"] .dark {
+  --primary: #<accent-400>;
+  --primary-foreground: #020617;
+  ...
+}
+*/
+
+/* ==========================================================================
+   8. BASE BEHAVIOUR — the minimum the system guarantees everywhere.
+   ========================================================================== */
+html {
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  font-weight: var(--font-weight-regular);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus is never removed. Total indicator = 2px offset + 2px ring. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: var(--focus-ring-width) solid var(--ring);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: inherit;
+}
+
+/* Numeric data always aligns. */
+.tabular,
+:where(td, th)[data-numeric="true"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  line-height: var(--leading-mono);
+}
+
+/* Heights are minimums so SC 1.4.12 text-spacing overrides cannot clip. */
+:where(.ds-control) {
+  min-height: var(--control-height-md);
+  height: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  :root {
+    --duration-fast: 1ms;  --duration-base: 1ms;
+    --duration-moderate: 1ms; --duration-slow: 1ms;
+    --duration-deliberate: 1ms;
+  }
+}
+
+@media (forced-colors: active) {
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: var(--focus-ring-width) solid Highlight;
+    outline-offset: var(--focus-ring-offset);
+  }
+  /* Borders must survive High Contrast: never rely on background alone. */
+  :where(.ds-card, .ds-input, .ds-button) {
+    border: 1px solid ButtonBorder;
+  }
+}
+
+/* ==========================================================================
+   9. TAILWIND v4 BRIDGE (reference)
+   Map these tokens into Tailwind's theme so utilities and shadcn/ui resolve
+   to DevCon8 values. Place in your app stylesheet, after importing this file.
+   --------------------------------------------------------------------------
+   @import "../design-system/tokens.css";
+   @theme inline {
+     --color-background: var(--background);
+     --color-foreground: var(--foreground);
+     --color-card: var(--card);
+     --color-card-foreground: var(--card-foreground);
+     --color-popover: var(--popover);
+     --color-popover-foreground: var(--popover-foreground);
+     --color-primary: var(--primary);
+     --color-primary-foreground: var(--primary-foreground);
+     --color-secondary: var(--secondary);
+     --color-secondary-foreground: var(--secondary-foreground);
+     --color-muted: var(--muted);
+     --color-muted-foreground: var(--muted-foreground);
+     --color-accent: var(--accent);
+     --color-accent-foreground: var(--accent-foreground);
+     --color-destructive: var(--destructive);
+     --color-destructive-foreground: var(--destructive-foreground);
+     --color-success: var(--success);
+     --color-warning: var(--warning);
+     --color-info: var(--info);
+     --color-border: var(--border);
+     --color-input: var(--input);
+     --color-ring: var(--ring);
+     --color-chart-1: var(--chart-1);
+     ... chart-2..8, sidebar-*, status-* as needed
+     --font-sans: var(--font-sans);
+     --font-mono: var(--font-mono);
+     --radius-sm: var(--radius-sm);
+     --radius-md: var(--radius-md);
+     --radius-lg: var(--radius-lg);
+     --radius-xl: var(--radius-xl);
+     --breakpoint-xs: 390px;
+   }
+   Tailwind v3: mirror the same names in theme.extend.colors using
+   `var(--token)` directly; do not convert to HSL triplets.
+   ========================================================================== */
