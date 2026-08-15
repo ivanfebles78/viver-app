@@ -167,6 +167,31 @@ describe("nombres accesibles", () => {
     expect(emoji.test(screen.getByRole("banner").textContent)).toBe(false);
   });
 
+  it("todo control de formulario del shell tiene nombre accesible", async () => {
+    /*
+     * El selector de ayuntamiento no lo tenía: era un <div> con pinta de
+     * etiqueta junto a un <select> huérfano. Un lector de pantalla anunciaba
+     * "cuadro combinado" sin decir de qué — y ese control cambia el TENANT
+     * activo del super-admin.
+     */
+    renderShell({ rol: "superadmin", username: "ana", es_superadmin: true });
+    await screen.findByRole("main");
+
+    // Control anti-vacío: si el selector de ayuntamiento no llegara a
+    // renderizarse, el bucle de abajo no examinaría nada y la prueba pasaría
+    // sin comprobar nada.
+    const selector = await screen.findByLabelText(/ayuntamiento/i);
+    expect(selector.tagName).toBe("SELECT");
+
+    const sinNombre = [];
+    for (const el of document.querySelectorAll("select, input, textarea")) {
+      const porLabel = el.labels && el.labels.length > 0;
+      const porAria = el.getAttribute("aria-label") || el.getAttribute("aria-labelledby");
+      if (!porLabel && !porAria) sinNombre.push(el.outerHTML.slice(0, 80));
+    }
+    expect(sinNombre).toEqual([]);
+  });
+
   it("el enlace de salto es el primer control enfocable del documento", async () => {
     renderShell();
     await screen.findByRole("main");
