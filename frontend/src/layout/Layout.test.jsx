@@ -133,6 +133,58 @@ describe("el shell filtra la navegación por rol", () => {
   });
 });
 
+/* ── Avisos del menú ────────────────────────────────────────────────────── */
+
+describe("avisos del menú", () => {
+  const pedidosPendientes = [
+    { id: 1, estado: "RESERVA", tipo: "salida", solicitante_username: "otro", items: [{ cantidad: 4, cantidad_servida: 0 }] },
+    { id: 2, estado: "RESERVA", tipo: "salida", solicitante_username: "otro", items: [{ cantidad: 2, cantidad_servida: 0 }] },
+  ];
+
+  it("muestra el recuento junto al enlace correspondiente", async () => {
+    mockGetMe.mockResolvedValue({ rol: "manager", username: "ana" });
+    mockGetProductos.mockResolvedValue([]);
+    mockGetPedidos.mockResolvedValue(pedidosPendientes);
+
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/dashboard" element={<div>CONTENIDO</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const nav = (await screen.findAllByRole("navigation", { name: "Navegación principal" }))[0];
+    const aprobaciones = await waitFor(() =>
+      within(nav)
+        .getAllByRole("link")
+        .find((a) => a.textContent.includes("Aprobaciones"))
+    );
+    await waitFor(() => expect(aprobaciones.textContent).toContain("2"));
+  });
+
+  it("el recuento se acompaña de texto, no solo de color", async () => {
+    // SC 1.4.1: una pastilla roja con un número no dice de QUÉ hay 2.
+    mockGetMe.mockResolvedValue({ rol: "manager", username: "ana" });
+    mockGetProductos.mockResolvedValue([]);
+    mockGetPedidos.mockResolvedValue(pedidosPendientes);
+
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/dashboard" element={<div>CONTENIDO</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getAllByText("2 pendientes").length).toBeGreaterThan(0));
+  });
+});
+
 /* ── Super-admin de plataforma ──────────────────────────────────────────── */
 
 describe("super-admin global", () => {

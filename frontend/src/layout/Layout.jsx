@@ -205,11 +205,22 @@ export default function Layout() {
           item.badgeCount > 0
             ? {
                 ...item,
-                // El aviso lleva número Y etiqueta accesible: el color solo no
-                // comunica nada a quien no lo distingue (SC 1.4.1).
+                /*
+                 * El aviso lleva número Y texto: el color por sí solo no
+                 * comunica nada a quien no lo distingue (SC 1.4.1).
+                 *
+                 * El texto va en un <span class="sr-only"> y NO en un
+                 * aria-label sobre el <span> del Badge: ARIA no permite
+                 * nombrar elementos genéricos (role=generic), así que ese
+                 * aria-label lo ignoran bastantes lectores de pantalla y el
+                 * usuario solo oiría "3" suelto, sin saber 3 de qué.
+                 */
                 badge: (
-                  <Badge tone="danger" aria-label={pendingLabel(item.badgeCount)}>
-                    {item.badgeCount > 99 ? "99+" : item.badgeCount}
+                  <Badge tone="danger">
+                    <span aria-hidden="true">
+                      {item.badgeCount > 99 ? "99+" : item.badgeCount}
+                    </span>
+                    <span className="sr-only">{pendingLabel(item.badgeCount)}</span>
                   </Badge>
                 ),
               }

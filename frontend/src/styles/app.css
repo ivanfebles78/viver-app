@@ -1,0 +1,45 @@
+/*
+ * CAPA DE APLICACIÓN — correcciones propias de ViverApp.
+ *
+ * `tokens.css` y `theme.css` son código VENDORIZADO y no se editan aquí. Lo
+ * que va en este fichero son ajustes que pertenecen a ViverApp, incluidos los
+ * rodeos ante defectos de aguas arriba, para que el paquete vendorizado siga
+ * siendo byte a byte idéntico y resincronizable con un diff.
+ */
+
+/* ==========================================================================
+   RODEO — el diálogo modal no queda centrado (defecto de aguas arriba)
+
+   Reportar a devcon8-platform: packages/ui/src/styles/theme.css
+
+   `DialogContent` se centra con `left-1/2 top-1/2 -translate-x-1/2
+   -translate-y-1/2` y entra con la animación `devcon8-enter`.
+
+   En Tailwind v4 las utilidades `translate-*` se compilan a la propiedad
+   **`translate`**, no a `transform`. La animación `devcon8-enter` anima
+   TAMBIÉN `translate`, y al declararse con `both` como fill-mode su valor
+   gana sobre la declaración: el panel se queda en `translate: 0 0` y aparece
+   desplazado media pantalla a la derecha y hacia abajo.
+
+   Medido: con la animación, el centro del diálogo cae a 480px del centro del
+   viewport en una ventana de 1920px; al desactivarla, a 0px.
+
+   El comentario de theme.css dice que se usó `translate` "precisamente para
+   que componga con una utilidad de centrado basada en transform en lugar de
+   sobrescribirla". Esa premisa dejó de ser cierta en Tailwind v4, que ya no
+   usa `transform` para estas utilidades.
+
+   La corrección no desactiva la animación: fija los puntos de entrada al
+   mismo -50% que el centrado, de modo que `translate` vale lo mismo durante
+   y después. Solo anima la opacidad, que es lo que `fade-in-0` pretendía.
+
+   El selector apunta a la combinación de centrado (`left-1/2` + `top-1/2`),
+   así que no alcanza a los cajones (`Sheet`), que se anclan con `inset-y-0` y
+   sí deben deslizarse.
+   ========================================================================== */
+.left-1\/2.top-1\/2[data-state] {
+  --devcon8-enter-x: -50%;
+  --devcon8-enter-y: -50%;
+  --devcon8-exit-x: -50%;
+  --devcon8-exit-y: -50%;
+}

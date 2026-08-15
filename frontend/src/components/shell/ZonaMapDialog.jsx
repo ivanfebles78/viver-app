@@ -229,7 +229,12 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
           title="Editar zonas del vivero"
           description="Arrastra los vértices para ajustar cada zona sobre el plano."
           closeLabel="Cerrar"
-          size="xl"
+          size="lg"
+          /* El sistema define --modal-width-xl (960px) pero DialogContent solo
+             expone sm/md/lg. Se toma el token sancionado en lugar de inventar
+             un ancho: un plano con su panel de inventario al lado no cabe en
+             los 760px de `lg`. */
+          className="max-w-[var(--modal-width-xl)]"
         >
           <div className="max-h-[75dvh] overflow-auto p-4">
             <ZoneEditor
@@ -250,7 +255,8 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
         title="Mapa del vivero"
         description="Selecciona una zona del plano para consultar sus productos, cantidades y tamaños."
         closeLabel="Cerrar"
-        size="xl"
+        size="lg"
+        className="max-w-[var(--modal-width-xl)]"
       >
         {/* Una sola columna por debajo de lg: en un portátil pequeño o una
             tablet, dos columnas dejaban el panel de inventario en 200px. */}
