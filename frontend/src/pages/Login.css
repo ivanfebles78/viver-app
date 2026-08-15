@@ -1,7 +1,14 @@
-body {
-  margin: 0;
-  font-family: system-ui;
-}
+/*
+ * AVISO: este fichero desaparece en la migración de la pantalla de Login a los
+ * componentes DevCon8 (fase posterior). Mientras tanto, sus selectores se han
+ * acotado a `.layout` / `.loginCard`.
+ *
+ * El motivo: Vite inyecta este CSS de forma GLOBAL, y `Login.jsx` se importa
+ * estáticamente desde `App.jsx`, así que estaba presente en todas las rutas.
+ * Sus selectores de elemento desnudos (`body`, `input`, `label`) alcanzaban a
+ * los 105 campos de la aplicación entera — y `input:focus { outline: none }`
+ * eliminaba el indicador de foco en TODAS las pantallas, no solo aquí.
+ */
 
 .layout {
   display: grid;
@@ -49,13 +56,13 @@ body {
   margin-bottom: 16px;
 }
 
-label {
+.loginCard label {
   font-size: 13px;
   font-weight: 700;
   color: #475569;
 }
 
-input {
+.loginCard input {
   width: 92%;
   padding: 10px;
   border-radius: 10px;
@@ -63,10 +70,17 @@ input {
   margin-top: 6px;
 }
 
-input:focus {
-  outline: none;
-  border-color: #10b981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+/*
+ * El foco NO se suprime. `outline: none` solo es admisible cuando la misma
+ * regla dibuja un indicador equivalente; antes esto quitaba el contorno y lo
+ * sustituía por un resplandor verde que además no sobrevivía a
+ * `forced-colors`. Ahora se usa `:focus-visible` con el anillo de 2px + 2px de
+ * separación del sistema de diseño.
+ */
+.loginCard input:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-color: #2563eb;
 }
 
 .loginBtn {

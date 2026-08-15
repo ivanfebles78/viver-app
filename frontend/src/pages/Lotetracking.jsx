@@ -1,20 +1,39 @@
 import { useState } from "react";
-import axios from "axios";
+import { getLote } from "../api/api";
 import { formatFechaHoraCanaria } from "../utils/fecha";
 
 export default function Lotetracking() {
   const [uuid, setUuid] = useState("");
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [buscando, setBuscando] = useState(false);
 
   const buscar = async () => {
-    try {
-      setError("");
-      const res = await axios.get(`/lotes/${uuid}`);
-      setData(res.data);
-    } catch (e) {
-      setError("No se encontró el lote");
+    const termino = uuid.trim();
+    if (!termino) {
+      setError("Introduce el UUID del lote que quieres consultar.");
       setData(null);
+      return;
+    }
+    // Antes esta pantalla llamaba a `axios.get()` sobre el axios crudo en lugar
+    // del cliente configurado. Eso significaba: sin baseURL, sin cabecera
+    // Authorization y sin X-Cliente-Id — es decir, sin sesión y sin contexto de
+    // ayuntamiento — además de saltarse el manejo de 401. `getLote` pasa por el
+    // interceptor y recupera las tres cosas.
+    try {
+      setBuscando(true);
+      setError("");
+      setData(await getLote(termino));
+    } catch (e) {
+      const status = e?.response?.status;
+      setError(
+        status === 404
+          ? "No se encontró ningún lote con ese UUID. Revisa que esté copiado completo."
+          : e?.response?.data?.detail || "No se pudo consultar el lote. Inténtalo de nuevo."
+      );
+      setData(null);
+    } finally {
+      setBuscando(false);
     }
   };
 
@@ -35,10 +54,16 @@ export default function Lotetracking() {
             border: "1px solid #ccc",
           }}
         />
-        <button onClick={buscar}>Buscar</button>
+        <button onClick={buscar} disabled={buscando}>
+          {buscando ? "Buscando…" : "Buscar"}
+        </button>
       </div>
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      {error && (
+        <p role="alert" style={{ color: "red" }}>
+          {error}
+        </p>
+      )}
 
       {/* RESULTADO */}
       {data && (
