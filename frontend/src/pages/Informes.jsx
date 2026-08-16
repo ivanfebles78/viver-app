@@ -1,9 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import logoViverApp from "../assets/logo.png";
-import { formatFechaCanaria, formatFechaHoraCanaria } from "../utils/fecha";
+import {
+  Button,
+  Card,
+  DataTable,
+  EmptyState as EmptyStateUI,
+  Field,
+  Input,
+  PageHeader,
+  StatusBadge,
+  cn,
+} from "../ui";
+import { Alert } from "../components/ui/feedback";
+import { FilterBar } from "../components/ui/layout";
+import SearchField from "../components/ui/SearchField";
+import SelectField from "../components/ui/SelectField";
+import { estadoCaducidad, estadoPedido, estadoStock } from "../app/estado";
+
+import { ChevronDown } from "lucide-react";
+
+import { exportReportToPdf } from "./informes.pdf";
+import { fmtCantInv, fmtEuro, fmtFecha, fmtFechaSolo, fmtMesLabel, fmtNum } from "./informes.format";
+import { formatFechaCanaria } from "../utils/fecha";
 import { getZonaLabel } from "../utils/zonas";
 import { rolEfectivo } from "../utils/roles";
 import {
@@ -27,12 +45,6 @@ const REPORTS = [
   { key: "bajas", label: "Baja vivero", desc: "Productos dados de baja en el vivero (descartes), con fecha, producto y cantidad." },
   { key: "estadisticas", label: "Estadísticas", desc: "Entradas de reposición (compras a proveedores) en un rango de fechas, con su coste asociado, coste mensual y productos más solicitados. Solo administrador." },
 ];
-
-function fmtCantInv(v) {
-  const n = Number(v || 0);
-  if (Number.isInteger(n)) return String(n);
-  return n.toFixed(2).replace(/\.?0+$/, "");
-}
 
 // Orden de tamaños de maceta para las columnas del inventario por zona.
 const TAM_ORDEN = ["Semillero", "M12", "M20", "M35"];
@@ -120,106 +132,28 @@ const DISTRICT_BARRIOS = {
   ],
 };
 
-function cardStyle() {
-  return {
-    background: "white",
-    border: "1px solid rgba(15,23,42,0.10)",
-    borderRadius: 20,
-    boxShadow: "0 10px 30px rgba(2,6,23,0.06)",
-  };
-}
+/*
+ * CLASES DEL SISTEMA que sustituyen a los antiguos ayudantes de estilo en
+ * línea. `thStyle()` y `tdStyle()` se usaban 62 veces cada uno, y cada llamada
+ * creaba un objeto nuevo en cada render.
+ *
+ * Los tres son deliberadamente escuetos: la densidad de esta pantalla importa
+ * —son informes que se imprimen— así que se conserva el interlineado compacto
+ * y la alineación a la izquierda del original.
+ */
+/*
+ * Misma superficie que `Card` del sistema. Se aplica como clase sobre los
+ * `div` existentes en vez de cambiar 39 etiquetas de apertura y cierre: el
+ * resultado visual y el marcado son los mismos, y la sustitución es mecánica y
+ * verificable.
+ */
+const CARD_CLS = "rounded-[var(--radius-lg)] border border-border bg-card p-[var(--card-padding)]";
 
-function softInputStyle() {
-  return {
-    padding: "12px 14px",
-    borderRadius: 12,
-    border: "2px solid #334155",
-    background: "white",
-    color: "#0f172a",
-    fontWeight: 700,
-    width: "100%",
-    outline: "none",
-    minHeight: 48,
-    boxSizing: "border-box",
-  };
-}
-
-function primaryBtnStyle(disabled = false) {
-  return {
-    padding: "12px 18px",
-    minHeight: 48,
-    borderRadius: 14,
-    border: "1px solid rgba(6,182,212,0.25)",
-    background: disabled
-      ? "linear-gradient(90deg, rgba(148,163,184,0.45), rgba(148,163,184,0.35))"
-      : "linear-gradient(135deg, #0ea5e9 0%, #06b6d4 40%, #10b981 100%)",
-    color: "white",
-    fontWeight: 900,
-    cursor: disabled ? "not-allowed" : "pointer",
-    boxShadow: disabled ? "none" : "0 16px 36px rgba(6,182,212,0.24)",
-    whiteSpace: "nowrap",
-  };
-}
-
-function secondaryBtnStyle(disabled = false) {
-  return {
-    padding: "12px 18px",
-    minHeight: 48,
-    borderRadius: 14,
-    border: disabled ? "2px solid #cbd5e1" : "2px solid #334155",
-    background: disabled ? "#f8fafc" : "white",
-    color: disabled ? "#94a3b8" : "#0f172a",
-    fontWeight: 900,
-    cursor: disabled ? "not-allowed" : "pointer",
-    whiteSpace: "nowrap",
-    opacity: disabled ? 0.75 : 1,
-    boxShadow: "none",
-  };
-}
-
-function thStyle() {
-  return {
-    textAlign: "left",
-    padding: "12px 12px",
-    color: "#334155",
-    fontWeight: 900,
-    fontSize: 13,
-    borderBottom: "1px solid rgba(15,23,42,0.10)",
-    whiteSpace: "nowrap",
-  };
-}
-
-function tdStyle() {
-  return {
-    padding: "12px",
-    color: "#0f172a",
-    fontWeight: 700,
-    verticalAlign: "top",
-    borderBottom: "1px solid rgba(15,23,42,0.06)",
-  };
-}
-
-function fmtFecha(value) {
-  return formatFechaHoraCanaria(value);
-}
-
-function fmtFechaSolo(value) {
-  return formatFechaCanaria(value);
-}
-
-function fmtNum(value) {
-  return Number(value || 0).toLocaleString("es-ES");
-}
-
-function sanitizeFileName(name) {
-  return String(name || "reporte")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9-_ ]/g, "")
-    .trim()
-    .replace(/\s+/g, "_")
-    .slice(0, 80);
-}
+const TH = "border-b border-border px-2.5 py-2 text-left text-caption font-[var(--font-weight-medium)] text-muted-foreground";
+const TD = "border-b border-border px-2.5 py-2 align-top text-body-sm";
+const INPUT_CLS =
+  "h-[var(--input-height)] w-full rounded-[var(--radius-md)] border border-input bg-background px-3 text-body-sm " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
 function safeNumber(value) {
   const n = Number(value);
@@ -256,21 +190,7 @@ function nombreCientificoComun(cientifico, comun) {
 }
 
 // Importe en euros con dos decimales y coma decimal (es-ES).
-function fmtEuro(v) {
-  const n = Number(v || 0);
-  return `${n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
-}
-
-// Etiqueta de mes "YYYY-MM" → "mmm YYYY" (ej. "2025-08" → "ago 2025").
-const _MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-function fmtMesLabel(key) {
-  const [y, m] = String(key || "").split("-");
-  const idx = Number(m) - 1;
-  return idx >= 0 && idx < 12 ? `${_MESES_CORTOS[idx]} ${y}` : key;
-}
-
-// Gráfica de barras verticales (coste mensual). data: [{ mes, total }].
-function BarrasVerticales({ data, color = "#0ea5e9", valueFmt = (v) => v }) {
+function BarrasVerticales({ data, color = "var(--chart-1)", valueFmt = (v) => v }) {
   if (!data || data.length === 0) return <EmptyState text="Sin datos para el rango seleccionado." />;
   const W = Math.max(320, data.length * 74);
   const H = 240;
@@ -279,7 +199,7 @@ function BarrasVerticales({ data, color = "#0ea5e9", valueFmt = (v) => v }) {
   const bw = (W - padL - padR) / data.length;
   const chartH = H - padB - padT;
   return (
-    <div style={{ overflowX: "auto" }}>
+    <div className="overflow-x-auto">
       <svg width={W} height={H} role="img" style={{ display: "block" }}>
         {data.map((d, i) => {
           const v = Number(d.total) || 0;
@@ -289,8 +209,8 @@ function BarrasVerticales({ data, color = "#0ea5e9", valueFmt = (v) => v }) {
           return (
             <g key={d.mes}>
               <rect x={x + bw * 0.16} y={y} width={bw * 0.68} height={h} rx={5} fill={color} />
-              <text x={x + bw / 2} y={y - 6} textAnchor="middle" fontSize="10.5" fontWeight="800" fill="#0f172a">{valueFmt(v)}</text>
-              <text x={x + bw / 2} y={H - padB + 18} textAnchor="middle" fontSize="11" fontWeight="700" fill="#64748b">{fmtMesLabel(d.mes)}</text>
+              <text x={x + bw / 2} y={y - 6} textAnchor="middle" fontSize="10.5" fontWeight="var(--font-weight-semibold)" fill="var(--foreground)">{valueFmt(v)}</text>
+              <text x={x + bw / 2} y={H - padB + 18} textAnchor="middle" fontSize="11" fontWeight="var(--font-weight-medium)" fill="var(--muted-foreground)">{fmtMesLabel(d.mes)}</text>
             </g>
           );
         })}
@@ -300,14 +220,14 @@ function BarrasVerticales({ data, color = "#0ea5e9", valueFmt = (v) => v }) {
 }
 
 // Gráfica de barras horizontales (top productos). data: [{ nombre, cantidad }].
-function BarrasHorizontales({ data, color = "#10b981", valueFmt = (v) => v }) {
+function BarrasHorizontales({ data, color = "var(--chart-2)", valueFmt = (v) => v }) {
   if (!data || data.length === 0) return <EmptyState text="Sin datos para el rango seleccionado." />;
   const rowH = 30;
   const H = data.length * rowH + 12;
   const labelW = 220;
   const max = Math.max(...data.map((d) => Number(d.cantidad) || 0), 1);
   return (
-    <div style={{ overflowX: "auto" }}>
+    <div className="overflow-x-auto">
       <svg width="100%" height={H} viewBox={`0 0 720 ${H}`} preserveAspectRatio="xMinYMin meet" style={{ display: "block", minWidth: 480 }}>
         {data.map((d, i) => {
           const v = Number(d.cantidad) || 0;
@@ -317,9 +237,9 @@ function BarrasHorizontales({ data, color = "#10b981", valueFmt = (v) => v }) {
           const nombre = String(d.nombre || "").length > 34 ? String(d.nombre).slice(0, 33) + "…" : d.nombre;
           return (
             <g key={i}>
-              <text x={0} y={y + rowH / 2} dominantBaseline="middle" fontSize="11.5" fontWeight="700" fill="#0f172a">{nombre}</text>
+              <text x={0} y={y + rowH / 2} dominantBaseline="middle" fontSize="11.5" fontWeight="var(--font-weight-medium)" fill="var(--foreground)">{nombre}</text>
               <rect x={labelW} y={y} width={Math.max(w, 2)} height={rowH - 12} rx={5} fill={color} />
-              <text x={labelW + Math.max(w, 2) + 6} y={y + (rowH - 12) / 2} dominantBaseline="middle" fontSize="11" fontWeight="800" fill="#0f172a">{valueFmt(v)}</text>
+              <text x={labelW + Math.max(w, 2) + 6} y={y + (rowH - 12) / 2} dominantBaseline="middle" fontSize="11" fontWeight="var(--font-weight-semibold)" fill="var(--foreground)">{valueFmt(v)}</text>
             </g>
           );
         })}
@@ -522,78 +442,30 @@ function buildCaducidadItems(productos) {
   });
 }
 
+/*
+ * Los cuatro «badges» de esta pantalla —existencias, caducidad, abastecimiento
+ * y préstamos— eran cuatro copias del mismo `span` con `fontWeight: "var(--font-weight-semibold)"`, un
+ * `borderRadius: "var(--radius-full)"` y una paleta escrita a mano por estado, cada una con sus
+ * propios tonos. Ahora los cuatro salen del vocabulario compartido de
+ * `app/estado.js`, que ya resuelve tono Y etiqueta, y se pintan con el
+ * `StatusBadge` del sistema.
+ *
+ * Ganancia real, no solo estética: un estado desconocido ya no se queda sin
+ * tono ni inventa uno, cae en el neutro conservando su texto.
+ */
 function StockBadge({ estado }) {
-  const isLow = estado === "Bajo stock";
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "6px 10px",
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 900,
-        border: isLow
-          ? "1px solid rgba(220,38,38,0.18)"
-          : "1px solid rgba(16,185,129,0.18)",
-        color: isLow ? "#b91c1c" : "#047857",
-        background: isLow ? "rgba(254,242,242,1)" : "rgba(236,253,245,1)",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {estado}
-    </span>
-  );
+  const { status, label } = estadoStock(estado);
+  return <StatusBadge status={status} label={label} />;
 }
 
 function CaducidadBadge({ estado }) {
-  const isExpired = estado === "Caducado";
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "6px 10px",
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 900,
-        border: isExpired
-          ? "1px solid rgba(220,38,38,0.18)"
-          : "1px solid rgba(245,158,11,0.20)",
-        color: isExpired ? "#b91c1c" : "#92400e",
-        background: isExpired ? "rgba(254,242,242,1)" : "rgba(255,251,235,1)",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {estado}
-    </span>
-  );
+  const { status, label } = estadoCaducidad(estado);
+  return <StatusBadge status={status} label={label} />;
 }
 
-
 function AbastecimientoBadge({ estado }) {
-  const e = String(estado || "").toUpperCase();
-  let bg = "rgba(148,163,184,0.18)";
-  let color = "#334155";
-  let border = "rgba(15,23,42,0.08)";
-
-  if (e === "APROBADO") { bg = "rgba(16,185,129,0.12)"; color = "#065f46"; border = "rgba(16,185,129,0.20)"; }
-  else if (e === "APROBADO_PARCIAL") { bg = "rgba(20,184,166,0.14)"; color = "#115e59"; border = "rgba(20,184,166,0.28)"; }
-  else if (e === "RESERVA") { bg = "rgba(245,158,11,0.12)"; color = "#92400e"; border = "rgba(245,158,11,0.20)"; }
-  else if (e === "SERVIDO") { bg = "rgba(59,130,246,0.12)"; color = "#1e3a8a"; border = "rgba(59,130,246,0.20)"; }
-  else if (e === "DENEGADO") { bg = "rgba(239,68,68,0.10)"; color = "#991b1b"; border = "rgba(239,68,68,0.20)"; }
-
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", justifyContent: "center",
-      padding: "6px 10px", borderRadius: 999, fontSize: 12, fontWeight: 900,
-      border: `1px solid ${border}`, color, background: bg, whiteSpace: "nowrap",
-    }}>
-      {e || "—"}
-    </span>
-  );
+  const { status, label } = estadoPedido(estado);
+  return <StatusBadge status={status} label={label} />;
 }
 
 function buildAbastecimientoItems(pedidos) {
@@ -671,28 +543,16 @@ function buildBajasItems(movimientos, productos) {
     .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
 }
 
+/*
+ * Préstamos tiene su propio par de estados —«Devuelto» y «Activo»— que no
+ * pertenece a ningún vocabulario existente: no es un pedido ni una caducidad.
+ * Se mapean aquí, junto a su uso, en lugar de añadir un vocabulario de dos
+ * entradas al módulo compartido.
+ */
 function PrestamoBadge({ estado }) {
-  const isReturned = estado === "Devuelto";
+  const devuelto = estado === "Devuelto";
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "6px 10px",
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 900,
-        border: isReturned
-          ? "1px solid rgba(16,185,129,0.18)"
-          : "1px solid rgba(59,130,246,0.20)",
-        color: isReturned ? "#047857" : "#1d4ed8",
-        background: isReturned ? "rgba(236,253,245,1)" : "rgba(239,246,255,1)",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {estado}
-    </span>
+    <StatusBadge status={devuelto ? "completed" : "in_progress"} label={estado || "—"} />
   );
 }
 
@@ -944,610 +804,26 @@ function buildPrestamoItems(pedidos, movimientos) {
   });
 }
 
-async function loadImageAsDataUrl(src) {
-  const res = await fetch(src);
-  if (!res.ok) {
-    throw new Error(`No se pudo cargar la imagen: ${src}`);
-  }
-  const blob = await res.blob();
-
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function savePdfWithDialog(doc, fileName) {
-  const blob = doc.output("blob");
-
-  if (window.showSaveFilePicker) {
-    const handle = await window.showSaveFilePicker({
-      suggestedName: fileName,
-      types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
-    });
-    const writable = await handle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-    return;
-  }
-
-  doc.save(fileName);
-}
-
-async function addDocHeader(doc, title, me) {
-  const generatedAt = new Date();
-  const pageWidth = doc.internal.pageSize.getWidth();
-
-  doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, pageWidth, 28, "F");
-
-  doc.setFillColor(6, 182, 212);
-  doc.rect(0, 28, pageWidth, 3, "F");
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.setTextColor(255, 255, 255);
-  doc.text("ViverApp", 14, 16);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(226, 232, 240);
-  doc.text("Sistema de gestión del vivero", 14, 23);
-
-  try {
-    const logoDataUrl = await loadImageAsDataUrl(logoViverApp);
-    doc.addImage(logoDataUrl, "PNG", pageWidth - 42, 1, 32, 32);
-  } catch (e) {
-    console.error("No se pudo cargar el logo para el PDF:", e);
-  }
-
-  doc.setTextColor(15, 23, 42);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text(title, 14, 42);
-
-  doc.setDrawColor(226, 232, 240);
-  doc.line(14, 46, pageWidth - 14, 46);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Fecha de generación: ${generatedAt.toLocaleString("es-ES")}`, 14, 54);
-  doc.text(`Usuario: ${me?.username || "—"}`, 14, 60);
-  doc.text(`Rol: ${me?.rol || me?.role || "—"}`, 14, 66);
-
-  return 74;
-}
-
-function addPageFooter(doc) {
-  const pageCount = doc.internal.getNumberOfPages();
-
-  for (let i = 1; i <= pageCount; i += 1) {
-    doc.setPage(i);
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-
-    doc.setDrawColor(226, 232, 240);
-    doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text("ViverApp · Informe generado automáticamente", 14, pageHeight - 7);
-    doc.text(`Página ${i} de ${pageCount}`, pageWidth - 14, pageHeight - 7, {
-      align: "right",
-    });
-  }
-}
-
-async function exportReportToPdf({
-  activeReport,
-  me,
-  trazabilidadData,
-  distribucionData,
-  inventarioVivero,
-  stockExportData,
-  caducidadExportData,
-  externosData,
-  prestamosExportData,
-  abastecimientoExportData,
-  bajasExportData,
-  estadisticasExportData,
-}) {
-  const doc = new jsPDF("p", "mm", "a4");
-  let y = await addDocHeader(
-    doc,
-    activeReport === "trazabilidad"
-      ? "Reporte de trazabilidad"
-      : activeReport === "distribucion"
-      ? "Reporte de distribución"
-      : activeReport === "inventario"
-      ? "Inventario del vivero por zona"
-      : activeReport === "stock"
-      ? "Reporte de existencias"
-      : activeReport === "caducidad"
-      ? "Reporte de caducidad"
-      : activeReport === "prestamos"
-      ? "Reporte de préstamos"
-      : activeReport === "abastecimiento"
-      ? "Reporte de abastecimiento"
-      : activeReport === "bajas"
-      ? "Reporte de Baja vivero"
-      : activeReport === "estadisticas"
-      ? "Estadísticas de reposición"
-      : "Reporte de movimientos externos",
-    me
-  );
-
-  if (activeReport === "inventario") {
-    const zonas = Array.isArray(inventarioVivero) ? inventarioVivero : [];
-    if (zonas.length === 0) {
-      doc.setFontSize(11);
-      doc.text("No hay stock registrado en ninguna zona del vivero.", 14, y + 6);
-    } else {
-      for (const zona of zonas) {
-        const startY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 8;
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(12);
-        doc.setTextColor(15, 23, 42);
-        doc.text(`${zona.label}  (${zona.productos.length} productos)`, 14, startY);
-        autoTable(doc, {
-          startY: startY + 3,
-          theme: "grid",
-          head: [["Producto", ...zona.tamanos, "Total"]],
-          body: zona.productos.map((p) => [
-            p.nombreComun ? `${p.nombre}\n${p.nombreComun}` : p.nombre,
-            ...zona.tamanos.map((t) => (p.tamanos[t] ? fmtCantInv(p.tamanos[t]) : "—")),
-            fmtCantInv(p.total),
-          ]),
-          styles: { halign: "center", fontSize: 8, cellPadding: 1.8 },
-          headStyles: { fillColor: [15, 23, 42], halign: "center" },
-          columnStyles: { 0: { halign: "left", cellWidth: "auto", fontStyle: "bold" } },
-        });
-      }
-    }
-  }
-
-  if (activeReport === "trazabilidad" && trazabilidadData) {
-    autoTable(doc, {
-      startY: y,
-      theme: "grid",
-      head: [["Campo", "Valor"]],
-      body: [
-        ["UUID", trazabilidadData.uuid_lote || "—"],
-        ["Producto", trazabilidadData.producto_nombre || `Producto #${trazabilidadData.producto_id || "—"}`],
-        ["Cantidad inicial", fmtNum(trazabilidadData.cantidad_inicial)],
-        ["Fecha de entrada", fmtFecha(trazabilidadData.fecha_entrada)],
-      ],
-      styles: { fontSize: 10, cellPadding: 2.5 },
-      headStyles: { fillColor: [14, 165, 233] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Fecha", "Cantidad", "Origen", "Destino", "Descripción"]],
-      body: (trazabilidadData.movimientos || []).map((m) => [
-        fmtFecha(m.fecha_movimiento),
-        fmtNum(m.cantidad),
-        m.origen_tipo || "—",
-        m.destino_tipo || "—",
-        m.descripcion || "—",
-      ]),
-      styles: { fontSize: 9, cellPadding: 2.2, overflow: "linebreak" },
-      headStyles: { fillColor: [16, 185, 129] },
-    });
-
-    if ((trazabilidadData.inventario_actual || []).length) {
-      autoTable(doc, {
-        startY: doc.lastAutoTable.finalY + 8,
-        theme: "grid",
-        head: [["Zona", "Tamaño", "Cantidad disponible"]],
-        body: trazabilidadData.inventario_actual.map((inv) => [
-          inv.zona || "—",
-          inv.tamano || "—",
-          fmtNum(inv.cantidad_disponible),
-        ]),
-        styles: { fontSize: 9.5, cellPadding: 2.2 },
-        headStyles: { fillColor: [51, 65, 85] },
-      });
-    }
-  }
-
-  if (activeReport === "distribucion" && distribucionData) {
-    autoTable(doc, {
-      startY: y,
-      theme: "grid",
-      head: [["Campo", "Valor"]],
-      body: [
-        ["Producto", distribucionData.producto_nombre || `Producto #${distribucionData.producto_id || "—"}`],
-        ["Stock total", fmtNum(distribucionData.stock_total)],
-        ["Ubicaciones activas", fmtNum(distribucionData.distribucion?.length || 0)],
-      ],
-      styles: { fontSize: 10, cellPadding: 2.5 },
-      headStyles: { fillColor: [14, 165, 233] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Zona", "Tamaño", "Cantidad"]],
-      body: (distribucionData.distribucion || []).map((row) => [
-        row.zona || "—",
-        row.tamano || "—",
-        fmtNum(row.cantidad),
-      ]),
-      styles: { fontSize: 10, cellPadding: 2.3 },
-      headStyles: { fillColor: [16, 185, 129] },
-    });
-  }
-
-  if (activeReport === "stock" && stockExportData) {
-    autoTable(doc, {
-      startY: y,
-      theme: "grid",
-      head: [["Filtro", "Valor"]],
-      body: [
-        ["Categoría", stockExportData.filters.categoria || "Todas"],
-        ["Subcategoría", stockExportData.filters.subcategoria || "Todas"],
-        ["Texto", stockExportData.filters.search || "—"],
-        ["Estado", ESTADO_STOCK_LABEL[stockExportData.filters.estado] || "Todos los productos"],
-        ["Productos visibles", fmtNum(stockExportData.totalProductos)],
-        ["Categorías visibles", fmtNum(stockExportData.totalCategorias)],
-      ],
-      styles: { fontSize: 10, cellPadding: 2.5 },
-      headStyles: { fillColor: [14, 165, 233] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Categoría", "Nº productos", "Stock total"]],
-      body: (stockExportData.groups || []).map((group) => [
-        group.categoria,
-        fmtNum(group.totalProductos),
-        fmtNum(group.stockTotal),
-      ]),
-      styles: { fontSize: 9.5, cellPadding: 2.2 },
-      headStyles: { fillColor: [16, 185, 129] },
-    });
-
-    (stockExportData.groups || []).forEach((group) => {
-      autoTable(doc, {
-        startY: doc.lastAutoTable.finalY + 8,
-        theme: "grid",
-        head: [[`Detalle · ${group.categoria}`, "Subcategoría", "Stock actual", "Stock mínimo", "Estado"]],
-        body: (group.items || []).map((item) => [
-          item.nombreDisplay || item.nombre,
-          item.subcategoria,
-          fmtNum(item.stockActual),
-          fmtNum(item.stockMinimo),
-          item.estado,
-        ]),
-        styles: { fontSize: 9, cellPadding: 2.1, overflow: "linebreak" },
-        headStyles: { fillColor: [51, 65, 85] },
-      });
-    });
-  }
-
-  if (activeReport === "caducidad" && caducidadExportData) {
-    autoTable(doc, {
-      startY: y,
-      theme: "grid",
-      head: [["Resumen", "Valor"]],
-      body: [
-        ["Registros visibles", fmtNum(caducidadExportData.totalItems)],
-        ["Caducados", fmtNum(caducidadExportData.totalCaducados)],
-        ["Próximos a caducar", fmtNum(caducidadExportData.totalProximos)],
-        ["Vigentes", fmtNum(caducidadExportData.totalVigentes)],
-      ],
-      styles: { fontSize: 10, cellPadding: 2.5 },
-      headStyles: { fillColor: [14, 165, 233] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Producto", "Categoría", "Subcategoría", "Zona", "Tamaño", "Fecha caducidad", "Días", "Estado"]],
-      body: (caducidadExportData.items || []).map((item) => [
-        item.nombre,
-        item.categoria,
-        item.subcategoria,
-        item.zona,
-        item.tamano,
-        fmtFechaSolo(item.fechaCaducidad),
-        String(item.diasRestantes),
-        item.estado,
-      ]),
-      styles: { fontSize: 8.7, cellPadding: 2.0, overflow: "linebreak" },
-      headStyles: { fillColor: [245, 158, 11] },
-    });
-  }
-
-  if (activeReport === "externos" && Array.isArray(externosData)) {
-    autoTable(doc, {
-      startY: y,
-      theme: "grid",
-      head: [["Fecha", "Producto", "Cantidad", "Origen", "Destino", "Ubicación destino", "Registrado por"]],
-      body: externosData.map((row) => [
-        fmtFecha(row.fecha_movimiento),
-        row.producto_nombre || "—",
-        fmtNum(row.cantidad),
-        `${row.origen_tipo || "—"}${row.zona_origen ? ` · ${row.zona_origen}` : ""}${row.tamano_origen ? ` · ${row.tamano_origen}` : ""}`,
-        `${row.destino_tipo || "—"}${row.zona_destino ? ` · ${row.zona_destino}` : ""}${row.tamano_destino ? ` · ${row.tamano_destino}` : ""}`,
-        [row.distrito_destino, row.barrio_destino, row.direccion_destino].filter(Boolean).join(" · ") || "—",
-        row.created_by || "—",
-      ]),
-      styles: { fontSize: 8.5, cellPadding: 2, overflow: "linebreak" },
-      headStyles: { fillColor: [16, 185, 129] },
-    });
-  }
-
-
-  if (activeReport === "bajas" && bajasExportData) {
-    autoTable(doc, {
-      startY: y,
-      theme: "grid",
-      head: [["Filtro", "Valor"]],
-      body: [
-        ["Producto", bajasExportData.filtros.producto || "—"],
-        ["Categoría", bajasExportData.filtros.categoria || "Todas"],
-        ["Subcategoría", bajasExportData.filtros.subcategoria || "Todas"],
-        ["Fecha desde", bajasExportData.filtros.fecha_desde || "—"],
-        ["Fecha hasta", bajasExportData.filtros.fecha_hasta || "—"],
-      ],
-      styles: { fontSize: 10, cellPadding: 2.5 },
-      headStyles: { fillColor: [14, 165, 233] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Resumen", "Valor"]],
-      body: [
-        ["Movimientos visibles", fmtNum(bajasExportData.totalMovimientos)],
-        ["Productos únicos", fmtNum(bajasExportData.productosUnicos)],
-        ["Unidades totales", fmtNum(bajasExportData.totalUnidades)],
-      ],
-      styles: { fontSize: 10, cellPadding: 2.5 },
-      headStyles: { fillColor: [220, 38, 38] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Fecha", "Producto", "Categoría", "Subcategoría", "Zona origen", "Tamaño", "Unidades", "UUID lote", "Registrado por"]],
-      body: (bajasExportData.items || []).map((item) => [
-        fmtFecha(item.fecha),
-        item.producto,
-        item.categoria,
-        item.subcategoria,
-        item.zonaOrigen,
-        item.tamano,
-        fmtNum(item.cantidad),
-        item.uuidLote,
-        item.createdBy,
-      ]),
-      styles: { fontSize: 8.5, cellPadding: 2, overflow: "linebreak" },
-      headStyles: { fillColor: [220, 38, 38] },
-    });
-  }
-
-  if (activeReport === "abastecimiento" && abastecimientoExportData) {
-    autoTable(doc, {
-      startY: y,
-      theme: "grid",
-      head: [["Resumen", "Valor"]],
-      body: [
-        ["Pedidos visibles", fmtNum(abastecimientoExportData.total)],
-        ["En reserva", fmtNum(abastecimientoExportData.reserva)],
-        ["Aprobados", fmtNum(abastecimientoExportData.aprobados)],
-        ["Servidos", fmtNum(abastecimientoExportData.servidos)],
-        ["Denegados", fmtNum(abastecimientoExportData.denegados)],
-        ["Cancelados", fmtNum(abastecimientoExportData.cancelados)],
-        ["Total pedido", fmtNum(abastecimientoExportData.totalPedido)],
-        ["Total servido", fmtNum(abastecimientoExportData.totalServido)],
-        ["Total pendiente", fmtNum(abastecimientoExportData.totalPendiente)],
-      ],
-      styles: { fontSize: 10, cellPadding: 2.5 },
-      headStyles: { fillColor: [14, 165, 233] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Pedido", "Fecha", "Solicitante", "Estado", "Líneas", "Pedido", "Servido", "Pendiente"]],
-      body: (abastecimientoExportData.items || []).map((item) => [
-        `#${item.id}`,
-        fmtFecha(item.fecha),
-        item.solicitante,
-        item.estado,
-        item.lineas.map((l) => `${l.producto} · ${l.tamano} · ${fmtNum(l.cantidadPedida)}`).join("\n"),
-        fmtNum(item.totalPedido),
-        fmtNum(item.totalServido),
-        fmtNum(item.totalPendiente),
-      ]),
-      styles: { fontSize: 8.5, cellPadding: 2, overflow: "linebreak" },
-      headStyles: { fillColor: [245, 158, 11] },
-    });
-  }
-
-  if (activeReport === "prestamos" && prestamosExportData) {
-    autoTable(doc, {
-      startY: y,
-      theme: "grid",
-      head: [["Resumen", "Valor"]],
-      body: [
-        ["Préstamos visibles", fmtNum(prestamosExportData.totalPrestamos)],
-        ["Activos", fmtNum(prestamosExportData.totalActivos)],
-        ["Devueltos", fmtNum(prestamosExportData.totalDevueltos)],
-      ],
-      styles: { fontSize: 10, cellPadding: 2.5 },
-      headStyles: { fillColor: [14, 165, 233] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Pedido", "Fecha", "Solicitante", "Destino", "Elementos", "Estado", "Prestado", "Devuelto", "Pendiente"]],
-      body: (prestamosExportData.items || []).map((item) => [
-        `#${item.pedidoId}`,
-        fmtFecha(item.fechaPrestamo),
-        item.solicitante,
-        item.destinatario,
-        item.lineas.map((l) => `${l.producto} · ${l.tamano} · ${fmtNum(l.prestado)}`).join("\n"),
-        item.estado,
-        fmtNum(item.totalPrestado),
-        fmtNum(item.totalDevuelto),
-        fmtNum(item.totalPendiente),
-      ]),
-      styles: { fontSize: 8.5, cellPadding: 2, overflow: "linebreak" },
-      headStyles: { fillColor: [59, 130, 246] },
-    });
-  }
-
-  if (activeReport === "estadisticas" && estadisticasExportData) {
-    const d = estadisticasExportData;
-    autoTable(doc, {
-      startY: y,
-      theme: "grid",
-      head: [["Filtro / Resumen", "Valor"]],
-      body: [
-        ["Rango de fechas", `${d.filters?.desde || "—"} a ${d.filters?.hasta || "—"}`],
-        ["Producto", d.filters?.producto || "Todos"],
-        ["Categoría", d.filters?.categoria || "Todas"],
-        ["Subcategoría", d.filters?.subcategoria || "Todas"],
-        ["Coste total reposición", fmtEuro(d.totalCoste)],
-        ["Unidades recibidas", fmtNum(d.totalUds)],
-        ["Movimientos", fmtNum((d.rows || []).length)],
-        ...(d.simulado ? [["Origen de los datos", "SIMULADOS (no reales)"]] : []),
-      ],
-      styles: { fontSize: 10, cellPadding: 2.5 },
-      headStyles: { fillColor: [14, 165, 233] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Mes", "Coste de reposición"]],
-      body: (d.costesMensuales || []).map((m) => [fmtMesLabel(m.mes), fmtEuro(m.total)]),
-      styles: { fontSize: 9.5, cellPadding: 2.2 },
-      headStyles: { fillColor: [14, 165, 233] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Producto más solicitado", "Unidades"]],
-      body: (d.topProductos || []).map((p) => [p.nombre, fmtNum(p.cantidad)]),
-      styles: { fontSize: 9.5, cellPadding: 2.2 },
-      headStyles: { fillColor: [16, 185, 129] },
-    });
-
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      theme: "grid",
-      head: [["Fecha", "Producto", "Categoría", "Subcat.", "Tamaño", "Cant.", "Precio", "Coste"]],
-      body: (d.rows || []).map((r) => [
-        r.fecha ? fmtFecha(r.fecha) : "—",
-        r.nombreDisplay,
-        r.categoria,
-        r.subcategoria,
-        r.tamano,
-        fmtNum(r.cantidad),
-        r.precio == null ? "—" : fmtEuro(r.precio),
-        r.coste == null ? "—" : fmtEuro(r.coste),
-      ]),
-      styles: { fontSize: 8, cellPadding: 1.8, overflow: "linebreak" },
-      headStyles: { fillColor: [51, 65, 85] },
-    });
-  }
-
-  const fileName = `${sanitizeFileName(
-    activeReport === "trazabilidad"
-      ? "reporte_trazabilidad"
-      : activeReport === "distribucion"
-      ? "reporte_distribucion"
-      : activeReport === "inventario"
-      ? "inventario_vivero"
-      : activeReport === "stock"
-      ? "reporte_existencias"
-      : activeReport === "caducidad"
-      ? "reporte_caducidad"
-      : activeReport === "abastecimiento"
-      ? "reporte_abastecimiento"
-      : activeReport === "prestamos"
-      ? "reporte_prestamos"
-      : activeReport === "bajas"
-      ? "reporte_baja_vivero"
-      : activeReport === "estadisticas"
-      ? "estadisticas_reposicion"
-      : "reporte_movimientos_externos"
-  )}_${new Date().toISOString().slice(0, 10)}.pdf`;
-
-  addPageFooter(doc);
-  await savePdfWithDialog(doc, fileName);
-}
-
+/*
+ * El banner era un `div` con degradado y colores a mano por tono. `Alert` ya
+ * resuelve el rol ARIA correcto según el tono —`alert` para error, `status`
+ * para el resto—, que es lo que faltaba: un aviso solo pintado no llega a
+ * quien usa lector de pantalla.
+ */
 function MessageBanner({ msg, msgType, onClose }) {
   if (!msg) return null;
-  const isError = msgType === "error";
-
   return (
-    <div
-      style={{
-        ...cardStyle(),
-        marginTop: 14,
-        padding: "14px 16px",
-        border: isError
-          ? "1px solid rgba(239,68,68,0.18)"
-          : "1px solid rgba(16,185,129,0.18)",
-        background: isError
-          ? "linear-gradient(180deg, rgba(254,242,242,0.98), rgba(255,255,255,0.98))"
-          : "linear-gradient(180deg, rgba(236,253,245,0.98), rgba(255,255,255,0.98))",
-        color: isError ? "#991b1b" : "#065f46",
-        fontWeight: 800,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-      }}
-    >
-      <span>{msg}</span>
-      <button
-        onClick={onClose}
-        style={{
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          fontSize: 18,
-          fontWeight: 900,
-          color: isError ? "#991b1b" : "#065f46",
-          lineHeight: 1,
-        }}
-        title="Cerrar"
-        aria-label="Cerrar mensaje"
-      >
-        ×
-      </button>
-    </div>
+    <Alert tone={msgType === "error" ? "error" : "success"} onDismiss={onClose}>
+      {msg}
+    </Alert>
   );
 }
 
+/** Envuelve el `EmptyState` del sistema para conservar la firma existente. */
 function EmptyState({ text = "No hay datos para mostrar." }) {
   return (
-    <div
-      style={{
-        ...cardStyle(),
-        padding: 20,
-        marginTop: 20,
-        color: "#64748b",
-        fontWeight: 800,
-      }}
-    >
-      {text}
+    <div className={CARD_CLS}>
+      <EmptyStateUI title={text} />
     </div>
   );
 }
@@ -2737,30 +2013,20 @@ export default function Informes() {
 
   if (!canAccess) {
     return (
-      <div style={{ width: "100%" }}>
+      <div className="w-full">
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16 }}>
-          <h1 style={{ fontSize: 44, margin: 0, fontWeight: 900, color: "#0f172a" }}>Informes</h1>
+          <h1 style={{ fontSize: 44, margin: 0, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Informes</h1>
         </div>
 
-        <div
-          style={{
-            ...cardStyle(),
-            marginTop: 18,
-            padding: 18,
-            color: "#991b1b",
-            fontWeight: 900,
-            border: "1px solid rgba(239,68,68,0.18)",
-            background: "linear-gradient(180deg, rgba(254,242,242,0.98), rgba(255,255,255,0.98))",
-          }}
-        >
+        <Alert tone="error" title="Sin permisos">
           No tienes permisos para acceder a esta página.
-        </div>
+        </Alert>
       </div>
     );
   }
 
   return (
-    <div style={{ width: "100%" }}>
+    <div className="w-full">
       <div
         style={{
           display: "flex",
@@ -2771,8 +2037,8 @@ export default function Informes() {
         }}
       >
         <div>
-          <h1 style={{ fontSize: 44, margin: 0, fontWeight: 900, color: "#0f172a" }}>Informes</h1>
-          <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>
+          <h1 style={{ fontSize: 44, margin: 0, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Informes</h1>
+          <div style={{ marginTop: 8, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
             Trazabilidad, distribución en vivero, existencias, caducidad, movimientos externos y préstamos.
           </div>
         </div>
@@ -2787,7 +2053,7 @@ export default function Informes() {
         }}
       />
 
-      <div style={{ ...cardStyle(), marginTop: 18, padding: 18 }}>
+      <div className={CARD_CLS}>
         <div
           style={{
             display: "flex",
@@ -2806,15 +2072,15 @@ export default function Informes() {
                   onClick={() => setActiveReport(r.key)}
                   style={{
                     padding: "10px 14px",
-                    borderRadius: 14,
+                    borderRadius: "var(--radius-lg)",
                     border: active
-                      ? "1px solid rgba(6,182,212,0.25)"
-                      : "1px solid rgba(15,23,42,0.10)",
+                      ? "1px solid var(--border)"
+                      : "1px solid var(--border)",
                     background: active
-                      ? "linear-gradient(135deg, #0ea5e9 0%, #06b6d4 40%, #10b981 100%)"
+                      ? "var(--primary)"
                       : "white",
-                    color: active ? "white" : "#0f172a",
-                    fontWeight: 900,
+                    color: active ? "var(--primary-foreground)" : "var(--foreground)",
+                    fontWeight: "var(--font-weight-semibold)",
                     cursor: "pointer",
                   }}
                 >
@@ -2825,21 +2091,31 @@ export default function Informes() {
           </div>
 
           <div style={{ position: "relative" }}>
-            <button
+            {/*
+              `aria-expanded` y `aria-haspopup` no estaban: el botón abría un
+              menú y nada lo anunciaba. Y el «▾» pasa a icono decorativo — un
+              lector de pantalla leía «Exportar triángulo hacia abajo pequeño».
+            */}
+            <Button
+              type="button"
+              variant="secondary"
               onClick={() => setExportMenuOpen((o) => !o)}
               disabled={!canExportCurrentReport || exporting}
-              style={secondaryBtnStyle(!canExportCurrentReport || exporting)}
+              loading={exporting}
+              aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
               title={canExportCurrentReport ? "Exportar informe" : "Genera primero un informe"}
             >
-              {exporting ? "Exportando..." : "Exportar ▾"}
-            </button>
+              {exporting ? "Exportando…" : "Exportar"}
+              <ChevronDown aria-hidden="true" className="size-4" />
+            </Button>
             {exportMenuOpen && canExportCurrentReport && (
               <>
                 <div onClick={() => setExportMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-                <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: "#fff", border: "1px solid rgba(15,23,42,0.12)", borderRadius: 12, boxShadow: "0 12px 30px rgba(2,6,23,0.18)", zIndex: 50, minWidth: 190, overflow: "hidden" }}>
+                <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", zIndex: 50, minWidth: 190, overflow: "hidden" }}>
                   <button
                     onClick={() => { setExportMenuOpen(false); handleExportPdf(); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "11px 14px", border: "none", borderBottom: "1px solid rgba(15,23,42,0.06)", background: "#fff", cursor: "pointer", fontWeight: 800, color: "#0f172a", fontSize: 14 }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "11px 14px", border: "none", borderBottom: "1px solid var(--border)", background: "var(--card)", cursor: "pointer", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", fontSize: 14 }}
                   >
                     📄 Exportar a PDF
                   </button>
@@ -2853,7 +2129,7 @@ export default function Informes() {
                         else if (activeReport === "stock") exportarStockExcel();
                         else if (activeReport === "estadisticas") exportarEstadisticasExcel();
                       }}
-                      style={{ display: "block", width: "100%", textAlign: "left", padding: "11px 14px", border: "none", background: "#fff", cursor: "pointer", fontWeight: 800, color: "#0f172a", fontSize: 14 }}
+                      style={{ display: "block", width: "100%", textAlign: "left", padding: "11px 14px", border: "none", background: "var(--card)", cursor: "pointer", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", fontSize: 14 }}
                     >
                       📊 Exportar a Excel
                     </button>
@@ -2867,7 +2143,7 @@ export default function Informes() {
         {(() => {
           const meta = REPORTS.find((r) => r.key === activeReport);
           return meta?.desc ? (
-            <div style={{ marginTop: 16, padding: "12px 16px", borderRadius: 12, background: "rgba(6,182,212,0.06)", border: "1px solid rgba(6,182,212,0.16)", color: "#334155", fontWeight: 600, fontSize: 13.5, display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <div style={{ marginTop: 16, padding: "12px 16px", borderRadius: "var(--radius-md)", background: "var(--muted)", border: "1px solid var(--border)", color: "var(--foreground)", fontWeight: 600, fontSize: 13.5, display: "flex", gap: 10, alignItems: "flex-start" }}>
               <span style={{ fontSize: 16, lineHeight: "20px" }}>ℹ️</span>
               <span style={{ lineHeight: "20px" }}>{meta.desc}</span>
             </div>
@@ -2879,69 +2155,69 @@ export default function Informes() {
             <div
               style={{
                 marginTop: 22,
-                display: "grid",
-                gridTemplateColumns: "minmax(320px, 1fr) auto",
+                display: "flex",
+                flexWrap: "wrap",
                 gap: 18,
-                alignItems: "end",
+                alignItems: "flex-end",
               }}
             >
-              <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>UUID del lote</div>
-                <input
+              <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+                <label htmlFor="inf-uuid-del-lote" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>UUID del lote</label>
+                <input id="inf-uuid-del-lote"
                   value={uuid}
                   onChange={(e) => setUuid(e.target.value)}
                   placeholder="Introduce el UUID"
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
-              <button onClick={onBuscarTrazabilidad} disabled={loading} style={primaryBtnStyle(loading)}>
+              <Button type="button" variant="primary" onClick={onBuscarTrazabilidad} loading={loading}>
                 {loading ? "Generando..." : "Generar informe"}
-              </button>
+              </Button>
             </div>
 
             {trazabilidadData ? (
               <>
-                <div style={{ ...cardStyle(), marginTop: 20, padding: 18 }}>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>
+                <div className={CARD_CLS}>
+                  <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>
                     Resumen del lote
                   </div>
 
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(4, minmax(160px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(min(160px, 100%), 1fr))",
                       gap: 12,
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>UUID</div>
-                      <div style={{ fontWeight: 800 }}>{trazabilidadData.uuid_lote || "—"}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>UUID</div>
+                      <div className="font-[var(--font-weight-medium)]">{trazabilidadData.uuid_lote || "—"}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Producto</div>
-                      <div style={{ fontWeight: 800 }}>
+                      <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Producto</div>
+                      <div className="font-[var(--font-weight-medium)]">
                         {trazabilidadData.producto_nombre || `Producto #${trazabilidadData.producto_id || "—"}`}
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Cantidad inicial</div>
-                      <div style={{ fontWeight: 800 }}>{fmtNum(trazabilidadData.cantidad_inicial)}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Cantidad inicial</div>
+                      <div className="font-[var(--font-weight-medium)]">{fmtNum(trazabilidadData.cantidad_inicial)}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Fecha de entrada</div>
-                      <div style={{ fontWeight: 800 }}>{fmtFecha(trazabilidadData.fecha_entrada)}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Fecha de entrada</div>
+                      <div className="font-[var(--font-weight-medium)]">{fmtFecha(trazabilidadData.fecha_entrada)}</div>
                     </div>
                   </div>
                 </div>
 
-                <div style={{ ...cardStyle(), marginTop: 20, padding: 18 }}>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>
+                <div className={CARD_CLS}>
+                  <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>
                     Línea temporal
                   </div>
 
                   {!trazabilidadResumen.length ? (
-                    <div style={{ color: "#64748b", fontWeight: 800 }}>No hay movimientos asociados a este UUID.</div>
+                    <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>No hay movimientos asociados a este UUID.</div>
                   ) : (
                     <div style={{ display: "grid", gap: 12 }}>
                       {trazabilidadResumen.map((m, idx) => (
@@ -2949,18 +2225,18 @@ export default function Informes() {
                           key={`${m.movimiento_id || idx}-${idx}`}
                           style={{
                             padding: 14,
-                            borderRadius: 16,
-                            border: "1px solid rgba(15,23,42,0.08)",
-                            background: "#fafcff",
+                            borderRadius: "var(--radius-lg)",
+                            border: "1px solid var(--border)",
+                            background: "var(--muted)",
                           }}
                         >
-                          <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
+                          <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>
                             {fmtFecha(m.fecha_movimiento)}
                           </div>
-                          <div style={{ marginTop: 6, fontWeight: 800, color: "#0f172a" }}>
+                          <div style={{ marginTop: 6, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
                             {m.descripcion || "Movimiento registrado"}
                           </div>
-                          <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
+                          <div style={{ marginTop: 6, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
                             Cantidad: {fmtNum(m.cantidad)} · Origen: {m.origen_tipo || "—"} · Destino: {m.destino_tipo || "—"}
                           </div>
                         </div>
@@ -2969,31 +2245,31 @@ export default function Informes() {
                   )}
                 </div>
 
-                <div style={{ ...cardStyle(), marginTop: 20, padding: 18 }}>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>
+                <div className={CARD_CLS}>
+                  <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>
                     Inventario actual del lote
                   </div>
 
                   {!trazabilidadData.inventario_actual?.length ? (
-                    <div style={{ color: "#64748b", fontWeight: 800 }}>
+                    <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>
                       El lote no tiene inventario disponible actualmente.
                     </div>
                   ) : (
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
                         <thead>
                           <tr>
-                            <th style={thStyle()}>Zona</th>
-                            <th style={thStyle()}>Tamaño</th>
-                            <th style={thStyle()}>Cantidad disponible</th>
+                            <th className={TH}>Zona</th>
+                            <th className={TH}>Tamaño</th>
+                            <th className={TH}>Cantidad disponible</th>
                           </tr>
                         </thead>
                         <tbody>
                           {trazabilidadData.inventario_actual.map((inv, idx) => (
                             <tr key={idx}>
-                              <td style={tdStyle()}>{inv.zona || "—"}</td>
-                              <td style={tdStyle()}>{inv.tamano || "—"}</td>
-                              <td style={tdStyle()}>{fmtNum(inv.cantidad_disponible)}</td>
+                              <td className={TD}>{inv.zona || "—"}</td>
+                              <td className={TD}>{inv.tamano || "—"}</td>
+                              <td className={TD}>{fmtNum(inv.cantidad_disponible)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -3019,9 +2295,9 @@ export default function Informes() {
                 alignItems: "end",
               }}
             >
-              <div ref={productoSearchRef} style={{ position: "relative", minWidth: 0 }}>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Buscar producto</div>
-                <input
+              <div ref={productoSearchRef} className="relative min-w-0">
+                <label htmlFor="inf-buscar-producto" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Buscar producto</label>
+                <input id="inf-buscar-producto"
                   value={productoSearch}
                   onChange={(e) => {
                     setProductoSearch(e.target.value);
@@ -3030,7 +2306,7 @@ export default function Informes() {
                   }}
                   onFocus={() => setShowProductoDropdown(true)}
                   placeholder="Escribe nombre natural, científico, categoría o subcategoría"
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
 
                 {showProductoDropdown && filteredProductos.length > 0 && (
@@ -3044,9 +2320,9 @@ export default function Informes() {
                       maxHeight: 280,
                       overflowY: "auto",
                       background: "white",
-                      border: "2px solid #334155",
-                      borderRadius: 14,
-                      boxShadow: "0 18px 40px rgba(2,6,23,0.12)",
+                      border: "1px solid var(--input)",
+                      borderRadius: "var(--radius-lg)",
+                      boxShadow: "var(--shadow-md)",
                     }}
                   >
                     {filteredProductos.map((p) => {
@@ -3061,13 +2337,13 @@ export default function Informes() {
                             textAlign: "left",
                             padding: "12px 14px",
                             border: "none",
-                            borderBottom: "1px solid rgba(15,23,42,0.06)",
+                            borderBottom: "1px solid var(--border)",
                             background: "white",
                             cursor: "pointer",
                           }}
                         >
-                          <div style={{ fontWeight: 900, color: "#0f172a" }}>{label}</div>
-                          <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
+                          <div className="font-[var(--font-weight-medium)]">{label}</div>
+                          <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 3 }}>
                             {p.nombre_cientifico || "—"} · {p.categoria || "—"} · {p.subcategoria || "—"}
                           </div>
                         </button>
@@ -3077,66 +2353,66 @@ export default function Informes() {
                 )}
               </div>
 
-              <button onClick={onBuscarDistribucion} disabled={loading} style={primaryBtnStyle(loading)}>
+              <Button type="button" variant="primary" onClick={onBuscarDistribucion} loading={loading}>
                 {loading ? "Generando..." : "Generar informe"}
-              </button>
+              </Button>
 
-              <button onClick={onNuevaBusquedaDistribucion} style={secondaryBtnStyle()}>
+              <Button type="button" variant="secondary" size="sm" onClick={onNuevaBusquedaDistribucion}>
                 Nueva búsqueda
-              </button>
+              </Button>
             </div>
 
             {distribucionData ? (
               <>
-                <div style={{ ...cardStyle(), marginTop: 20, padding: 18 }}>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>Resumen</div>
+                <div className={CARD_CLS}>
+                  <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>Resumen</div>
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(3, minmax(160px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(min(160px, 100%), 1fr))",
                       gap: 12,
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Producto</div>
-                      <div style={{ fontWeight: 800 }}>
+                      <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Producto</div>
+                      <div className="font-[var(--font-weight-medium)]">
                         {distribucionData.producto_nombre || `Producto #${distribucionData.producto_id || "—"}`}
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Stock total</div>
-                      <div style={{ fontWeight: 800 }}>{fmtNum(distribucionData.stock_total)}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Stock total</div>
+                      <div className="font-[var(--font-weight-medium)]">{fmtNum(distribucionData.stock_total)}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Ubicaciones activas</div>
-                      <div style={{ fontWeight: 800 }}>{fmtNum(distribucionData.distribucion?.length || 0)}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Ubicaciones activas</div>
+                      <div className="font-[var(--font-weight-medium)]">{fmtNum(distribucionData.distribucion?.length || 0)}</div>
                     </div>
                   </div>
                 </div>
 
-                <div style={{ ...cardStyle(), marginTop: 20, padding: 18 }}>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>
+                <div className={CARD_CLS}>
+                  <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>
                     Distribución dentro del vivero
                   </div>
 
                   {!distribucionData.distribucion?.length ? (
-                    <div style={{ color: "#64748b", fontWeight: 800 }}>No hay inventario disponible para ese producto.</div>
+                    <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>No hay inventario disponible para ese producto.</div>
                   ) : (
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
                         <thead>
                           <tr>
-                            <th style={thStyle()}>Zona</th>
-                            <th style={thStyle()}>Tamaño</th>
-                            <th style={thStyle()}>Cantidad</th>
+                            <th className={TH}>Zona</th>
+                            <th className={TH}>Tamaño</th>
+                            <th className={TH}>Cantidad</th>
                           </tr>
                         </thead>
                         <tbody>
                           {distribucionData.distribucion.map((row, idx) => (
                             <tr key={idx}>
-                              <td style={tdStyle()}>{row.zona || "—"}</td>
-                              <td style={tdStyle()}>{row.tamano || "—"}</td>
-                              <td style={tdStyle()}>{fmtNum(row.cantidad)}</td>
+                              <td className={TD}>{row.zona || "—"}</td>
+                              <td className={TD}>{row.tamano || "—"}</td>
+                              <td className={TD}>{fmtNum(row.cantidad)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -3154,7 +2430,7 @@ export default function Informes() {
         {activeReport === "inventario" && (
           <div style={{ marginTop: 22 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-              <div style={{ color: "#64748b", fontWeight: 700 }}>
+              <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
                 Inventario del vivero por zona. Pulsa cada zona para plegar/desplegar.
               </div>
               {inventarioFiltrado.length > 0 && (
@@ -3162,14 +2438,14 @@ export default function Informes() {
                   <button
                     type="button"
                     onClick={() => setZonasInvColapsadas({})}
-                    style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid rgba(148,163,184,0.35)", background: "#fff", color: "#475569", fontWeight: 800, cursor: "pointer", fontSize: 13 }}
+                    style={{ padding: "8px 12px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: "var(--card)", color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer", fontSize: 13 }}
                   >
                     Expandir todo
                   </button>
                   <button
                     type="button"
                     onClick={() => setZonasInvColapsadas(Object.fromEntries(inventarioFiltrado.map((z) => [z.zona, true])))}
-                    style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid rgba(148,163,184,0.35)", background: "#fff", color: "#475569", fontWeight: 800, cursor: "pointer", fontSize: 13 }}
+                    style={{ padding: "8px 12px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: "var(--card)", color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer", fontSize: 13 }}
                   >
                     Colapsar todo
                   </button>
@@ -3181,32 +2457,32 @@ export default function Informes() {
             {inventarioVivero.length > 0 && (
               <div style={{ display: "grid", gridTemplateColumns: "minmax(240px, 1.4fr) minmax(200px, 1fr) minmax(200px, 1fr)", gap: 14, marginBottom: 18, alignItems: "end" }}>
                 <div>
-                  <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Buscar producto</div>
-                  <input
+                  <label htmlFor="inf-buscar-producto-2" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Buscar producto</label>
+                  <input id="inf-buscar-producto-2"
                     value={invSearch}
                     onChange={(e) => setInvSearch(e.target.value)}
                     placeholder="Nombre científico o común"
-                    style={softInputStyle()}
+                    className={INPUT_CLS}
                   />
                 </div>
                 <div>
-                  <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Categoría</div>
-                  <select
+                  <label htmlFor="inf-categoria" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Categoría</label>
+                  <select id="inf-categoria"
                     value={invCategoria}
                     onChange={(e) => { setInvCategoria(e.target.value); setInvSubcategoria(""); }}
-                    style={softInputStyle()}
+                    className={INPUT_CLS}
                   >
                     <option value="">Todas</option>
                     {invCategoriasDisponibles.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
-                  <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Subcategoría</div>
-                  <select
+                  <label htmlFor="inf-subcategoria" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Subcategoría</label>
+                  <select id="inf-subcategoria"
                     value={invSubcategoria}
                     onChange={(e) => setInvSubcategoria(e.target.value)}
                     disabled={invSubcategoriasDisponibles.length === 0}
-                    style={{ ...softInputStyle(), opacity: invSubcategoriasDisponibles.length === 0 ? 0.55 : 1 }}
+                    className={cn(INPUT_CLS, invSubcategoriasDisponibles.length === 0 && "opacity-55")}
                   >
                     <option value="">Todas</option>
                     {invSubcategoriasDisponibles.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -3224,51 +2500,51 @@ export default function Informes() {
                 {inventarioFiltrado.map((zona) => {
                   const colapsada = !!zonasInvColapsadas[zona.zona];
                   return (
-                  <div key={zona.zona} style={{ border: "1px solid rgba(15,23,42,0.10)", borderRadius: 14, overflow: "hidden" }}>
+                  <div key={zona.zona} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
                     <div
                       onClick={() => toggleZonaInv(zona.zona)}
-                      style={{ padding: "10px 14px", background: "#0f172a", color: "#fff", fontWeight: 900, fontSize: 15, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, cursor: "pointer" }}
+                      style={{ padding: "10px 14px", background: "var(--foreground)", color: "var(--card)", fontWeight: "var(--font-weight-semibold)", fontSize: 15, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, cursor: "pointer" }}
                     >
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 12 }}>{colapsada ? "▶" : "▼"}</span>
                         📍 {zona.label}
                       </span>
-                      <span style={{ opacity: 0.85, fontWeight: 700, fontSize: 13 }}>
+                      <span style={{ opacity: 0.85, fontWeight: "var(--font-weight-medium)", fontSize: 13 }}>
                         {zona.productos.length} {zona.productos.length === 1 ? "producto" : "productos"}
                       </span>
                     </div>
                     {!colapsada && (
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[480px] border-collapse">
                         <thead>
-                          <tr style={{ background: "#f8fafc" }}>
-                            <th style={{ padding: 10, textAlign: "left", fontWeight: 900, fontSize: 12, color: "#334155", borderBottom: "1px solid rgba(15,23,42,0.08)" }}>Producto</th>
+                          <tr className="bg-muted">
+                            <th style={{ padding: 10, textAlign: "left", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)", borderBottom: "1px solid var(--border)" }}>Producto</th>
                             {zona.tamanos.map((t) => (
-                              <th key={t} style={{ padding: 10, textAlign: "center", fontWeight: 900, fontSize: 12, color: "#334155", borderBottom: "1px solid rgba(15,23,42,0.08)", whiteSpace: "nowrap" }}>{t}</th>
+                              <th key={t} style={{ padding: 10, textAlign: "center", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)", borderBottom: "1px solid var(--border)", whiteSpace: "nowrap" }}>{t}</th>
                             ))}
-                            <th style={{ padding: 10, textAlign: "center", fontWeight: 900, fontSize: 12, color: "#0f172a", borderBottom: "1px solid rgba(15,23,42,0.08)" }}>Total</th>
+                            <th style={{ padding: 10, textAlign: "center", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)", borderBottom: "1px solid var(--border)" }}>Total</th>
                           </tr>
                         </thead>
                         <tbody>
                           {zona.productos.map((p) => (
-                            <tr key={p.producto_id} style={{ borderTop: "1px solid rgba(15,23,42,0.06)" }}>
+                            <tr key={p.producto_id} style={{ borderTop: "1px solid var(--border)" }}>
                               <td style={{ padding: 10, textAlign: "left" }}>
-                                <div style={{ fontWeight: 800, color: "#0f172a", fontSize: 13, fontStyle: "italic" }}>{p.nombre}</div>
+                                <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", fontSize: 13, fontStyle: "italic" }}>{p.nombre}</div>
                                 {p.nombreComun && (
-                                  <div style={{ fontSize: 12, color: "#334155", fontWeight: 700 }}>{p.nombreComun}</div>
+                                  <div style={{ fontSize: 12, color: "var(--foreground)", fontWeight: "var(--font-weight-medium)" }}>{p.nombreComun}</div>
                                 )}
                                 {(p.categoria || p.subcategoria) && (
-                                  <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>
+                                  <div style={{ fontSize: 11, color: "var(--muted-foreground)", fontWeight: 600 }}>
                                     {[p.categoria, p.subcategoria].filter(Boolean).join(" · ")}
                                   </div>
                                 )}
                               </td>
                               {zona.tamanos.map((t) => (
-                                <td key={t} style={{ padding: 10, textAlign: "center", fontWeight: 800, color: p.tamanos[t] ? "#0f172a" : "#cbd5e1" }}>
+                                <td key={t} style={{ padding: 10, textAlign: "center", fontWeight: "var(--font-weight-semibold)", color: p.tamanos[t] ? "var(--foreground)" : "var(--muted-foreground)" }}>
                                   {p.tamanos[t] ? fmtCantInv(p.tamanos[t]) : "—"}
                                 </td>
                               ))}
-                              <td style={{ padding: 10, textAlign: "center", fontWeight: 900, color: "#065f46" }}>{fmtCantInv(p.total)}</td>
+                              <td style={{ padding: 10, textAlign: "center", fontWeight: "var(--font-weight-semibold)", color: "var(--success-subtle-foreground)" }}>{fmtCantInv(p.total)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -3295,24 +2571,24 @@ export default function Informes() {
               }}
             >
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Buscar</div>
-                <input
+                <label htmlFor="inf-buscar" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Buscar</label>
+                <input id="inf-buscar"
                   value={stockSearch}
                   onChange={(e) => setStockSearch(e.target.value)}
                   placeholder="Producto, categoría o subcategoría"
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Categoría</div>
-                <select
+                <label htmlFor="inf-categoria-2" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Categoría</label>
+                <select id="inf-categoria-2"
                   value={stockCategoriaFilter}
                   onChange={(e) => {
                     setStockCategoriaFilter(e.target.value);
                     setStockSubcategoriaFilter("");
                   }}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 >
                   <option value="">Todas</option>
                   {stockCategoriasDisponibles.map((categoria) => (
@@ -3322,11 +2598,11 @@ export default function Informes() {
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Subcategoría</div>
-                <select
+                <label htmlFor="inf-subcategoria-2" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Subcategoría</label>
+                <select id="inf-subcategoria-2"
                   value={stockSubcategoriaFilter}
                   onChange={(e) => setStockSubcategoriaFilter(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 >
                   <option value="">Todas</option>
                   {stockSubcategoriasDisponibles.map((subcategoria) => (
@@ -3336,11 +2612,11 @@ export default function Informes() {
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Estado de existencias</div>
-                <select
+                <label htmlFor="inf-estado-de-existencias" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Estado de existencias</label>
+                <select id="inf-estado-de-existencias"
                   value={stockEstadoFilter}
                   onChange={(e) => setStockEstadoFilter(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 >
                   {ESTADO_STOCK_OPTIONS.map((o) => (
                     <option key={o.value || "todos"} value={o.value}>{o.label}</option>
@@ -3349,13 +2625,13 @@ export default function Informes() {
               </div>
 
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                <button onClick={onBuscarStock} disabled={loading} style={primaryBtnStyle(loading)}>
+                <Button type="button" variant="primary" onClick={onBuscarStock} loading={loading}>
                   {loading ? "Actualizando..." : "Actualizar"}
-                </button>
+                </Button>
 
-                <button onClick={onLimpiarFiltrosStock} style={secondaryBtnStyle()}>
+                <Button type="button" variant="secondary" size="sm" onClick={onLimpiarFiltrosStock}>
                   Limpiar filtros
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -3363,31 +2639,31 @@ export default function Informes() {
               style={{
                 marginTop: 20,
                 display: "grid",
-                gridTemplateColumns: "repeat(4, minmax(180px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))",
                 gap: 16,
               }}
             >
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Categorías visibles</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#0f172a", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Categorías visibles</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginTop: 6 }}>
                   {fmtNum(stockSummary.totalCategorias)}
                 </div>
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Productos visibles</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#0f172a", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Productos visibles</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginTop: 6 }}>
                   {fmtNum(stockSummary.totalProductos)}
                 </div>
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Stock total visible</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#0f172a", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Stock total visible</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginTop: 6 }}>
                   {fmtNum(stockSummary.totalStock)}
                 </div>
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Bajo stock</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#b91c1c", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Bajo stock</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--danger-subtle-foreground)", marginTop: 6 }}>
                   {fmtNum(stockSummary.totalBajoStock)}
                 </div>
               </div>
@@ -3398,7 +2674,7 @@ export default function Informes() {
             ) : (
               <div style={{ display: "grid", gap: 18, marginTop: 20 }}>
                 {stockGroupedByCategory.map((group) => (
-                  <div key={group.categoria} style={{ ...cardStyle(), padding: 18 }}>
+                  <div key={group.categoria} className={CARD_CLS}>
                     <div
                       style={{
                         display: "flex",
@@ -3409,32 +2685,32 @@ export default function Informes() {
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: 20, fontWeight: 900, color: "#0f172a" }}>{group.categoria}</div>
-                        <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
+                        <div style={{ fontSize: 20, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>{group.categoria}</div>
+                        <div style={{ marginTop: 6, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
                           {fmtNum(group.totalProductos)} productos · Stock total: {fmtNum(group.stockTotal)} · Bajo stock: {fmtNum(group.bajoStock)}
                         </div>
                       </div>
                     </div>
 
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
                         <thead>
                           <tr>
-                            <th style={thStyle()}>Producto</th>
-                            <th style={thStyle()}>Subcategoría</th>
-                            <th style={thStyle()}>Stock actual</th>
-                            <th style={thStyle()}>Stock mínimo</th>
-                            <th style={thStyle()}>Estado</th>
+                            <th className={TH}>Producto</th>
+                            <th className={TH}>Subcategoría</th>
+                            <th className={TH}>Stock actual</th>
+                            <th className={TH}>Stock mínimo</th>
+                            <th className={TH}>Estado</th>
                           </tr>
                         </thead>
                         <tbody>
                           {group.items.map((item) => (
                             <tr key={item.id}>
-                              <td style={tdStyle()}>{item.nombreDisplay}</td>
-                              <td style={tdStyle()}>{item.subcategoria}</td>
-                              <td style={tdStyle()}>{fmtNum(item.stockActual)}</td>
-                              <td style={tdStyle()}>{fmtNum(item.stockMinimo)}</td>
-                              <td style={tdStyle()}><StockBadge estado={item.estado} /></td>
+                              <td className={TD}>{item.nombreDisplay}</td>
+                              <td className={TD}>{item.subcategoria}</td>
+                              <td className={TD}>{fmtNum(item.stockActual)}</td>
+                              <td className={TD}>{fmtNum(item.stockMinimo)}</td>
+                              <td className={TD}><StockBadge estado={item.estado} /></td>
                             </tr>
                           ))}
                         </tbody>
@@ -3458,40 +2734,40 @@ export default function Informes() {
                 alignItems: "center",
               }}
             >
-              <button onClick={onBuscarCaducidad} disabled={loading} style={primaryBtnStyle(loading)}>
+              <Button type="button" variant="primary" onClick={onBuscarCaducidad} loading={loading}>
                 {loading ? "Actualizando..." : "Actualizar"}
-              </button>
+              </Button>
             </div>
 
             <div
               style={{
                 marginTop: 20,
                 display: "grid",
-                gridTemplateColumns: "repeat(4, minmax(200px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))",
                 gap: 16,
               }}
             >
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Total registros</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#0f172a", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Total registros</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginTop: 6 }}>
                   {fmtNum(caducidadSummary.totalItems)}
                 </div>
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Caducados</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#b91c1c", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Caducados</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--danger-subtle-foreground)", marginTop: 6 }}>
                   {fmtNum(caducidadSummary.totalCaducados)}
                 </div>
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Próximos a caducar</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#92400e", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Próximos a caducar</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--warning-subtle-foreground)", marginTop: 6 }}>
                   {fmtNum(caducidadSummary.totalProximos)}
                 </div>
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Vigentes</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#047857", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Vigentes</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--success-subtle-foreground)", marginTop: 6 }}>
                   {fmtNum(caducidadSummary.totalVigentes)}
                 </div>
               </div>
@@ -3500,40 +2776,40 @@ export default function Informes() {
             {caducidadItems.length === 0 ? (
               <EmptyState text="No hay productos con fecha de caducidad para mostrar." />
             ) : (
-              <div style={{ ...cardStyle(), marginTop: 20, padding: 18 }}>
-                <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>
 Productos con fecha de caducidad
                 </div>
 
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
                     <thead>
                       <tr>
-                        <th style={thStyle()}>Producto</th>
-                        <th style={thStyle()}>Categoría</th>
-                        <th style={thStyle()}>Subcategoría</th>
-                        <th style={thStyle()}>Zona</th>
-                        <th style={thStyle()}>Tamaño</th>
-                        <th style={thStyle()}>Cantidad</th>
-                        <th style={thStyle()}>Fecha caducidad</th>
-                        <th style={thStyle()}>Días</th>
-                        <th style={thStyle()}>Estado</th>
-                        <th style={thStyle()}>UUID lote</th>
+                        <th className={TH}>Producto</th>
+                        <th className={TH}>Categoría</th>
+                        <th className={TH}>Subcategoría</th>
+                        <th className={TH}>Zona</th>
+                        <th className={TH}>Tamaño</th>
+                        <th className={TH}>Cantidad</th>
+                        <th className={TH}>Fecha caducidad</th>
+                        <th className={TH}>Días</th>
+                        <th className={TH}>Estado</th>
+                        <th className={TH}>UUID lote</th>
                       </tr>
                     </thead>
                     <tbody>
                       {caducidadItems.map((item) => (
                         <tr key={item.id}>
-                          <td style={tdStyle()}>{item.nombre}</td>
-                          <td style={tdStyle()}>{item.categoria}</td>
-                          <td style={tdStyle()}>{item.subcategoria}</td>
-                          <td style={tdStyle()}>{item.zona}</td>
-                          <td style={tdStyle()}>{item.tamano}</td>
-                          <td style={tdStyle()}>{fmtNum(item.cantidad)}</td>
-                          <td style={tdStyle()}>{fmtFechaSolo(item.fechaCaducidad)}</td>
-                          <td style={tdStyle()}>{item.diasRestantes}</td>
-                          <td style={tdStyle()}><CaducidadBadge estado={item.estado} /></td>
-                          <td style={tdStyle()}>{item.loteUuid}</td>
+                          <td className={TD}>{item.nombre}</td>
+                          <td className={TD}>{item.categoria}</td>
+                          <td className={TD}>{item.subcategoria}</td>
+                          <td className={TD}>{item.zona}</td>
+                          <td className={TD}>{item.tamano}</td>
+                          <td className={TD}>{fmtNum(item.cantidad)}</td>
+                          <td className={TD}>{fmtFechaSolo(item.fechaCaducidad)}</td>
+                          <td className={TD}>{item.diasRestantes}</td>
+                          <td className={TD}><CaducidadBadge estado={item.estado} /></td>
+                          <td className={TD}>{item.loteUuid}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -3557,31 +2833,31 @@ Productos con fecha de caducidad
               }}
             >
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Producto</div>
-                <input
+                <label htmlFor="inf-producto" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Producto</label>
+                <input id="inf-producto"
                   value={prestamoProductoFilter}
                   onChange={(e) => setPrestamoProductoFilter(e.target.value)}
                   placeholder="Buscar por producto"
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Solicitante / destino</div>
-                <input
+                <label htmlFor="inf-solicitante-destino" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Solicitante / destino</label>
+                <input id="inf-solicitante-destino"
                   value={prestamoSolicitanteFilter}
                   onChange={(e) => setPrestamoSolicitanteFilter(e.target.value)}
                   placeholder="Solicitante o destinatario"
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Estado</div>
-                <select
+                <label htmlFor="inf-estado" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Estado</label>
+                <select id="inf-estado"
                   value={prestamoEstadoFilter}
                   onChange={(e) => setPrestamoEstadoFilter(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 >
                   <option value="">Todos</option>
                   <option value="Activo">Activo</option>
@@ -3590,57 +2866,57 @@ Productos con fecha de caducidad
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Fecha desde</div>
-                <input
+                <label htmlFor="inf-fecha-desde" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Fecha desde</label>
+                <input id="inf-fecha-desde"
                   type="date"
                   value={prestamoFechaDesde}
                   onChange={(e) => setPrestamoFechaDesde(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Fecha hasta</div>
-                <input
+                <label htmlFor="inf-fecha-hasta" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Fecha hasta</label>
+                <input id="inf-fecha-hasta"
                   type="date"
                   value={prestamoFechaHasta}
                   onChange={(e) => setPrestamoFechaHasta(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
-              <button onClick={onActualizarPrestamos} disabled={loading} style={primaryBtnStyle(loading)}>
+              <Button type="button" variant="primary" onClick={onActualizarPrestamos} loading={loading}>
                 {loading ? "Actualizando..." : "Actualizar"}
-              </button>
+              </Button>
 
-              <button onClick={onLimpiarPrestamos} style={secondaryBtnStyle()}>
+              <Button type="button" variant="secondary" size="sm" onClick={onLimpiarPrestamos}>
                 Limpiar filtros
-              </button>
+              </Button>
             </div>
 
             <div
               style={{
                 marginTop: 20,
                 display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(200px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))",
                 gap: 16,
               }}
             >
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Préstamos visibles</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#0f172a", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Préstamos visibles</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginTop: 6 }}>
                   {fmtNum(prestamosSummary.totalPrestamos)}
                 </div>
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Activos</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#1d4ed8", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Activos</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--info-subtle-foreground)", marginTop: 6 }}>
                   {fmtNum(prestamosSummary.totalActivos)}
                 </div>
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Devueltos</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#047857", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Devueltos</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--success-subtle-foreground)", marginTop: 6 }}>
                   {fmtNum(prestamosSummary.totalDevueltos)}
                 </div>
               </div>
@@ -3649,51 +2925,51 @@ Productos con fecha de caducidad
             {prestamosItems.length === 0 ? (
               <EmptyState text="No hay préstamos que coincidan con los filtros seleccionados." />
             ) : (
-              <div style={{ ...cardStyle(), marginTop: 20, padding: 18 }}>
-                <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>
                   Préstamos
                 </div>
 
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
                     <thead>
                       <tr>
-                        <th style={thStyle()}>Pedido</th>
-                        <th style={thStyle()}>Fecha</th>
-                        <th style={thStyle()}>Solicitante</th>
-                        <th style={thStyle()}>Destino</th>
-                        <th style={thStyle()}>Elementos</th>
-                        <th style={thStyle()}>Prestado</th>
-                        <th style={thStyle()}>Devuelto</th>
-                        <th style={thStyle()}>Pendiente</th>
-                        <th style={thStyle()}>Estado</th>
+                        <th className={TH}>Pedido</th>
+                        <th className={TH}>Fecha</th>
+                        <th className={TH}>Solicitante</th>
+                        <th className={TH}>Destino</th>
+                        <th className={TH}>Elementos</th>
+                        <th className={TH}>Prestado</th>
+                        <th className={TH}>Devuelto</th>
+                        <th className={TH}>Pendiente</th>
+                        <th className={TH}>Estado</th>
                       </tr>
                     </thead>
                     <tbody>
                       {prestamosItems.map((item) => (
                         <tr key={item.id}>
-                          <td style={tdStyle()}>{item.pedidoId ? `#${item.pedidoId}` : <span style={{ color: "#64748b", fontWeight: 700 }}>Sin pedido</span>}</td>
-                          <td style={tdStyle()}>{fmtFecha(item.fechaPrestamo)}</td>
-                          <td style={tdStyle()}>{item.solicitante}</td>
-                          <td style={tdStyle()}>{item.destinatario}</td>
-                          <td style={tdStyle()}>
+                          <td className={TD}>{item.pedidoId ? `#${item.pedidoId}` : <span style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>Sin pedido</span>}</td>
+                          <td className={TD}>{fmtFecha(item.fechaPrestamo)}</td>
+                          <td className={TD}>{item.solicitante}</td>
+                          <td className={TD}>{item.destinatario}</td>
+                          <td className={TD}>
                             <div style={{ display: "grid", gap: 8 }}>
                               {item.lineas.map((linea) => (
                                 <div key={linea.key}>
-                                  <div style={{ fontWeight: 900, color: "#0f172a" }}>
+                                  <div className="font-[var(--font-weight-medium)]">
                                     {linea.producto}
                                   </div>
-                                  <div style={{ color: "#64748b", fontWeight: 700, marginTop: 2 }}>
+                                  <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", marginTop: 2 }}>
                                     Tamaño: {linea.tamano} · Pedido: {fmtNum(linea.cantidadPedida)}
                                   </div>
                                 </div>
                               ))}
                             </div>
                           </td>
-                          <td style={tdStyle()}>{fmtNum(item.totalPrestado)}</td>
-                          <td style={tdStyle()}>{fmtNum(item.totalDevuelto)}</td>
-                          <td style={tdStyle()}>{fmtNum(item.totalPendiente)}</td>
-                          <td style={tdStyle()}><PrestamoBadge estado={item.estado} /></td>
+                          <td className={TD}>{fmtNum(item.totalPrestado)}</td>
+                          <td className={TD}>{fmtNum(item.totalDevuelto)}</td>
+                          <td className={TD}>{fmtNum(item.totalPendiente)}</td>
+                          <td className={TD}><PrestamoBadge estado={item.estado} /></td>
                         </tr>
                       ))}
                     </tbody>
@@ -3716,24 +2992,24 @@ Productos con fecha de caducidad
               }}
             >
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Producto</div>
-                <input
+                <label htmlFor="inf-producto-2" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Producto</label>
+                <input id="inf-producto-2"
                   value={bajaProductoFilter}
                   onChange={(e) => setBajaProductoFilter(e.target.value)}
                   placeholder="Nombre científico o UUID"
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Categoría</div>
-                <select
+                <label htmlFor="inf-categoria-3" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Categoría</label>
+                <select id="inf-categoria-3"
                   value={bajaCategoriaFilter}
                   onChange={(e) => {
                     setBajaCategoriaFilter(e.target.value);
                     setBajaSubcategoriaFilter("");
                   }}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 >
                   <option value="">Todas</option>
                   {bajasCategoriasDisponibles.map((c) => (
@@ -3743,11 +3019,11 @@ Productos con fecha de caducidad
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Subcategoría</div>
-                <select
+                <label htmlFor="inf-subcategoria-3" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Subcategoría</label>
+                <select id="inf-subcategoria-3"
                   value={bajaSubcategoriaFilter}
                   onChange={(e) => setBajaSubcategoriaFilter(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 >
                   <option value="">Todas</option>
                   {bajasSubcategoriasDisponibles.map((s) => (
@@ -3757,53 +3033,53 @@ Productos con fecha de caducidad
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Fecha desde</div>
-                <input
+                <label htmlFor="inf-fecha-desde-2" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Fecha desde</label>
+                <input id="inf-fecha-desde-2"
                   type="date"
                   value={bajaFechaDesde}
                   onChange={(e) => setBajaFechaDesde(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Fecha hasta</div>
-                <input
+                <label htmlFor="inf-fecha-hasta-2" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Fecha hasta</label>
+                <input id="inf-fecha-hasta-2"
                   type="date"
                   value={bajaFechaHasta}
                   onChange={(e) => setBajaFechaHasta(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
-              <button onClick={onLimpiarBajas} style={secondaryBtnStyle()}>
+              <Button type="button" variant="secondary" size="sm" onClick={onLimpiarBajas}>
                 Limpiar filtros
-              </button>
+              </Button>
             </div>
 
             <div
               style={{
                 marginTop: 20,
                 display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(220px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
                 gap: 16,
               }}
             >
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Bajas visibles</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#b91c1c", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Bajas visibles</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--danger-subtle-foreground)", marginTop: 6 }}>
                   {fmtNum(bajasSummary.totalMovimientos)}
                 </div>
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Productos distintos</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#0f172a", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Productos distintos</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginTop: 6 }}>
                   {fmtNum(bajasSummary.productosUnicos)}
                 </div>
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Unidades totales dadas de baja</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#b91c1c", marginTop: 6 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Unidades totales dadas de baja</div>
+                <div style={{ fontSize: 28, fontWeight: "var(--font-weight-semibold)", color: "var(--danger-subtle-foreground)", marginTop: 6 }}>
                   {fmtNum(bajasSummary.totalUnidades)}
                 </div>
               </div>
@@ -3812,44 +3088,44 @@ Productos con fecha de caducidad
             {bajasItems.length === 0 ? (
               <EmptyState text="No hay bajas registradas con los filtros seleccionados." />
             ) : (
-              <div style={{ ...cardStyle(), marginTop: 20, padding: 18 }}>
-                <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>
                   Productos dados de baja
                 </div>
 
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
                     <thead>
                       <tr>
-                        <th style={thStyle()}>Fecha</th>
-                        <th style={thStyle()}>Producto</th>
-                        <th style={thStyle()}>Categoría</th>
-                        <th style={thStyle()}>Subcategoría</th>
-                        <th style={thStyle()}>Zona origen</th>
-                        <th style={thStyle()}>Tamaño</th>
-                        <th style={thStyle()}>Unidades</th>
-                        <th style={thStyle()}>UUID lote</th>
-                        <th style={thStyle()}>Registrado por</th>
-                        <th style={thStyle()}>Observaciones</th>
+                        <th className={TH}>Fecha</th>
+                        <th className={TH}>Producto</th>
+                        <th className={TH}>Categoría</th>
+                        <th className={TH}>Subcategoría</th>
+                        <th className={TH}>Zona origen</th>
+                        <th className={TH}>Tamaño</th>
+                        <th className={TH}>Unidades</th>
+                        <th className={TH}>UUID lote</th>
+                        <th className={TH}>Registrado por</th>
+                        <th className={TH}>Observaciones</th>
                       </tr>
                     </thead>
                     <tbody>
                       {bajasItems.map((item) => (
                         <tr key={item.id}>
-                          <td style={tdStyle()}>{fmtFecha(item.fecha)}</td>
-                          <td style={tdStyle()}>{item.producto}</td>
-                          <td style={tdStyle()}>{item.categoria}</td>
-                          <td style={tdStyle()}>{item.subcategoria}</td>
-                          <td style={tdStyle()}>{item.zonaOrigen}</td>
-                          <td style={tdStyle()}>{item.tamano}</td>
-                          <td style={tdStyle()}>
-                            <span style={{ fontWeight: 900, color: "#b91c1c" }}>{fmtNum(item.cantidad)}</span>
+                          <td className={TD}>{fmtFecha(item.fecha)}</td>
+                          <td className={TD}>{item.producto}</td>
+                          <td className={TD}>{item.categoria}</td>
+                          <td className={TD}>{item.subcategoria}</td>
+                          <td className={TD}>{item.zonaOrigen}</td>
+                          <td className={TD}>{item.tamano}</td>
+                          <td className={TD}>
+                            <span style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--danger-subtle-foreground)" }}>{fmtNum(item.cantidad)}</span>
                           </td>
-                          <td style={{ ...tdStyle(), fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 12 }}>
+                          <td className={cn(TD, "mono text-caption")}>
                             {item.uuidLote}
                           </td>
-                          <td style={tdStyle()}>{item.createdBy}</td>
-                          <td style={tdStyle()}>{item.observaciones || "—"}</td>
+                          <td className={TD}>{item.createdBy}</td>
+                          <td className={TD}>{item.observaciones || "—"}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -3872,31 +3148,31 @@ Productos con fecha de caducidad
               }}
             >
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Producto</div>
-                <input
+                <label htmlFor="inf-producto-3" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Producto</label>
+                <input id="inf-producto-3"
                   value={abastProductoFilter}
                   onChange={(e) => setAbastProductoFilter(e.target.value)}
                   placeholder="Buscar por producto"
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Solicitante</div>
-                <input
+                <label htmlFor="inf-solicitante" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Solicitante</label>
+                <input id="inf-solicitante"
                   value={abastSolicitanteFilter}
                   onChange={(e) => setAbastSolicitanteFilter(e.target.value)}
                   placeholder="Solicitante"
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Estado</div>
-                <select
+                <label htmlFor="inf-estado-2" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Estado</label>
+                <select id="inf-estado-2"
                   value={abastEstadoFilter}
                   onChange={(e) => setAbastEstadoFilter(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 >
                   <option value="">Todos</option>
                   <option value="RESERVA">Reserva</option>
@@ -3909,98 +3185,98 @@ Productos con fecha de caducidad
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Fecha desde</div>
-                <input type="date" value={abastFechaDesde} onChange={(e) => setAbastFechaDesde(e.target.value)} style={softInputStyle()} />
+                <label htmlFor="inf-fecha-desde-3" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Fecha desde</label>
+                <input id="inf-fecha-desde-3" type="date" value={abastFechaDesde} onChange={(e) => setAbastFechaDesde(e.target.value)} className={INPUT_CLS} />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Fecha hasta</div>
-                <input type="date" value={abastFechaHasta} onChange={(e) => setAbastFechaHasta(e.target.value)} style={softInputStyle()} />
+                <label htmlFor="inf-fecha-hasta-3" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Fecha hasta</label>
+                <input id="inf-fecha-hasta-3" type="date" value={abastFechaHasta} onChange={(e) => setAbastFechaHasta(e.target.value)} className={INPUT_CLS} />
               </div>
 
-              <button onClick={onLimpiarAbastecimiento} style={secondaryBtnStyle()}>
+              <Button type="button" variant="secondary" size="sm" onClick={onLimpiarAbastecimiento}>
                 Limpiar filtros
-              </button>
+              </Button>
             </div>
 
             <div
               style={{
                 marginTop: 20,
                 display: "grid",
-                gridTemplateColumns: "repeat(6, minmax(150px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(150px, 100%), 1fr))",
                 gap: 16,
               }}
             >
-              <div style={{ ...cardStyle(), padding: 16 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Pedidos visibles</div>
-                <div style={{ fontSize: 26, fontWeight: 900, color: "#0f172a", marginTop: 6 }}>{fmtNum(abastecimientoSummary.total)}</div>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Pedidos visibles</div>
+                <div style={{ fontSize: 26, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginTop: 6 }}>{fmtNum(abastecimientoSummary.total)}</div>
               </div>
-              <div style={{ ...cardStyle(), padding: 16 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Reserva</div>
-                <div style={{ fontSize: 26, fontWeight: 900, color: "#92400e", marginTop: 6 }}>{fmtNum(abastecimientoSummary.reserva)}</div>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Reserva</div>
+                <div style={{ fontSize: 26, fontWeight: "var(--font-weight-semibold)", color: "var(--warning-subtle-foreground)", marginTop: 6 }}>{fmtNum(abastecimientoSummary.reserva)}</div>
               </div>
-              <div style={{ ...cardStyle(), padding: 16 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Aprobados</div>
-                <div style={{ fontSize: 26, fontWeight: 900, color: "#065f46", marginTop: 6 }}>{fmtNum(abastecimientoSummary.aprobados)}</div>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Aprobados</div>
+                <div style={{ fontSize: 26, fontWeight: "var(--font-weight-semibold)", color: "var(--success-subtle-foreground)", marginTop: 6 }}>{fmtNum(abastecimientoSummary.aprobados)}</div>
               </div>
-              <div style={{ ...cardStyle(), padding: 16 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Servidos</div>
-                <div style={{ fontSize: 26, fontWeight: 900, color: "#1e3a8a", marginTop: 6 }}>{fmtNum(abastecimientoSummary.servidos)}</div>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Servidos</div>
+                <div style={{ fontSize: 26, fontWeight: "var(--font-weight-semibold)", color: "var(--info-subtle-foreground)", marginTop: 6 }}>{fmtNum(abastecimientoSummary.servidos)}</div>
               </div>
-              <div style={{ ...cardStyle(), padding: 16 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Total pedido</div>
-                <div style={{ fontSize: 26, fontWeight: 900, color: "#0f172a", marginTop: 6 }}>{fmtNum(abastecimientoSummary.totalPedido)}</div>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Total pedido</div>
+                <div style={{ fontSize: 26, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginTop: 6 }}>{fmtNum(abastecimientoSummary.totalPedido)}</div>
               </div>
-              <div style={{ ...cardStyle(), padding: 16 }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Pendiente</div>
-                <div style={{ fontSize: 26, fontWeight: 900, color: "#b91c1c", marginTop: 6 }}>{fmtNum(abastecimientoSummary.totalPendiente)}</div>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Pendiente</div>
+                <div style={{ fontSize: 26, fontWeight: "var(--font-weight-semibold)", color: "var(--danger-subtle-foreground)", marginTop: 6 }}>{fmtNum(abastecimientoSummary.totalPendiente)}</div>
               </div>
             </div>
 
             {abastecimientoItems.length === 0 ? (
               <EmptyState text="No hay pedidos de abastecimiento que coincidan con los filtros." />
             ) : (
-              <div style={{ ...cardStyle(), marginTop: 20, padding: 18 }}>
-                <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>
                   Pedidos de abastecimiento
                 </div>
 
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
                     <thead>
                       <tr>
-                        <th style={thStyle()}>Pedido</th>
-                        <th style={thStyle()}>Fecha</th>
-                        <th style={thStyle()}>Solicitante</th>
-                        <th style={thStyle()}>Estado</th>
-                        <th style={thStyle()}>Líneas</th>
-                        <th style={thStyle()}>Pedido</th>
-                        <th style={thStyle()}>Servido</th>
-                        <th style={thStyle()}>Pendiente</th>
+                        <th className={TH}>Pedido</th>
+                        <th className={TH}>Fecha</th>
+                        <th className={TH}>Solicitante</th>
+                        <th className={TH}>Estado</th>
+                        <th className={TH}>Líneas</th>
+                        <th className={TH}>Pedido</th>
+                        <th className={TH}>Servido</th>
+                        <th className={TH}>Pendiente</th>
                       </tr>
                     </thead>
                     <tbody>
                       {abastecimientoItems.map((item) => (
                         <tr key={item.id}>
-                          <td style={tdStyle()}>#{item.id}</td>
-                          <td style={tdStyle()}>{fmtFecha(item.fecha)}</td>
-                          <td style={tdStyle()}>{item.solicitante}</td>
-                          <td style={tdStyle()}><AbastecimientoBadge estado={item.estado} /></td>
-                          <td style={tdStyle()}>
+                          <td className={TD}>#{item.id}</td>
+                          <td className={TD}>{fmtFecha(item.fecha)}</td>
+                          <td className={TD}>{item.solicitante}</td>
+                          <td className={TD}><AbastecimientoBadge estado={item.estado} /></td>
+                          <td className={TD}>
                             <div style={{ display: "grid", gap: 6 }}>
                               {item.lineas.map((l) => (
                                 <div key={l.key}>
-                                  <div style={{ fontWeight: 900, color: "#0f172a" }}>{l.producto}</div>
-                                  <div style={{ color: "#64748b", fontWeight: 700, marginTop: 2, fontSize: 12 }}>
+                                  <div className="font-[var(--font-weight-medium)]">{l.producto}</div>
+                                  <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", marginTop: 2, fontSize: 12 }}>
                                     Tamaño: {l.tamano} · Pedido: {fmtNum(l.cantidadPedida)} · Servido: {fmtNum(l.cantidadServida)} · Pendiente: {fmtNum(l.pendiente)}
                                   </div>
                                 </div>
                               ))}
                             </div>
                           </td>
-                          <td style={tdStyle()}>{fmtNum(item.totalPedido)}</td>
-                          <td style={tdStyle()}>{fmtNum(item.totalServido)}</td>
-                          <td style={tdStyle()}>{fmtNum(item.totalPendiente)}</td>
+                          <td className={TD}>{fmtNum(item.totalPedido)}</td>
+                          <td className={TD}>{fmtNum(item.totalServido)}</td>
+                          <td className={TD}>{fmtNum(item.totalPendiente)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -4017,31 +3293,31 @@ Productos con fecha de caducidad
               style={{
                 marginTop: 22,
                 display: "grid",
-                gridTemplateColumns: "repeat(6, minmax(170px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(170px, 100%), 1fr))",
                 gap: 22,
                 rowGap: 20,
                 alignItems: "end",
               }}
             >
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Fecha desde</div>
-                <input type="date" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} style={softInputStyle()} />
+                <label htmlFor="inf-fecha-desde-4" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Fecha desde</label>
+                <input id="inf-fecha-desde-4" type="date" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} className={INPUT_CLS} />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Fecha hasta</div>
-                <input type="date" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} style={softInputStyle()} />
+                <label htmlFor="inf-fecha-hasta-4" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Fecha hasta</label>
+                <input id="inf-fecha-hasta-4" type="date" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} className={INPUT_CLS} />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Distrito</div>
-                <select
+                <label htmlFor="inf-distrito" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Distrito</label>
+                <select id="inf-distrito"
                   value={distrito}
                   onChange={(e) => {
                     setDistrito(e.target.value);
                     setBarrio("");
                   }}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 >
                   <option value="">Todos</option>
                   {DISTRICTS.map((d) => (
@@ -4051,11 +3327,11 @@ Productos con fecha de caducidad
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Barrio</div>
-                <select
+                <label htmlFor="inf-barrio" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Barrio</label>
+                <select id="inf-barrio"
                   value={barrio}
                   onChange={(e) => setBarrio(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                   disabled={!distrito}
                 >
                   <option value="">{distrito ? "Todos" : "Selecciona distrito"}</option>
@@ -4066,21 +3342,21 @@ Productos con fecha de caducidad
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Dirección</div>
-                <input
+                <label htmlFor="inf-direccion" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Dirección</label>
+                <input id="inf-direccion"
                   value={direccion}
                   onChange={(e) => setDireccion(e.target.value)}
                   placeholder="Déjalo en blanco o escribe dirección"
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 />
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Categoría</div>
-                <select
+                <label htmlFor="inf-categoria-4" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Categoría</label>
+                <select id="inf-categoria-4"
                   value={externosCategoria}
                   onChange={(e) => { setExternosCategoria(e.target.value); setExternosSubcategoria(""); }}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                 >
                   <option value="">Todas</option>
                   {externosCategorias.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -4088,11 +3364,11 @@ Productos con fecha de caducidad
               </div>
 
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Subcategoría</div>
-                <select
+                <label htmlFor="inf-subcategoria-4" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Subcategoría</label>
+                <select id="inf-subcategoria-4"
                   value={externosSubcategoria}
                   onChange={(e) => setExternosSubcategoria(e.target.value)}
-                  style={softInputStyle()}
+                  className={INPUT_CLS}
                   disabled={!externosCategoria || externosSubcategorias.length === 0}
                 >
                   <option value="">{externosCategoria ? "Todas" : "Elige categoría"}</option>
@@ -4100,15 +3376,15 @@ Productos con fecha de caducidad
                 </select>
               </div>
 
-              <div style={{ display: "flex", alignItems: "flex-end" }}>
-                <button onClick={onBuscarExternos} disabled={loading} style={primaryBtnStyle(loading)}>
+              <div className="flex items-end">
+                <Button type="button" variant="primary" onClick={onBuscarExternos} loading={loading}>
                   {loading ? "Generando..." : "Buscar"}
-                </button>
+                </Button>
               </div>
-              <div style={{ display: "flex", alignItems: "flex-end" }}>
-                <button onClick={onNuevaBusquedaExternos} style={secondaryBtnStyle()}>
+              <div className="flex items-end">
+                <Button type="button" variant="secondary" size="sm" onClick={onNuevaBusquedaExternos}>
                   Nueva búsqueda
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -4117,52 +3393,52 @@ Productos con fecha de caducidad
             ) : !externosSearched ? (
               <EmptyState text="Define los filtros y genera el informe de movimientos externos." />
             ) : (
-              <div style={{ ...cardStyle(), marginTop: 20, padding: 18 }}>
+              <div className={CARD_CLS}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 10 }}>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a" }}>
+                  <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
                     Movimientos externos
-                    <span style={{ marginLeft: 12, fontSize: 14, fontWeight: 800, color: "#0f6e56" }}>
+                    <span style={{ marginLeft: 12, fontSize: 14, fontWeight: "var(--font-weight-semibold)", color: "var(--success-subtle-foreground)" }}>
                       Total elementos: {fmtNum(externosTotal)} · {externosData.length} {externosData.length === 1 ? "movimiento" : "movimientos"}
                     </span>
                   </div>
-                  <button onClick={exportarExternosExcel} style={secondaryBtnStyle()}>
+                  <Button type="button" variant="secondary" size="sm" onClick={exportarExternosExcel}>
                     ⬇ Exportar a Excel
-                  </button>
+                  </Button>
                 </div>
 
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
                     <thead>
                       <tr>
-                        <th style={thStyle()}>Fecha</th>
-                        <th style={thStyle()}>Producto</th>
-                        <th style={thStyle()}>Categoría</th>
-                        <th style={thStyle()}>Subcategoría</th>
-                        <th style={thStyle()}>Cantidad</th>
-                        <th style={thStyle()}>Origen</th>
-                        <th style={thStyle()}>Destino</th>
-                        <th style={thStyle()}>Ubicación destino</th>
-                        <th style={thStyle()}>Registrado por</th>
+                        <th className={TH}>Fecha</th>
+                        <th className={TH}>Producto</th>
+                        <th className={TH}>Categoría</th>
+                        <th className={TH}>Subcategoría</th>
+                        <th className={TH}>Cantidad</th>
+                        <th className={TH}>Origen</th>
+                        <th className={TH}>Destino</th>
+                        <th className={TH}>Ubicación destino</th>
+                        <th className={TH}>Registrado por</th>
                       </tr>
                     </thead>
                     <tbody>
                       {externosData.map((row, idx) => (
                         <tr key={idx}>
-                          <td style={tdStyle()}>{fmtFecha(row.fecha_movimiento)}</td>
-                          <td style={tdStyle()}>{row.producto_nombre}</td>
-                          <td style={tdStyle()}>{row.producto_categoria || "—"}</td>
-                          <td style={tdStyle()}>{row.producto_subcategoria || "—"}</td>
-                          <td style={tdStyle()}>{fmtNum(row.cantidad)}</td>
-                          <td style={tdStyle()}>
+                          <td className={TD}>{fmtFecha(row.fecha_movimiento)}</td>
+                          <td className={TD}>{row.producto_nombre}</td>
+                          <td className={TD}>{row.producto_categoria || "—"}</td>
+                          <td className={TD}>{row.producto_subcategoria || "—"}</td>
+                          <td className={TD}>{fmtNum(row.cantidad)}</td>
+                          <td className={TD}>
                             {row.origen_tipo || "—"} {row.zona_origen ? `· ${row.zona_origen}` : ""} {row.tamano_origen ? `· ${row.tamano_origen}` : ""}
                           </td>
-                          <td style={tdStyle()}>
+                          <td className={TD}>
                             {row.destino_tipo || "—"} {row.zona_destino ? `· ${row.zona_destino}` : ""} {row.tamano_destino ? `· ${row.tamano_destino}` : ""}
                           </td>
-                          <td style={tdStyle()}>
+                          <td className={TD}>
                             {[row.distrito_destino, row.barrio_destino, row.direccion_destino].filter(Boolean).join(" · ") || "—"}
                           </td>
-                          <td style={tdStyle()}>{row.created_by || "—"}</td>
+                          <td className={TD}>{row.created_by || "—"}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -4176,45 +3452,45 @@ Productos con fecha de caducidad
         {activeReport === "estadisticas" && (
           <>
             {/* Simular resultados */}
-            <label style={{ marginTop: 20, display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 12, cursor: "pointer", background: estadSimular ? "rgba(139,92,246,0.10)" : "rgba(148,163,184,0.08)", border: estadSimular ? "1px solid rgba(139,92,246,0.35)" : "1px solid rgba(15,23,42,0.10)" }}>
+            <label style={{ marginTop: 20, display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: "var(--radius-md)", cursor: "pointer", background: estadSimular ? "var(--muted)" : "var(--muted)", border: estadSimular ? "1px solid var(--border)" : "1px solid var(--border)" }}>
               <input type="checkbox" checked={estadSimular} onChange={(e) => setEstadSimular(e.target.checked)} style={{ width: 18, height: 18 }} />
               <div>
-                <div style={{ fontWeight: 900, color: "#0f172a" }}>Simular resultados</div>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "#64748b" }}>
+                <div className="font-[var(--font-weight-medium)]">Simular resultados</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--muted-foreground)" }}>
                   Genera datos de ejemplo (precios y reposiciones de los últimos 3 meses) solo para previsualizar el informe. No se guarda nada en la base de datos.
                 </div>
               </div>
             </label>
             {estadSimular && (
-              <div style={{ marginTop: 12, padding: "8px 14px", borderRadius: 10, background: "rgba(139,92,246,0.10)", border: "1px solid rgba(139,92,246,0.30)", color: "#5b21b6", fontWeight: 800, fontSize: 13 }}>
+              <div style={{ marginTop: 12, padding: "8px 14px", borderRadius: "var(--radius-md)", background: "var(--muted)", border: "1px solid var(--border)", color: "var(--info-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", fontSize: 13 }}>
                 🧪 Mostrando datos SIMULADOS (no reales).
               </div>
             )}
 
             {/* Filtros */}
-            <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14, alignItems: "end" }}>
+            <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(170px, 100%), 1fr))", gap: 14, alignItems: "end" }}>
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Desde</div>
-                <input type="date" value={estadDesde} onChange={(e) => setEstadDesde(e.target.value)} style={softInputStyle()} />
+                <label htmlFor="inf-desde" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Desde</label>
+                <input id="inf-desde" type="date" value={estadDesde} onChange={(e) => setEstadDesde(e.target.value)} className={INPUT_CLS} />
               </div>
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Hasta</div>
-                <input type="date" value={estadHasta} onChange={(e) => setEstadHasta(e.target.value)} style={softInputStyle()} />
+                <label htmlFor="inf-hasta" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Hasta</label>
+                <input id="inf-hasta" type="date" value={estadHasta} onChange={(e) => setEstadHasta(e.target.value)} className={INPUT_CLS} />
               </div>
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Producto</div>
-                <input value={estadProducto} onChange={(e) => setEstadProducto(e.target.value)} placeholder="Científico o común" style={softInputStyle()} />
+                <label htmlFor="inf-producto-4" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Producto</label>
+                <input id="inf-producto-4" value={estadProducto} onChange={(e) => setEstadProducto(e.target.value)} placeholder="Científico o común" className={INPUT_CLS} />
               </div>
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Categoría</div>
-                <select value={estadCategoria} onChange={(e) => setEstadCategoria(e.target.value)} style={softInputStyle()}>
+                <label htmlFor="inf-categoria-5" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Categoría</label>
+                <select id="inf-categoria-5" value={estadCategoria} onChange={(e) => setEstadCategoria(e.target.value)} className={INPUT_CLS}>
                   <option value="">Todas</option>
                   {estadCategorias.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
-                <div style={{ marginBottom: 8, fontWeight: 900, color: "#0f172a" }}>Subcategoría</div>
-                <select value={estadSubcategoria} onChange={(e) => setEstadSubcategoria(e.target.value)} disabled={!estadCategoria} style={{ ...softInputStyle(), opacity: estadCategoria ? 1 : 0.55 }}>
+                <label htmlFor="inf-subcategoria-5" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Subcategoría</label>
+                <select id="inf-subcategoria-5" value={estadSubcategoria} onChange={(e) => setEstadSubcategoria(e.target.value)} disabled={!estadCategoria} className={cn(INPUT_CLS, !estadCategoria && "opacity-55")}>
                   <option value="">Todas</option>
                   {estadSubcategorias.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
@@ -4224,32 +3500,33 @@ Productos con fecha de caducidad
             {/* Resumen (el export a PDF/Excel está en el botón «Exportar ▾» de arriba) */}
             <div style={{ marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
               {[
-                { l: "Coste total reposición", v: fmtEuro(estadTotalCoste), c: "#0e7490" },
-                { l: "Unidades recibidas", v: fmtNum(estadTotalUds), c: "#065f46" },
-                { l: "Movimientos", v: fmtNum(estadFiltrado.length), c: "#334155" },
+                { l: "Coste total reposición", v: fmtEuro(estadTotalCoste), c: "var(--chart-1)" },
+                { l: "Unidades recibidas", v: fmtNum(estadTotalUds), c: "var(--chart-2)" },
+                { l: "Movimientos", v: fmtNum(estadFiltrado.length), c: "var(--muted-foreground)" },
               ].map((s) => (
-                <div key={s.l} style={{ ...cardStyle(), padding: "12px 16px", minWidth: 160 }}>
-                  <div style={{ fontSize: 11, fontWeight: 900, color: "#64748b", textTransform: "uppercase" }}>{s.l}</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: s.c, marginTop: 2 }}>{s.v}</div>
+                <div key={s.l} className={cn(CARD_CLS, "min-w-40")}>
+                  <div className="text-caption uppercase text-muted-foreground">{s.l}</div>
+                  <div className="tabular text-h4 font-[var(--font-weight-semibold)]">{s.v}</div>
                 </div>
               ))}
             </div>
 
             {estadSinPrecio && (
-              <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.28)", color: "#92400e", fontWeight: 700, fontSize: 13 }}>
-                ⚠️ Algunos productos no tienen precio unitario definido; su coste no se contabiliza. Añade el precio en «Gestionar productos».
-              </div>
+              <Alert tone="warning">
+                Algunos productos no tienen precio unitario definido; su coste no se
+                contabiliza. Añade el precio en «Gestionar productos».
+              </Alert>
             )}
 
             {/* Gráficas */}
-            <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 18 }}>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 15, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>Coste mensual de reposición</div>
-                <BarrasVerticales data={estadCostesMensuales} color="#0ea5e9" valueFmt={(v) => fmtEuro(v)} />
+            <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(340px, 100%), 1fr))", gap: 18 }}>
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 15, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>Coste mensual de reposición</div>
+                <BarrasVerticales data={estadCostesMensuales} color="var(--chart-1)" valueFmt={(v) => fmtEuro(v)} />
               </div>
-              <div style={{ ...cardStyle(), padding: 18 }}>
-                <div style={{ fontSize: 15, fontWeight: 900, color: "#0f172a", marginBottom: 10 }}>Productos más solicitados (uds)</div>
-                <BarrasHorizontales data={estadTopProductos} color="#10b981" valueFmt={(v) => fmtNum(v)} />
+              <div className={CARD_CLS}>
+                <div style={{ fontSize: 15, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 10 }}>Productos más solicitados (uds)</div>
+                <BarrasHorizontales data={estadTopProductos} color="var(--chart-2)" valueFmt={(v) => fmtNum(v)} />
               </div>
             </div>
 
@@ -4257,39 +3534,39 @@ Productos con fecha de caducidad
             {estadFiltrado.length === 0 ? (
               <EmptyState text="No hay entradas de reposición en el rango de fechas / filtros seleccionados." />
             ) : (
-              <div style={{ ...cardStyle(), marginTop: 18, padding: 0, overflow: "hidden" }}>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <div className={cn(CARD_CLS, "overflow-hidden p-0")}>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
                     <thead>
                       <tr>
-                        <th style={thStyle()}>Fecha</th>
-                        <th style={thStyle()}>Producto</th>
-                        <th style={thStyle()}>Categoría</th>
-                        <th style={thStyle()}>Subcategoría</th>
-                        <th style={thStyle()}>Tamaño</th>
-                        <th style={{ ...thStyle(), textAlign: "right" }}>Cantidad</th>
-                        <th style={{ ...thStyle(), textAlign: "right" }}>Precio unit.</th>
-                        <th style={{ ...thStyle(), textAlign: "right" }}>Coste</th>
+                        <th className={TH}>Fecha</th>
+                        <th className={TH}>Producto</th>
+                        <th className={TH}>Categoría</th>
+                        <th className={TH}>Subcategoría</th>
+                        <th className={TH}>Tamaño</th>
+                        <th className={cn(TH, "text-right")}>Cantidad</th>
+                        <th className={cn(TH, "text-right")}>Precio unit.</th>
+                        <th className={cn(TH, "text-right")}>Coste</th>
                       </tr>
                     </thead>
                     <tbody>
                       {estadFiltrado.map((r) => (
                         <tr key={r.id}>
-                          <td style={tdStyle()}>{r.fecha ? formatFechaCanaria(r.fecha) : "—"}</td>
-                          <td style={tdStyle()}>{r.nombreDisplay}</td>
-                          <td style={tdStyle()}>{r.categoria || "—"}</td>
-                          <td style={tdStyle()}>{r.subcategoria || "—"}</td>
-                          <td style={tdStyle()}>{r.tamano}</td>
-                          <td style={{ ...tdStyle(), textAlign: "right", fontWeight: 800 }}>{fmtNum(r.cantidad)}</td>
-                          <td style={{ ...tdStyle(), textAlign: "right" }}>{r.precio == null ? "—" : fmtEuro(r.precio)}</td>
-                          <td style={{ ...tdStyle(), textAlign: "right", fontWeight: 800 }}>{r.coste == null ? "—" : fmtEuro(r.coste)}</td>
+                          <td className={TD}>{r.fecha ? formatFechaCanaria(r.fecha) : "—"}</td>
+                          <td className={TD}>{r.nombreDisplay}</td>
+                          <td className={TD}>{r.categoria || "—"}</td>
+                          <td className={TD}>{r.subcategoria || "—"}</td>
+                          <td className={TD}>{r.tamano}</td>
+                          <td className={cn(TD, "tabular text-right font-[var(--font-weight-medium)]")}>{fmtNum(r.cantidad)}</td>
+                          <td className={cn(TD, "tabular text-right")}>{r.precio == null ? "—" : fmtEuro(r.precio)}</td>
+                          <td className={cn(TD, "tabular text-right font-[var(--font-weight-medium)]")}>{r.coste == null ? "—" : fmtEuro(r.coste)}</td>
                         </tr>
                       ))}
-                      <tr style={{ background: "rgba(6,182,212,0.06)" }}>
-                        <td style={{ ...tdStyle(), fontWeight: 900 }} colSpan={5}>TOTAL</td>
-                        <td style={{ ...tdStyle(), textAlign: "right", fontWeight: 900 }}>{fmtNum(estadTotalUds)}</td>
-                        <td style={tdStyle()}></td>
-                        <td style={{ ...tdStyle(), textAlign: "right", fontWeight: 900, color: "#0e7490" }}>{fmtEuro(estadTotalCoste)}</td>
+                      <tr className="bg-muted">
+                        <td className={cn(TD, "font-[var(--font-weight-medium)]")} colSpan={5}>TOTAL</td>
+                        <td className={cn(TD, "tabular text-right font-[var(--font-weight-medium)]")}>{fmtNum(estadTotalUds)}</td>
+                        <td className={TD}></td>
+                        <td className={cn(TD, "tabular text-right font-[var(--font-weight-medium)]")}>{fmtEuro(estadTotalCoste)}</td>
                       </tr>
                     </tbody>
                   </table>
