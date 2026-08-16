@@ -23,7 +23,18 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      /*
+       * `varsIgnorePattern` es el rodeo que ya usaba este proyecto para que los
+       * componentes importados no se marquen como no usados: no está instalado
+       * `eslint-plugin-react`, así que `no-unused-vars` no sabe que un
+       * identificador dentro de JSX cuenta como uso.
+       *
+       * `argsIgnorePattern` extiende el mismo rodeo a los PARÁMETROS, que la
+       * regla trata aparte. Sin él, un componente recibido como prop —
+       * `function SectionHeader({ as: Tag })` y luego `<Tag/>` — se marca como
+       * no usado aunque se renderice.
+       */
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' }],
     },
   },
   {

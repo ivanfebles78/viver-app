@@ -1,0 +1,151 @@
+{
+  "generado": "manual",
+  "ficheros": {
+    "components/VerPlanta.jsx": {
+      "hex": 8,
+      "rgb": 6,
+      "peso-tipografico": 3,
+      "radio": 3,
+      "estilo-en-linea": 10
+    },
+    "components/common/CambiarPasswordModal.jsx": {
+      "hex": 19,
+      "rgb": 2,
+      "peso-tipografico": 4,
+      "radio": 6,
+      "estilo-en-linea": 17
+    },
+    "components/common/ClienteSelector.jsx": {
+      "hex": 7,
+      "peso-tipografico": 1,
+      "estilo-en-linea": 4
+    },
+    "components/common/Modal.css": {
+      "hex": 1,
+      "rgb": 2
+    },
+    "components/shell/ZonaMapDialog.jsx": {
+      "hex": 18,
+      "rgb": 24,
+      "peso-tipografico": 10,
+      "radio": 1,
+      "estilo-en-linea": 31,
+      "dialogo-nativo": 1
+    },
+    "components/ui/layout.jsx": {
+      "estilo-en-linea": 1
+    },
+    "components/vivero/MapaVivero.css": {
+      "hex": 60,
+      "rgb": 8
+    },
+    "components/vivero/MapaVivero.jsx": {
+      "hex": 4,
+      "rgb": 4,
+      "peso-tipografico": 1,
+      "radio": 1,
+      "estilo-en-linea": 13,
+      "dialogo-nativo": 1
+    },
+    "components/vivero/ZoneEditor.jsx": {
+      "hex": 18,
+      "estilo-en-linea": 4,
+      "dialogo-nativo": 6
+    },
+    "components/vivero/zonasConfig.js": {
+      "hex": 17
+    },
+    "components/vivero/zonesStorage.js": {
+      "hex": 1
+    },
+    "components/welcome/WelcomeModal.jsx": {
+      "hex": 18,
+      "rgb": 14,
+      "peso-tipografico": 6,
+      "radio": 3,
+      "estilo-en-linea": 22,
+      "gradiente": 2
+    },
+    "pages/Aprobaciones.jsx": {
+      "hex": 94,
+      "rgb": 77,
+      "peso-tipografico": 35,
+      "radio": 8,
+      "estilo-en-linea": 75,
+      "gradiente": 2
+    },
+    "pages/CuentaToken.jsx": {
+      "hex": 20,
+      "rgb": 5,
+      "peso-tipografico": 3,
+      "radio": 4,
+      "estilo-en-linea": 2,
+      "gradiente": 1
+    },
+    "pages/Dashboard.jsx": {
+      "hex": 50,
+      "rgb": 14,
+      "peso-tipografico": 19,
+      "radio": 1,
+      "estilo-en-linea": 51
+    },
+    "pages/Informes.jsx": {
+      "hex": 191,
+      "rgb": 67,
+      "peso-tipografico": 147,
+      "radio": 10,
+      "estilo-en-linea": 281,
+      "gradiente": 6
+    },
+    "pages/Login.css": {
+      "hex": 14,
+      "rgb": 7,
+      "gradiente": 4
+    },
+    "pages/Login.jsx": {
+      "hex": 18,
+      "rgb": 3,
+      "peso-tipografico": 2,
+      "radio": 3,
+      "estilo-en-linea": 19
+    },
+    "pages/Lotetracking.jsx": {
+      "hex": 3,
+      "estilo-en-linea": 7
+    },
+    "pages/Movimientos.jsx": {
+      "hex": 301,
+      "rgb": 185,
+      "peso-tipografico": 120,
+      "radio": 53,
+      "estilo-en-linea": 317,
+      "gradiente": 12
+    },
+    "pages/Pedidos.jsx": {
+      "hex": 148,
+      "rgb": 155,
+      "peso-tipografico": 77,
+      "radio": 19,
+      "estilo-en-linea": 169,
+      "gradiente": 15
+    },
+    "pages/Plataforma.jsx": {
+      "hex": 58,
+      "rgb": 1,
+      "peso-tipografico": 6,
+      "radio": 2,
+      "estilo-en-linea": 62,
+      "gradiente": 1,
+      "dialogo-nativo": 5
+    },
+    "pages/Productos.jsx": {
+      "hex": 114,
+      "rgb": 68,
+      "peso-tipografico": 67,
+      "radio": 25,
+      "estilo-en-linea": 177,
+      "gradiente": 8,
+      "dialogo-nativo": 1
+    }
+  }
+}

@@ -38,6 +38,37 @@ function stripComments(css) {
   return css.replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
+/**
+ * Elimina los bloques `@media print { … }` completos.
+ *
+ * Se cuentan las llaves en lugar de buscar el primer `}`: un bloque de
+ * impresión contiene reglas anidadas, y cortar por el primer cierre dejaría
+ * dentro del análisis la mitad de la hoja.
+ */
+function quitarMediaPrint(css) {
+  let salida = "";
+  let i = 0;
+  while (i < css.length) {
+    const inicio = css.indexOf("@media print", i);
+    if (inicio === -1) {
+      salida += css.slice(i);
+      break;
+    }
+    salida += css.slice(i, inicio);
+    const abre = css.indexOf("{", inicio);
+    if (abre === -1) break;
+    let profundidad = 1;
+    let j = abre + 1;
+    while (j < css.length && profundidad > 0) {
+      if (css[j] === "{") profundidad++;
+      else if (css[j] === "}") profundidad--;
+      j++;
+    }
+    i = j;
+  }
+  return salida;
+}
+
 /** Los tokens de DevCon8 son código vendorizado: se sincronizan aguas arriba. */
 const VENDORED = /^styles\/tokens\.css$/;
 
@@ -70,12 +101,19 @@ describe("hojas de estilo de la aplicación", () => {
     // `input { … }` en cualquier hoja alcanza a toda la aplicación, porque Vite
     // inyecta el CSS de forma global. Un descendiente acotado como
     // `.loginCard input` es correcto; lo que no vale es el elemento a secas.
+    //
+    // EXCEPCIÓN: `@media print`. Una hoja de impresión tiene por oficio
+    // redefinir `table`, `th`, `h1` y compañía para todo el documento, y ahí
+    // no hay fuga posible: solo aplica al imprimir. La regla existe para que
+    // los estilos de PANTALLA no se escapen de su componente.
     const ELEMENTS =
       /^(input|select|textarea|button|label|body|html|a|h[1-6]|table|td|th|ul|ol|li|p|img|form)(:{1,2}[a-z-]+(\([^)]*\))?)*$/;
     const offenders = [];
 
     for (const { path, source } of files) {
-      const css = stripComments(source);
+      // Se retira todo bloque `@media print { … }` antes de analizar, contando
+      // llaves para no cortar por el primer `}` interno.
+      const css = quitarMediaPrint(stripComments(source));
       // Texto de selector = lo que hay entre el final del bloque anterior y `{`.
       for (const match of css.matchAll(/(^|[};])\s*([^{}@;]+?)\s*\{/g)) {
         for (const selector of match[2].split(",")) {
