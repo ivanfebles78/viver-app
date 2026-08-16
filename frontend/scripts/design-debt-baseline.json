@@ -74,12 +74,7 @@
       "gradiente": 2
     },
     "pages/Informes.jsx": {
-      "hex": 191,
-      "rgb": 67,
-      "peso-tipografico": 147,
-      "radio": 10,
-      "estilo-en-linea": 281,
-      "gradiente": 6
+      "estilo-en-linea": 183
     },
     "pages/Pedidos.jsx": {
       "hex": 148,

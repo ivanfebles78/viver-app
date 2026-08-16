@@ -72,6 +72,19 @@ const CADUCIDAD = {
   sin_fecha: { status: Status.DRAFT, label: "Sin fecha" },
 };
 
+/**
+ * Estados de EXISTENCIAS de un producto (informe de existencias).
+ *
+ * «Bajo stock» es `pending`, no `rejected`: un producto por debajo del mínimo
+ * exige actuar, pero no es un error ni un rechazo — el rojo está reservado a
+ * eso. «Agotado» sí es `rejected`: ya no se puede servir.
+ */
+const STOCK = {
+  con_stock: { status: Status.ACTIVE, label: "Con stock" },
+  bajo_stock: { status: Status.PENDING, label: "Bajo stock" },
+  agotado: { status: Status.REJECTED, label: "Agotado" },
+};
+
 /** Normaliza una clave de estado: sin espacios, sin tildes, en minúsculas. */
 function normalizar(valor) {
   return String(valor ?? "")
@@ -124,9 +137,11 @@ function resolver(vocabulario, valor) {
 export const estadoPedido = (valor) => resolver(PEDIDO, valor);
 export const estadoUsuario = (valor) => resolver(USUARIO, valor);
 export const estadoCaducidad = (valor) => resolver(CADUCIDAD, valor);
+export const estadoStock = (valor) => resolver(STOCK, valor);
 
 /** Vocabularios expuestos para pruebas y para poblar filtros. */
 export const VOCABULARIOS = Object.freeze({
+  STOCK,
   pedido: PEDIDO,
   usuario: USUARIO,
   caducidad: CADUCIDAD,
