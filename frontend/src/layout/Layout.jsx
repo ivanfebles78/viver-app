@@ -7,6 +7,8 @@ import ClienteSelector from "../components/common/ClienteSelector";
 import CambiarPasswordModal from "../components/common/CambiarPasswordModal";
 import WelcomeModal, { shouldShowWelcomeOnStart } from "../components/welcome/WelcomeModal";
 import NotificationsPanel from "../components/shell/NotificationsPanel";
+import ErrorBoundary from "../components/shell/ErrorBoundary";
+import { ToastProvider } from "../components/ui/ToastProvider";
 import UserMenu from "../components/shell/UserMenu";
 import ZonaMapDialog from "../components/shell/ZonaMapDialog";
 
@@ -256,7 +258,7 @@ export default function Layout() {
    * cuando las pantallas migren — ver el comentario en index.html.
    */
   return (
-    <>
+    <ToastProvider>
       <AppShell
         sections={navSections}
         currentPath={location.pathname}
@@ -305,9 +307,18 @@ export default function Layout() {
           Cuando cada pantalla se migre en su fase, dejará de hacer falta.
         */}
         <div className="min-w-0 overflow-x-auto">
-          {/* El contrato del contexto se conserva intacto: cuatro pantallas
-              llaman a useOutletContext() y todas desestructuran `me`. */}
-          <Outlet context={{ me, isAdmin: userRole === ROLES.ADMIN, collapsed: false }} />
+          {/*
+            El límite de error envuelve SOLO el contenido de la página, nunca el
+            shell. Un fallo de render en una pantalla dejaba antes la ventana en
+            blanco con la navegación incluida; ahora la pantalla se sustituye por
+            un estado de error y el usuario conserva el menú para irse a otra
+            parte. `resetKey` lo limpia al cambiar de ruta.
+          */}
+          <ErrorBoundary resetKey={location.pathname}>
+            {/* El contrato del contexto se conserva intacto: cuatro pantallas
+                llaman a useOutletContext() y todas desestructuran `me`. */}
+            <Outlet context={{ me, isAdmin: userRole === ROLES.ADMIN, collapsed: false }} />
+          </ErrorBoundary>
         </div>
       </AppShell>
 
@@ -320,7 +331,7 @@ export default function Layout() {
           isAdmin={userRole === ROLES.ADMIN}
         />
       )}
-    </>
+    </ToastProvider>
   );
 }
 

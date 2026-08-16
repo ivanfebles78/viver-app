@@ -152,9 +152,15 @@ describe("centrado del diálogo modal (rodeo de un defecto de aguas arriba)", ()
 
 describe("todo diálogo declara un ancho máximo", () => {
   it("ninguna llamada a DialogContent queda sin acotar", () => {
-    // El fallo original no fue el valor inválido en sí, sino que el diálogo se
-    // quedara SIN límite de ancho. Aquí se comprueba el efecto, no la causa:
-    // cada DialogContent debe traer un `size` válido o un max-w explícito.
+    /*
+     * El fallo original no fue el valor inválido en sí, sino que el diálogo se
+     * quedara SIN límite de ancho y ocupara el viewport entero.
+     *
+     * OMITIR `size` es seguro: el valor por defecto es `md` (560px) y acota
+     * igual. Lo que no es seguro es un `size` PRESENTE pero fuera de la unión,
+     * porque entonces la búsqueda del ancho devuelve `undefined` y no se
+     * aplica ninguna clase de anchura. Se comprueba justo eso.
+     */
     const permitidos = new Set(declaredSizes(overlays, "DialogContentProps"));
     const sinAcotar = [];
 
@@ -163,10 +169,20 @@ describe("todo diálogo declara un ancho máximo", () => {
         const props = m[1];
         const size = props.match(/\bsize=["']([^"']+)["']/);
         const tieneMaxW = /max-w-\[/.test(props);
-        const sizeValido = size && permitidos.has(size[1]);
-        if (!sizeValido && !tieneMaxW) sinAcotar.push(`${path}: ${props.trim().slice(0, 60)}`);
+        // Sin `size` → vale el defecto. Con `size` inválido y sin max-w → roto.
+        if (size && !permitidos.has(size[1]) && !tieneMaxW) {
+          sinAcotar.push(`${path}: size="${size[1]}" sin max-w de respaldo`);
+        }
       }
     }
     expect(sinAcotar).toEqual([]);
+  });
+
+  it("el valor por defecto de `size` sigue acotando el ancho", () => {
+    // La prueba de arriba confía en que omitir `size` es seguro. Esto lo
+    // verifica en el paquete en lugar de darlo por hecho.
+    const impl = overlays.slice(overlays.indexOf("export function DialogContent"));
+    expect(impl).toMatch(/size = '(sm|md|lg)'/);
+    expect(impl).toMatch(/max-w-\[\d+px\]/);
   });
 });

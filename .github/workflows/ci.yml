@@ -1,0 +1,74 @@
+name: CI
+
+# El repositorio no tenía ningún workflow. Las 406 pruebas solo protegen si
+# algo las ejecuta sin que nadie se acuerde de hacerlo.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Un push nuevo sobre la misma rama cancela la ejecución anterior: no tiene
+# sentido gastar minutos verificando un commit ya superado.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  frontend:
+    name: Frontend — lint, tipos, pruebas y build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Coincide con .nvmrc del proyecto de plataforma y con el Node local.
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        # `npm ci` respeta el lockfile: una CI que resuelve versiones nuevas por
+        # su cuenta verifica un árbol distinto del que se despliega.
+        run: npm ci
+
+      - name: Lint
+        # El proyecto arrastra 84 problemas previos en pantallas sin migrar, así
+        # que ESLint no puede fallar la build todavía. Se ejecuta para que las
+        # anotaciones aparezcan en el PR, y la barrera real contra deuda NUEVA
+        # es el guardarraíl de tokens del paso siguiente.
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Guardarraíl de tokens del sistema de diseño
+        # Este SÍ falla la build: compara contra una línea base versionada y
+        # solo protesta si la deuda visual AUMENTA.
+        run: npm run tokens:check
+
+      - name: Comprobación de tipos
+        # Cubre el paquete de UI vendorizado, que se mantiene en TypeScript.
+        run: npm run typecheck
+
+      - name: Pruebas
+        # Incluye la matriz de autorización, las barreras de diseño y las
+        # pruebas de accesibilidad de teclado.
+        run: npm test
+
+      - name: Build de producción
+        run: npm run build
+
+      - name: Guardar el build para inspección
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: frontend/dist
+          retention-days: 7
+          if-no-files-found: ignore

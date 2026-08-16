@@ -1,0 +1,144 @@
+/*
+ * HOJA DE IMPRESIÓN.
+ *
+ * El sistema de diseño la trata como un ENTREGABLE del sector público, no como
+ * un extra: expedientes, pedidos y recibos tienen que salir legibles por
+ * impresora. Hasta ahora ViverApp no tenía ninguna, así que imprimir una
+ * pantalla sacaba la barra lateral, la cabecera pegajosa y los fondos de
+ * color, y cortaba las tablas por la mitad.
+ *
+ * IMPORTANTE: esto NO toca la generación de PDF con jsPDF de Informes y
+ * Pedidos, que construye sus documentos en coordenadas y es independiente del
+ * DOM. Esto es para Ctrl+P sobre una pantalla.
+ */
+
+@media print {
+  /* ── Página ───────────────────────────────────────────────────────────
+     Márgenes reales de impresora y orientación por defecto. Las tablas
+     operativas de ViverApp son anchas: apaisado evita partir columnas. */
+  @page {
+    margin: 14mm 12mm;
+  }
+
+  /* Blanco y negro: se fuerza la paleta clara pase lo que pase, porque el
+     modo oscuro sobre papel gasta tóner y no se lee. */
+  :root,
+  :root[data-theme="dark"],
+  :root.dark {
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* ── Cromo que no se imprime ──────────────────────────────────────────
+     Navegación, cabecera, avisos flotantes y cualquier control marcado
+     explícitamente como no imprimible. */
+  aside,
+  header[class*="sticky"],
+  nav[aria-label="Navegación principal"],
+  [role="dialog"],
+  [data-radix-popper-content-wrapper],
+  ol[class*="z-\\[var\\(--z-toast\\)\\]"],
+  .no-print {
+    display: none !important;
+  }
+
+  /* El contenido recupera todo el ancho al desaparecer la barra lateral. */
+  main,
+  main > div {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  /* Nada de regiones con scroll: en papel no hay scroll, hay recorte. */
+  [style*="overflow"],
+  .overflow-x-auto,
+  .overflow-y-auto,
+  [role="region"] {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* ── Tablas ───────────────────────────────────────────────────────────
+     Lo que hace legible una tabla larga en papel: la cabecera se repite en
+     cada hoja y las filas no se parten por la mitad. */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 10pt !important;
+    page-break-inside: auto;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  tr,
+  img {
+    page-break-inside: avoid;
+  }
+
+  th,
+  td {
+    border: 1px solid #999 !important;
+    padding: 4px 6px !important;
+    color: #000 !important;
+    background: transparent !important;
+  }
+
+  th {
+    font-weight: 700 !important;
+    border-bottom: 2px solid #000 !important;
+  }
+
+  /* ── El estado no puede depender del color ────────────────────────────
+     Una insignia de estado impresa en gris no dice nada. El borde la mantiene
+     visible, y su texto ya viaja dentro del elemento: el sistema de estados
+     de DevCon8 nunca renderiza color a secas. */
+  [class*="status-"],
+  [data-estado] {
+    border: 1px solid #000 !important;
+    background: transparent !important;
+    color: #000 !important;
+    padding: 1px 4px !important;
+  }
+
+  /* ── Tipografía y saltos ──────────────────────────────────────────────*/
+  h1, h2, h3, h4 {
+    page-break-after: avoid;
+    color: #000 !important;
+  }
+
+  h1 { font-size: 16pt !important; }
+  h2 { font-size: 13pt !important; }
+  h3 { font-size: 11pt !important; }
+
+  p, li {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Los enlaces internos no aportan la URL en papel; los externos sí. */
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 9pt;
+    word-break: break-all;
+  }
+
+  /* Sin sombras ni degradados: en impresión son manchas. */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+    background-image: none !important;
+  }
+}

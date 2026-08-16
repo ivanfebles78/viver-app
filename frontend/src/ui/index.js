@@ -10,8 +10,7 @@
  * Este fichero es lo único que ViverApp añade: un punto de entrada, para que
  * el resto de la aplicación importe desde `@/ui` y no de rutas internas.
  *
- * Aún no se han portado `form.tsx` ni `data-table.tsx`: pertenecen a la fase de
- * primitivas compartidas, no a la del shell.
+ * Portado completo: shell (Fase 1) + formularios y tabla de datos (Fase 2).
  */
 
 export { cn } from "./lib/cn";
@@ -72,6 +71,22 @@ export {
 } from "./components/overlays";
 
 export { Breadcrumb, PageHeader, EmptyState, ErrorState, Kpi } from "./components/page";
+
+export {
+  Field,
+  Input,
+  Textarea,
+  DateInput,
+  FileInput,
+  Select,
+  Checkbox,
+  RadioGroup,
+  Radio,
+  Switch,
+  FieldGroup,
+} from "./components/form";
+
+export { DataTable } from "./components/data-table";
 
 export { Navigation, filterNavigation, isActive } from "./shell/navigation";
 

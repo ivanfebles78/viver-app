@@ -7,6 +7,9 @@ import './styles/theme.css'
 // Capa propia de ViverApp: se importa DESPUÉS del puente para poder corregir
 // lo que venga de aguas arriba sin editar el código vendorizado.
 import './styles/app.css'
+// Última, para que sus `!important` de @media print ganen sin depender del
+// orden de especificidad del resto.
+import './styles/print.css'
 import App from './App.jsx'
 
 createRoot(document.getElementById('root')).render(
