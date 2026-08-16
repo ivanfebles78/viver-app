@@ -1,6 +1,6 @@
 name: CI
 
-# El repositorio no tenía ningún workflow. Las 406 pruebas solo protegen si
+# El repositorio no tenía ningún workflow. Las pruebas solo protegen si
 # algo las ejecuta sin que nadie se acuerde de hacerlo.
 on:
   push:
@@ -40,12 +40,16 @@ jobs:
         run: npm ci
 
       - name: Lint
-        # El proyecto arrastra 84 problemas previos en pantallas sin migrar, así
-        # que ESLint no puede fallar la build todavía. Se ejecuta para que las
-        # anotaciones aparezcan en el PR, y la barrera real contra deuda NUEVA
-        # es el guardarraíl de tokens del paso siguiente.
+        # El proyecto arrastra problemas previos en pantallas sin migrar, así
+        # que ESLint no puede exigir cero todavía. Se ejecuta para que las
+        # anotaciones aparezcan en el PR.
         run: npm run lint
         continue-on-error: true
+
+      - name: Trinquete de lint
+        # Este SÍ falla la build. Deja de ser informativo: compara con un techo
+        # versionado (77 desde la Fase 3, antes 84) y protesta si SUBE.
+        run: npm run lint:budget
 
       - name: Guardarraíl de tokens del sistema de diseño
         # Este SÍ falla la build: compara contra una línea base versionada y
@@ -57,8 +61,9 @@ jobs:
         run: npm run typecheck
 
       - name: Pruebas
-        # Incluye la matriz de autorización, las barreras de diseño y las
-        # pruebas de accesibilidad de teclado.
+        # Incluye la matriz de autorización, las barreras de diseño, la
+        # equivalencia de negocio del panel con main y el análisis de
+        # accesibilidad con axe-core de las pantallas migradas.
         run: npm test
 
       - name: Build de producción

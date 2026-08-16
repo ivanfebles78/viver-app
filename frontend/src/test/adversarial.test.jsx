@@ -39,9 +39,23 @@ const APP = ficherosApp();
 describe("ataque al guardarraíl de tokens", () => {
   const objetivo = join(RAIZ, "pages/Lotetracking.jsx");
 
-  /** Inyecta una mutación, ejecuta el guardarraíl y restaura siempre. */
+  /**
+   * Inyecta una mutación, ejecuta el guardarraíl y restaura siempre.
+   *
+   * Comprueba ANTES que el ancla existe de verdad. Sin esa comprobación, si
+   * alguien reescribe la pantalla y el ancla desaparece, `replace()` no cambia
+   * nada, el guardarraíl sigue dando el mismo resultado y las pruebas de
+   * mutación pasan sin haber mutado nada: exactamente el fallo que finge estar
+   * probando algo. Pasó en la Fase 3 al reescribir esta pantalla.
+   */
   function conMutacion(buscar, reemplazar) {
     const original = readFileSync(objetivo, "utf8");
+    if (!original.includes(buscar)) {
+      throw new Error(
+        `El ancla de mutación ya no existe en ${objetivo}: ${JSON.stringify(buscar)}. ` +
+          "Actualízala; sin ancla, la prueba no mide nada."
+      );
+    }
     try {
       writeFileSync(objetivo, original.replace(buscar, reemplazar));
       try {
@@ -55,32 +69,35 @@ describe("ataque al guardarraíl de tokens", () => {
     }
   }
 
-  const ancla = "<h1>Seguimiento de Lote</h1>";
+  /* Ancla estable de la pantalla reescrita. Se comprueba su existencia en cada
+     mutación, así que un cambio futuro fallará ruidosamente en vez de vaciar la
+     prueba en silencio. */
+  const ancla = '<Card className="p-[var(--card-padding)]">';
 
   it("detecta un color hexadecimal nuevo", () => {
-    expect(conMutacion(ancla, '<h1 style={{color:"#ff00aa"}}>Seguimiento de Lote</h1>')).toBe(1);
+    expect(conMutacion(ancla, '<Card style={{color:"#ff00aa"}} className="p-[var(--card-padding)]">')).toBe(1);
   });
 
   it("detecta un peso tipográfico prohibido", () => {
-    expect(conMutacion(ancla, '<h1 style={{fontWeight:900}}>Seguimiento de Lote</h1>')).toBe(1);
+    expect(conMutacion(ancla, '<Card style={{fontWeight:900}} className="p-[var(--card-padding)]">')).toBe(1);
   });
 
   it("detecta un radio fuera de la escala", () => {
-    expect(conMutacion(ancla, '<h1 style={{borderRadius:19}}>Seguimiento de Lote</h1>')).toBe(1);
+    expect(conMutacion(ancla, '<Card style={{borderRadius:19}} className="p-[var(--card-padding)]">')).toBe(1);
   });
 
   it("detecta un degradado decorativo", () => {
-    expect(conMutacion(ancla, '<h1 style={{background:"linear-gradient(90deg,red,blue)"}}>Seguimiento de Lote</h1>')).toBe(1);
+    expect(conMutacion(ancla, '<Card style={{background:"linear-gradient(90deg,red,blue)"}} className="p-[var(--card-padding)]">')).toBe(1);
   });
 
   it("detecta un rgba() nuevo", () => {
-    expect(conMutacion(ancla, '<h1 style={{color:"rgba(1,2,3,0.5)"}}>Seguimiento de Lote</h1>')).toBe(1);
+    expect(conMutacion(ancla, '<Card style={{color:"rgba(1,2,3,0.5)"}} className="p-[var(--card-padding)]">')).toBe(1);
   });
 
   it("detecta un confirm() nativo, también sin `window.`", () => {
     // La forma suelta es la que usa Plataforma; si solo se vigilara
     // `window.confirm`, migrar a la corta evadiría el guardarraíl.
-    expect(conMutacion("const buscar = async () => {", "const buscar = async () => { if(!confirm('¿seguro?')) return;")).toBe(1);
+    expect(conMutacion("const buscar = async (e) => {", "const buscar = async (e) => { if(!confirm('¿seguro?')) return;")).toBe(1);
   });
 
   it("NO se dispara sin cambios — no es un guardarraíl que grite siempre", () => {

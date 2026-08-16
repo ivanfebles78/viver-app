@@ -1,8 +1,29 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { validateAccountToken, consumeAccountToken } from "../api/api";
+import { ShieldCheck, CircleCheck, Sprout } from "lucide-react";
 
-import logo from "../assets/ViverApp_logo.png";
+import { validateAccountToken, consumeAccountToken } from "../api/api";
+import { Button, Card, Field, Input, ErrorState } from "../ui";
+import { Alert, LoadingState } from "../components/ui/feedback";
+
+/*
+ * ACTIVAR CUENTA · RESTABLECER CONTRASEÑA · DESBLOQUEAR.
+ *
+ * Las tres operaciones comparten pantalla porque comparten flujo: se valida un
+ * token de un solo uso que llega en la URL y, si es válido, se define una
+ * contraseña nueva. Solo cambian los textos.
+ *
+ * MANEJO DEL TOKEN. El token es una credencial de un solo uso, y esta pantalla
+ * NO lo presenta ni ofrece copiarlo — nunca lo hizo, y no se añade esa
+ * capacidad. Se lee de la URL y se envía; no aparece en el DOM, ni en el texto
+ * de ningún aviso, ni en los mensajes de error, ni en la consola. Los mensajes
+ * del backend se muestran tal cual pero nunca se concatena el token con ellos.
+ * Hay una prueba que lo verifica sobre el DOM renderizado en las cuatro fases.
+ *
+ * El COMPORTAMIENTO es idéntico al anterior: mismas validaciones (8 caracteres
+ * mínimo, ambas contraseñas iguales), misma llamada, misma redirección a
+ * /login a los 2,5 s tras el éxito.
+ */
 
 const PURPOSE_COPY = {
   activate: {
@@ -14,13 +35,13 @@ const PURPOSE_COPY = {
   reset: {
     title: "Restablece tu contraseña",
     subtitle: "Define una nueva contraseña para tu cuenta de ViverApp.",
-    submitLabel: "Guardar nueva contraseña",
+    submitLabel: "Guardar la nueva contraseña",
     successText: "Contraseña restablecida correctamente. Ya puedes iniciar sesión.",
   },
   unlock: {
     title: "Desbloquea tu cuenta",
     subtitle: "Tu cuenta ha sido desbloqueada. Define una nueva contraseña para acceder.",
-    submitLabel: "Definir nueva contraseña",
+    submitLabel: "Definir la nueva contraseña",
     successText: "Cuenta desbloqueada correctamente. Ya puedes iniciar sesión.",
   },
 };
@@ -34,17 +55,21 @@ function extractError(err, fallback) {
   return err?.message || fallback;
 }
 
-function shieldIcon() {
+/** Marco común: una sola columna centrada, sin cromo de aplicación. */
+function Marco({ children }) {
   return (
-    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M12 2 4 5v6c0 5 3.4 9.5 8 11 4.6-1.5 8-6 8-11V5l-8-3Z"
-        stroke="#0f5132"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <path d="m9 12 2 2 4-4" stroke="#0f5132" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10 text-foreground">
+      <div className="flex w-full max-w-[var(--content-form-max)] flex-col gap-6">
+        <header className="flex items-center justify-center gap-2.5">
+          <Sprout aria-hidden="true" className="size-6 text-primary" />
+          <span className="text-h4 font-[var(--font-weight-semibold)]">ViverApp</span>
+        </header>
+        <Card className="p-[var(--card-padding)]">{children}</Card>
+        <p className="text-center text-caption text-muted-foreground">
+          Gestión del vivero municipal
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -56,7 +81,6 @@ export default function CuentaToken({ purposeOverride }) {
   const [errorMsg, setErrorMsg] = useState("");
   const [purpose, setPurpose] = useState(purposeOverride || "activate");
   const [username, setUsername] = useState("");
-
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
 
@@ -92,7 +116,7 @@ export default function CuentaToken({ purposeOverride }) {
       return;
     }
     if (password !== confirm) {
-      setErrorMsg("Las contraseñas no coinciden.");
+      setErrorMsg("Las dos contraseñas no coinciden. Vuelve a escribirlas.");
       return;
     }
 
@@ -107,228 +131,112 @@ export default function CuentaToken({ purposeOverride }) {
     }
   };
 
+  if (phase === "loading") {
+    return (
+      <Marco>
+        <div className="flex flex-col gap-4">
+          <h1 className="text-h4 font-[var(--font-weight-semibold)]">Comprobando el enlace…</h1>
+          <LoadingState rows={3} label="Comprobando que el enlace sigue siendo válido…" />
+        </div>
+      </Marco>
+    );
+  }
+
+  if (phase === "error") {
+    return (
+      <Marco>
+        <ErrorState
+          title="Este enlace no es válido"
+          // El mensaje viene del backend; nunca lleva el token.
+          description={errorMsg}
+          retryLabel="Volver al inicio de sesión"
+          onRetry={() => navigate("/login", { replace: true })}
+        />
+      </Marco>
+    );
+  }
+
+  if (phase === "success") {
+    return (
+      <Marco>
+        <div role="status" className="flex flex-col items-center gap-3 py-4 text-center">
+          <span className="flex size-10 items-center justify-center rounded-full bg-[var(--success-subtle)]">
+            <CircleCheck aria-hidden="true" className="size-5 text-[var(--success-subtle-foreground)]" />
+          </span>
+          <h1 className="text-h4 font-[var(--font-weight-semibold)]">Todo listo</h1>
+          <p className="text-body-sm text-muted-foreground">{copy.successText}</p>
+          <p className="text-caption text-muted-foreground">
+            Te llevamos al inicio de sesión en unos segundos.
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => navigate("/login", { replace: true })}>
+            Ir ahora
+          </Button>
+        </div>
+      </Marco>
+    );
+  }
+
+  const enviando = phase === "submitting";
+
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <div style={styles.header}>
-          {logo ? (
-            <img src={logo} alt="ViverApp" style={styles.logo} />
-          ) : (
-            <div style={styles.logoPlaceholder}>ViverApp</div>
+    <Marco>
+      <form onSubmit={onSubmit} className="flex flex-col gap-[var(--form-field-gap)]">
+        {/*
+          Un <div>, no un <header>. `<form>` no es contenido de seccionado, así
+          que un <header> dentro se expone como segundo landmark «banner» de la
+          página, y ya hay uno en el marco. Detectado con axe.
+        */}
+        <div className="flex flex-col items-center gap-2 text-center">
+          <span className="flex size-10 items-center justify-center rounded-full bg-[var(--primary-subtle)]">
+            <ShieldCheck aria-hidden="true" className="size-5 text-[var(--primary-subtle-foreground)]" />
+          </span>
+          <h1 className="text-h4 font-[var(--font-weight-semibold)]">{copy.title}</h1>
+          <p className="text-body-sm text-muted-foreground">{copy.subtitle}</p>
+          {username && (
+            <p className="text-body-sm">
+              Cuenta: <strong className="font-[var(--font-weight-semibold)]">{username}</strong>
+            </p>
           )}
         </div>
 
-        <div style={styles.body}>
-          <div style={styles.iconWrap}>{shieldIcon()}</div>
+        {errorMsg && <Alert tone="error">{errorMsg}</Alert>}
 
-          {phase === "loading" && (
-            <>
-              <h1 style={styles.title}>Verificando enlace…</h1>
-              <p style={styles.subtitle}>Un momento, comprobando que tu enlace es válido.</p>
-            </>
-          )}
+        <Field
+          label="Nueva contraseña"
+          required
+          description="Mínimo 8 caracteres. Combina letras, números y símbolos."
+        >
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            // `new-password` hace que el gestor de contraseñas ofrezca generar
+            // una, en vez de autocompletar la antigua.
+            autoComplete="new-password"
+            autoFocus
+          />
+        </Field>
 
-          {phase === "error" && (
-            <>
-              <h1 style={{ ...styles.title, color: "#991b1b" }}>Enlace no válido</h1>
-              <p style={styles.subtitle}>{errorMsg}</p>
-              <button
-                type="button"
-                style={styles.primaryBtn}
-                onClick={() => navigate("/login", { replace: true })}
-              >
-                Volver al inicio de sesión
-              </button>
-            </>
-          )}
+        <Field label="Confirma la contraseña" required>
+          <Input
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            autoComplete="new-password"
+          />
+        </Field>
 
-          {phase === "success" && (
-            <>
-              <h1 style={{ ...styles.title, color: "#166534" }}>¡Listo!</h1>
-              <p style={styles.subtitle}>{copy.successText}</p>
-              <p style={styles.helperText}>Te redirigimos al login en unos segundos…</p>
-            </>
-          )}
-
-          {(phase === "form" || phase === "submitting") && (
-            <>
-              <h1 style={styles.title}>{copy.title}</h1>
-              <p style={styles.subtitle}>{copy.subtitle}</p>
-              {username && (
-                <p style={styles.usernameLine}>
-                  Cuenta: <strong>{username}</strong>
-                </p>
-              )}
-
-              <form onSubmit={onSubmit} style={styles.form}>
-                <label style={styles.label}>
-                  Nueva contraseña
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    style={styles.input}
-                    autoComplete="new-password"
-                    minLength={8}
-                    required
-                    disabled={phase === "submitting"}
-                  />
-                </label>
-
-                <label style={styles.label}>
-                  Confirma la contraseña
-                  <input
-                    type="password"
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    style={styles.input}
-                    autoComplete="new-password"
-                    minLength={8}
-                    required
-                    disabled={phase === "submitting"}
-                  />
-                </label>
-
-                <p style={styles.hint}>
-                  Mínimo 8 caracteres. Usa una mezcla de letras, números y símbolos.
-                </p>
-
-                {errorMsg && <div style={styles.errorBox}>{errorMsg}</div>}
-
-                <button type="submit" style={styles.primaryBtn} disabled={phase === "submitting"}>
-                  {phase === "submitting" ? "Guardando…" : copy.submitLabel}
-                </button>
-              </form>
-            </>
-          )}
-        </div>
-
-        <div style={styles.footer}>
-          ViverApp · Ayuntamiento de Santa Cruz de Tenerife
-        </div>
-      </div>
-    </div>
+        {/*
+          Sin `FormActions`: está pensado para varias acciones y aplica
+          `sm:w-auto`, que anulaba el `fullWidth` a partir de 640px — el botón
+          salía a ancho completo en móvil y pequeño y alineado a la derecha en
+          escritorio. Aquí hay UNA sola acción en una columna estrecha, así que
+          va a ancho completo siempre, igual que en la pantalla de entrada.
+        */}
+        <Button type="submit" variant="primary" fullWidth loading={enviando}>
+          {copy.submitLabel}
+        </Button>
+      </form>
+    </Marco>
   );
 }
-
-const styles = {
-  page: {
-    minHeight: "100vh",
-    background: "linear-gradient(135deg, #f8fafc 0%, #ecfdf5 100%)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-  },
-  card: {
-    width: "min(480px, 100%)",
-    background: "#ffffff",
-    borderRadius: 22,
-    boxShadow: "0 30px 80px rgba(2,6,23,0.18)",
-    overflow: "hidden",
-    border: "1px solid rgba(15,23,42,0.06)",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "center",
-    padding: "28px 24px 0",
-  },
-  logo: {
-    height: 44,
-    objectFit: "contain",
-  },
-  logoPlaceholder: {
-    fontWeight: 900,
-    fontSize: 22,
-    color: "#0f5132",
-    letterSpacing: "0.02em",
-  },
-  body: {
-    padding: "20px 36px 28px",
-    textAlign: "center",
-  },
-  iconWrap: {
-    display: "flex",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
-  title: {
-    margin: "0 0 6px",
-    fontSize: 24,
-    fontWeight: 800,
-    color: "#10231a",
-  },
-  subtitle: {
-    margin: 0,
-    color: "#64748b",
-    fontSize: 14,
-    lineHeight: 1.5,
-  },
-  usernameLine: {
-    margin: "10px 0 0",
-    color: "#10231a",
-    fontSize: 13,
-  },
-  helperText: {
-    marginTop: 16,
-    color: "#64748b",
-    fontSize: 13,
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 14,
-    marginTop: 18,
-    textAlign: "left",
-  },
-  label: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-    fontSize: 13,
-    fontWeight: 700,
-    color: "#10231a",
-  },
-  input: {
-    padding: "10px 12px",
-    border: "1px solid #d6d3d1",
-    borderRadius: 10,
-    fontSize: 14,
-    outline: "none",
-    fontFamily: "inherit",
-  },
-  hint: {
-    margin: 0,
-    fontSize: 12,
-    color: "#64748b",
-  },
-  errorBox: {
-    padding: "10px 12px",
-    borderRadius: 10,
-    background: "rgba(239,68,68,0.08)",
-    border: "1px solid rgba(239,68,68,0.25)",
-    color: "#991b1b",
-    fontSize: 13,
-    fontWeight: 600,
-  },
-  primaryBtn: {
-    padding: "12px 14px",
-    background: "#0f5132",
-    color: "#ffffff",
-    border: 0,
-    borderRadius: 10,
-    fontWeight: 800,
-    fontSize: 14,
-    cursor: "pointer",
-    marginTop: 4,
-  },
-  footer: {
-    padding: "14px 24px",
-    background: "#f8fafc",
-    borderTop: "1px solid rgba(15,23,42,0.06)",
-    fontSize: 12,
-    color: "#64748b",
-    textAlign: "center",
-  },
-};
