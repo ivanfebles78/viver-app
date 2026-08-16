@@ -13,7 +13,9 @@
     "test:watch": "vitest",
     "test:auth": "vitest run src/app/permissions.test.js src/routes/ProtectedRoute.test.jsx",
     "tokens:check": "node scripts/check-design-tokens.mjs",
-    "tokens:update": "node scripts/check-design-tokens.mjs --update"
+    "tokens:update": "node scripts/check-design-tokens.mjs --update",
+    "lint:budget": "node scripts/check-lint-budget.mjs",
+    "lint:budget:update": "node scripts/check-lint-budget.mjs --update"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.23",
@@ -55,6 +57,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "axe-core": "^4.13.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
@@ -62,6 +65,7 @@
     "jsdom": "^30.0.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "vitest-axe": "^0.1.0"
   }
 }

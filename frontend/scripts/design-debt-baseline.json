@@ -20,10 +20,6 @@
       "peso-tipografico": 1,
       "estilo-en-linea": 4
     },
-    "components/common/Modal.css": {
-      "hex": 1,
-      "rgb": 2
-    },
     "components/shell/ZonaMapDialog.jsx": {
       "hex": 18,
       "rgb": 24,
@@ -31,6 +27,9 @@
       "radio": 1,
       "estilo-en-linea": 31,
       "dialogo-nativo": 1
+    },
+    "components/ui/ProportionBar.jsx": {
+      "estilo-en-linea": 2
     },
     "components/ui/layout.jsx": {
       "estilo-en-linea": 1
@@ -74,21 +73,6 @@
       "estilo-en-linea": 75,
       "gradiente": 2
     },
-    "pages/CuentaToken.jsx": {
-      "hex": 20,
-      "rgb": 5,
-      "peso-tipografico": 3,
-      "radio": 4,
-      "estilo-en-linea": 2,
-      "gradiente": 1
-    },
-    "pages/Dashboard.jsx": {
-      "hex": 50,
-      "rgb": 14,
-      "peso-tipografico": 19,
-      "radio": 1,
-      "estilo-en-linea": 51
-    },
     "pages/Informes.jsx": {
       "hex": 191,
       "rgb": 67,
@@ -96,22 +80,6 @@
       "radio": 10,
       "estilo-en-linea": 281,
       "gradiente": 6
-    },
-    "pages/Login.css": {
-      "hex": 14,
-      "rgb": 7,
-      "gradiente": 4
-    },
-    "pages/Login.jsx": {
-      "hex": 18,
-      "rgb": 3,
-      "peso-tipografico": 2,
-      "radio": 3,
-      "estilo-en-linea": 19
-    },
-    "pages/Lotetracking.jsx": {
-      "hex": 3,
-      "estilo-en-linea": 7
     },
     "pages/Movimientos.jsx": {
       "hex": 301,
