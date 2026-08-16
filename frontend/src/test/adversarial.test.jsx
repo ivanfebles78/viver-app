@@ -192,6 +192,19 @@ describe("ataque a la asociación de etiquetas", () => {
     const sinNombre = [];
     for (const el of document.querySelectorAll("input, select, textarea")) {
       if (el.type === "file" || el.type === "hidden") continue;
+      /*
+       * Se excluye lo que NO está en el árbol de accesibilidad. Radix Select
+       * renderiza un <select> nativo con aria-hidden y tabindex=-1 para que el
+       * formulario envíe el valor; no lo anuncia ningún lector de pantalla y
+       * no se puede tabular hasta él. Verificado en navegador.
+       *
+       * La exclusión es explícita a propósito: si esta prueba lo omitiera sin
+       * decirlo, pasaría por casualidad en jsdom —donde ese nodo no siempre se
+       * renderiza— y dejaría de comprobar lo que dice comprobar.
+       */
+      if (el.getAttribute("aria-hidden") === "true") continue;
+      if (el.closest("[aria-hidden='true']")) continue;
+
       const porLabel = el.labels && el.labels.length > 0;
       const porAria = el.getAttribute("aria-label") || el.getAttribute("aria-labelledby");
       if (!porLabel && !porAria) sinNombre.push(el.outerHTML.slice(0, 70));
