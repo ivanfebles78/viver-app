@@ -12,8 +12,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 import { Field, Input, StatusBadge, STATUS_TONES, StatusTone } from "../ui";
@@ -34,82 +33,16 @@ function ficherosApp(dir = RAIZ, acc = []) {
 }
 const APP = ficherosApp();
 
-/* ══ 1. Guardarraíl de tokens — mutación por cada regla ══════════════════ */
-
-describe("ataque al guardarraíl de tokens", () => {
-  const objetivo = join(RAIZ, "pages/Lotetracking.jsx");
-
-  /**
-   * Inyecta una mutación, ejecuta el guardarraíl y restaura siempre.
-   *
-   * Comprueba ANTES que el ancla existe de verdad. Sin esa comprobación, si
-   * alguien reescribe la pantalla y el ancla desaparece, `replace()` no cambia
-   * nada, el guardarraíl sigue dando el mismo resultado y las pruebas de
-   * mutación pasan sin haber mutado nada: exactamente el fallo que finge estar
-   * probando algo. Pasó en la Fase 3 al reescribir esta pantalla.
-   */
-  function conMutacion(buscar, reemplazar) {
-    const original = readFileSync(objetivo, "utf8");
-    if (!original.includes(buscar)) {
-      throw new Error(
-        `El ancla de mutación ya no existe en ${objetivo}: ${JSON.stringify(buscar)}. ` +
-          "Actualízala; sin ancla, la prueba no mide nada."
-      );
-    }
-    try {
-      writeFileSync(objetivo, original.replace(buscar, reemplazar));
-      try {
-        execFileSync("node", ["scripts/check-design-tokens.mjs"], { stdio: "pipe" });
-        return 0; // no detectó nada
-      } catch (e) {
-        return e.status ?? 1; // salió distinto de 0 ⇒ detectado
-      }
-    } finally {
-      writeFileSync(objetivo, original);
-    }
-  }
-
-  /* Ancla estable de la pantalla reescrita. Se comprueba su existencia en cada
-     mutación, así que un cambio futuro fallará ruidosamente en vez de vaciar la
-     prueba en silencio. */
-  const ancla = '<Card className="p-[var(--card-padding)]">';
-
-  it("detecta un color hexadecimal nuevo", () => {
-    expect(conMutacion(ancla, '<Card style={{color:"#ff00aa"}} className="p-[var(--card-padding)]">')).toBe(1);
-  });
-
-  it("detecta un peso tipográfico prohibido", () => {
-    expect(conMutacion(ancla, '<Card style={{fontWeight:900}} className="p-[var(--card-padding)]">')).toBe(1);
-  });
-
-  it("detecta un radio fuera de la escala", () => {
-    expect(conMutacion(ancla, '<Card style={{borderRadius:19}} className="p-[var(--card-padding)]">')).toBe(1);
-  });
-
-  it("detecta un degradado decorativo", () => {
-    expect(conMutacion(ancla, '<Card style={{background:"linear-gradient(90deg,red,blue)"}} className="p-[var(--card-padding)]">')).toBe(1);
-  });
-
-  it("detecta un rgba() nuevo", () => {
-    expect(conMutacion(ancla, '<Card style={{color:"rgba(1,2,3,0.5)"}} className="p-[var(--card-padding)]">')).toBe(1);
-  });
-
-  it("detecta un confirm() nativo, también sin `window.`", () => {
-    // La forma suelta es la que usa Plataforma; si solo se vigilara
-    // `window.confirm`, migrar a la corta evadiría el guardarraíl.
-    expect(conMutacion("const buscar = async (e) => {", "const buscar = async (e) => { if(!confirm('¿seguro?')) return;")).toBe(1);
-  });
-
-  it("NO se dispara sin cambios — no es un guardarraíl que grite siempre", () => {
-    expect(conMutacion(ancla, ancla)).toBe(0);
-  });
-
-  it("no cuenta la DOCUMENTACIÓN como deuda", () => {
-    // Penalizar a quien explica en un comentario por qué quitó un color sería
-    // el incentivo exactamente contrario al que se busca.
-    expect(conMutacion(ancla, `{/* antes: color #0f5132, peso 900 */}\n      ${ancla}`)).toBe(0);
-  });
-});
+/*
+ * Las pruebas de MUTACIÓN del guardarraíl se han movido a
+ * `guardrail-mutation.test.js`. Mutaban ficheros de pantallas reales, y como
+ * vitest ejecuta los ficheros de prueba en paralelo, una suite podía estar
+ * reescribiendo un módulo mientras otra lo importaba. Se manifestó como una
+ * ejecución con 40 fallos que no se reprodujo a la siguiente.
+ *
+ * Ahora mutan una diana dedicada que no importa nadie, y viven todas en un
+ * único fichero para ejecutarse en serie.
+ */
 
 /* ══ 2. Semántica de estados ════════════════════════════════════════════ */
 

@@ -12,53 +12,21 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
 
 const RAIZ = resolve(process.cwd(), "src");
 
-/* ══ 1. El guardarraíl detecta un color en crudo en la barra de proporción ══ */
-
-describe("adversarial · la excepción de ProportionBar no es una puerta abierta", () => {
-  const objetivo = join(RAIZ, "components/ui/ProportionBar.jsx");
-
-  function conMutacion(buscar, reemplazar) {
-    const original = readFileSync(objetivo, "utf8");
-    if (!original.includes(buscar)) {
-      throw new Error(`Ancla inexistente en ProportionBar.jsx: ${JSON.stringify(buscar)}`);
-    }
-    try {
-      writeFileSync(objetivo, original.replace(buscar, reemplazar));
-      try {
-        execFileSync("node", ["scripts/check-design-tokens.mjs"], { stdio: "pipe" });
-        return 0;
-      } catch (e) {
-        return e.status ?? 1;
-      }
-    } finally {
-      writeFileSync(objetivo, original);
-    }
-  }
-
-  it("se detecta si la serie deja de salir de --chart-* y usa un hex", () => {
-    /*
-     * La línea base admite DOS estilos en línea en este fichero porque el ancho
-     * y el color se calculan en tiempo de ejecución. Eso NO significa que el
-     * fichero quede exento: si alguien mete un color literal, el guardarraíl
-     * tiene que seguir protestando.
-     */
-    expect(
-      conMutacion('"var(--chart-1)", "var(--chart-2)"', '"#2563eb", "#f59e0b"')
-    ).toBe(1);
-  });
-
-  it("se detecta un peso tipográfico fuera de escala", () => {
-    expect(
-      conMutacion('className="h-full"', 'style={{fontWeight:900}} className="h-full"')
-    ).toBe(1);
-  });
-});
+/*
+ * Las pruebas de MUTACIÓN del guardarraíl se han movido a
+ * `guardrail-mutation.test.js`. Mutaban ficheros de pantallas reales, y como
+ * vitest ejecuta los ficheros de prueba en paralelo, una suite podía estar
+ * reescribiendo un módulo mientras otra lo importaba. Se manifestó como una
+ * ejecución con 40 fallos que no se reprodujo a la siguiente.
+ *
+ * Ahora mutan una diana dedicada que no importa nadie, y viven todas en un
+ * único fichero para ejecutarse en serie.
+ */
 
 /* ══ 2. La prueba de exposición del token detecta una fuga real ══════════ */
 
