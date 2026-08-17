@@ -11,6 +11,22 @@ import {
 } from "../api/api";
 import { formatCantidad, formatCantidadConUnidad, formatEnteroConUnidad } from "../utils/numero";
 import { rolEfectivo } from "../utils/roles";
+import { Button, Dialog, DialogContent, StatusBadge } from "../ui";
+import { Alert } from "../components/ui/feedback";
+import { useConfirm } from "../components/ui/ConfirmDialog";
+import {
+  CSV_FILENAME,
+  construirCsvProductos,
+  construirPayloadNuevo,
+  fmtErr,
+  norm,
+  productCommonName,
+  productScientificName,
+  puedeGestionar as puedeGestionarLogica,
+  puedeMarcarInterno as puedeMarcarInternoLogica,
+  puedePedirMas as puedePedirMasLogica,
+  validarNuevoProducto,
+} from "./productos.logic";
 import {
   getUnidadProducto,
   getProductFormatoConfig,
@@ -20,29 +36,6 @@ import VerPlanta from "../components/VerPlanta";
 import { usePlantsWithImage } from "../utils/plantImages";
 
 const TAMANOS = ["Semillero", "M12", "M20", "M35"];
-
-function fmtErr(e) {
-  const status = e?.response?.status;
-  const data = e?.response?.data;
-  if (status === 422 && Array.isArray(data?.detail)) {
-    return data.detail.map((d) => `${(d.loc || []).join(".")}: ${d.msg}`).join(" | ");
-  }
-  return data?.detail || e?.message || "Error";
-}
-
-function norm(s) {
-  return String(s ?? "").trim().toLowerCase();
-}
-
-function productScientificName(producto) {
-  // ESTRICTO: solo nombre_cientifico. Sin fallback a nombre_natural para que
-  // la columna "Nombre científico" muestre siempre lo que dice la cabecera.
-  return producto?.nombre_cientifico || "-";
-}
-
-function productCommonName(producto) {
-  return producto?.nombre_natural || "-";
-}
 
 // Fila memoizada de producto: solo se re-renderiza cuando cambia su producto
 // o alguna de sus props funcionales. Sin memoización, al pulsar "Pedir más"
@@ -69,21 +62,33 @@ const ProductoRow = memo(function ProductoRow({
   const unidad = getUnidadProducto(p);
 
   return (
-    <tr style={low ? { color: "crimson", fontWeight: 800 } : undefined}>
+    /*
+      La fila entera se teñía de `crimson` cuando el stock estaba bajo mínimo.
+      Dos problemas: el color era el ÚNICO canal (SC 1.4.1), y teñir el nombre
+      del producto de rojo hace leer «producto erróneo» en vez de «hay que
+      reponer». Ahora el aviso va donde está el dato —la cifra de stock— y con
+      una insignia que lleva texto.
+    */
+    <tr>
       <td>
-        <div style={{ fontWeight: 900 }}>
+        <div style={{ fontWeight: "var(--font-weight-semibold)" }}>
           <VerPlanta nombreCientifico={p.nombre_cientifico} nombreNatural={p.nombre_natural} variant="link" stopPropagation={false}>
             {productScientificName(p)}
           </VerPlanta>
         </div>
       </td>
       <td>
-        <div style={{ color: "#475569", fontWeight: 700 }}>{productCommonName(p)}</div>
+        <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>{productCommonName(p)}</div>
       </td>
       <td>{p.categoria ?? "-"}</td>
       <td>{p.subcategoria ?? "-"}</td>
-      <td style={{ textAlign: "center", fontWeight: 800 }}>
-        {formatEnteroConUnidad(stock, unidad) || "0"}
+      <td style={{ textAlign: "center" }}>
+        <span className="inline-flex items-center justify-center gap-2">
+          <span className="tabular font-[var(--font-weight-medium)]">
+            {formatEnteroConUnidad(stock, unidad) || "0"}
+          </span>
+          {low && <StatusBadge status="pending" label="Bajo mínimo" />}
+        </span>
       </td>
       {!esEmpresaExterna && (
         <td style={{ textAlign: "center" }}>
@@ -100,8 +105,8 @@ const ProductoRow = memo(function ProductoRow({
               alignItems: "center",
               gap: 6,
               cursor: "pointer",
-              fontWeight: 700,
-              color: p.es_interno ? "#92400e" : "#475569",
+              fontWeight: "var(--font-weight-medium)",
+              color: p.es_interno ? "var(--warning-subtle-foreground)" : "var(--muted-foreground)",
             }}
             title={
               p.es_interno
@@ -121,22 +126,15 @@ const ProductoRow = memo(function ProductoRow({
       )}
       {puedePedirMas && (
         <td style={{ textAlign: "center" }}>
-          <button
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
             onClick={() => onPedirMas(p)}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(16,185,129,0.28)",
-              background: "linear-gradient(90deg, #10b981 0%, #06b6d4 100%)",
-              color: "white",
-              fontWeight: 900,
-              cursor: "pointer",
-              fontSize: 13,
-            }}
             title="Añadir este producto a la cesta de reposición"
           >
             Pedir más
-          </button>
+          </Button>
         </td>
       )}
     </tr>
@@ -218,7 +216,7 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(2,6,23,0.52)",
+        background: "var(--overlay)",
         backdropFilter: "blur(4px)",
         zIndex: 1000,
         display: "flex",
@@ -230,16 +228,16 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
       <div
         style={{
           width: "min(520px, 96vw)",
-          background: "white",
-          borderRadius: 22,
+          background: "var(--card)",
+          borderRadius: "var(--radius-lg)",
           padding: 24,
-          boxShadow: "0 30px 80px rgba(2,6,23,0.35)",
+          boxShadow: "var(--shadow-md)",
         }}
       >
-        <div style={{ fontSize: 24, fontWeight: 900, color: "#0f172a" }}>
+        <div style={{ fontSize: 24, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
           Añadir a la cesta
         </div>
-        <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
+        <div style={{ marginTop: 6, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
           Selecciona formato y cantidad. Podrás añadir más productos antes de finalizar el pedido de reposición.
         </div>
 
@@ -247,21 +245,21 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
           style={{
             marginTop: 16,
             padding: 12,
-            borderRadius: 12,
-            background: "#f8fafc",
-            border: "1px solid rgba(15,23,42,0.08)",
+            borderRadius: "var(--radius-md)",
+            background: "var(--muted)",
+            border: "1px solid var(--border)",
           }}
         >
-          <div style={{ fontWeight: 900, color: "#0f172a" }}>
+          <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
             {productScientificName(producto)}
           </div>
-          <div style={{ marginTop: 4, color: "#475569", fontWeight: 800, fontSize: 13 }}>
+          <div style={{ marginTop: 4, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)", fontSize: 13 }}>
             Nombre común: {productCommonName(producto)}
           </div>
-          <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700, fontSize: 13 }}>
+          <div style={{ marginTop: 4, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", fontSize: 13 }}>
             {(producto.categoria || "—") + " · " + (producto.subcategoria || "—")}
           </div>
-          <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700, fontSize: 13 }}>
+          <div style={{ marginTop: 4, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", fontSize: 13 }}>
             Origen: Empresa Externa · Destino: Vivero
           </div>
         </div>
@@ -269,18 +267,19 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
         <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           {formatoConfig.kind !== "formato_fijo" ? (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", marginBottom: 6, textTransform: "uppercase" }}>
+              <div style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", marginBottom: 6, textTransform: "uppercase" }}>
                 {formatoConfig.label}
               </div>
               <select
+                aria-label="Tamaño"
                 value={tamano}
                 onChange={(e) => setTamano(e.target.value)}
                 style={{
                   width: "100%",
                   padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(15,23,42,0.12)",
-                  fontWeight: 700,
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid var(--border)",
+                  fontWeight: "var(--font-weight-medium)",
                 }}
               >
                 <option value="">{`Seleccionar ${formatoConfig.label.toLowerCase()}`}</option>
@@ -291,7 +290,7 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
             </div>
           ) : null}
           <div style={formatoConfig.kind === "formato_fijo" ? { gridColumn: "span 2" } : undefined}>
-            <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", marginBottom: 6, textTransform: "uppercase" }}>
+            <div style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", marginBottom: 6, textTransform: "uppercase" }}>
               {cantidadLabel}
             </div>
             <input
@@ -304,9 +303,9 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
               style={{
                 width: "100%",
                 padding: "10px 12px",
-                borderRadius: 12,
-                border: "1px solid rgba(15,23,42,0.12)",
-                fontWeight: 700,
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
+                fontWeight: "var(--font-weight-medium)",
                 boxSizing: "border-box",
               }}
             />
@@ -314,19 +313,19 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
         </div>
 
         <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", marginBottom: 6, textTransform: "uppercase" }}>
+          <label htmlFor="prod-nota-opcional" style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", marginBottom: 6, textTransform: "uppercase" }}>
             Nota (opcional)
-          </div>
-          <textarea
+          </label>
+          <textarea id="prod-nota-opcional"
             value={nota}
             onChange={(e) => setNota(e.target.value)}
             placeholder="Motivo de la reposición..."
             style={{
               width: "100%",
               padding: "10px 12px",
-              borderRadius: 12,
-              border: "1px solid rgba(15,23,42,0.12)",
-              fontWeight: 700,
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              fontWeight: "var(--font-weight-medium)",
               minHeight: 80,
               resize: "vertical",
               boxSizing: "border-box",
@@ -339,11 +338,11 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
             style={{
               marginTop: 12,
               padding: 10,
-              borderRadius: 10,
-              background: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.20)",
-              color: "#991b1b",
-              fontWeight: 800,
+              borderRadius: "var(--radius-md)",
+              background: "var(--danger-subtle)",
+              border: "1px solid var(--border)",
+              color: "var(--danger-subtle-foreground)",
+              fontWeight: "var(--font-weight-semibold)",
             }}
           >
             {err}
@@ -356,11 +355,11 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
             disabled={saving}
             style={{
               padding: "10px 16px",
-              borderRadius: 12,
-              border: "1px solid rgba(15,23,42,0.10)",
-              background: "white",
-              color: "#0f172a",
-              fontWeight: 900,
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              background: "var(--card)",
+              color: "var(--foreground)",
+              fontWeight: "var(--font-weight-semibold)",
               cursor: saving ? "not-allowed" : "pointer",
             }}
           >
@@ -371,11 +370,11 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
             disabled={saving}
             style={{
               padding: "10px 16px",
-              borderRadius: 12,
-              border: "1px solid rgba(16,185,129,0.28)",
-              background: "linear-gradient(90deg, #10b981 0%, #06b6d4 100%)",
-              color: "white",
-              fontWeight: 900,
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              background: "var(--primary)",
+              color: "var(--primary-foreground)",
+              fontWeight: "var(--font-weight-semibold)",
               cursor: saving ? "not-allowed" : "pointer",
             }}
           >
@@ -405,7 +404,7 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(2,6,23,0.52)",
+        background: "var(--overlay)",
         backdropFilter: "blur(4px)",
         zIndex: 1100,
         display: "flex",
@@ -421,10 +420,10 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
         style={{
           width: "min(720px, 96vw)",
           maxHeight: "92vh",
-          background: "white",
-          borderRadius: 22,
+          background: "var(--card)",
+          borderRadius: "var(--radius-lg)",
           padding: 24,
-          boxShadow: "0 30px 80px rgba(2,6,23,0.35)",
+          boxShadow: "var(--shadow-md)",
           display: "flex",
           flexDirection: "column",
         }}
@@ -432,10 +431,10 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
           <div>
-            <div style={{ fontSize: 24, fontWeight: 900, color: "#0f172a" }}>
+            <div style={{ fontSize: 24, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
               🛒 Cesta de reposición
             </div>
-            <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
+            <div style={{ marginTop: 6, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
               {lineCount === 0
                 ? "Aún no has añadido productos a la cesta."
                 : `${lineCount} ${lineCount === 1 ? "línea" : "líneas"} · ${formatCantidad(total)} unidades totales`}
@@ -447,11 +446,11 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
             disabled={saving}
             style={{
               padding: "6px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(15,23,42,0.10)",
-              background: "white",
-              color: "#64748b",
-              fontWeight: 800,
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              background: "var(--card)",
+              color: "var(--muted-foreground)",
+              fontWeight: "var(--font-weight-semibold)",
               cursor: saving ? "not-allowed" : "pointer",
               fontSize: 18,
               lineHeight: 1,
@@ -469,11 +468,11 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
               style={{
                 padding: 24,
                 textAlign: "center",
-                color: "#64748b",
-                fontWeight: 700,
-                border: "1px dashed rgba(15,23,42,0.12)",
-                borderRadius: 14,
-                background: "#fbfdff",
+                color: "var(--muted-foreground)",
+                fontWeight: "var(--font-weight-medium)",
+                border: "1px dashed var(--border)",
+                borderRadius: "var(--radius-lg)",
+                background: "var(--muted)",
               }}
             >
               Pulsa "Pedir más" en cualquier producto del listado para empezar.
@@ -492,14 +491,14 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
                       gap: 10,
                       alignItems: "center",
                       padding: "10px 14px",
-                      borderRadius: 12,
-                      background: "#f8fafc",
-                      border: "1px solid rgba(15,23,42,0.06)",
+                      borderRadius: "var(--radius-md)",
+                      background: "var(--muted)",
+                      border: "1px solid var(--border)",
                     }}
                   >
                     <div>
-                      <div style={{ fontWeight: 900, color: "#0f172a" }}>{it.producto_nombre}</div>
-                      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 700, marginTop: 2 }}>
+                      <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>{it.producto_nombre}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", marginTop: 2 }}>
                         {it.producto_categoria || "—"} · Tamaño/Formato: <strong>{it.tamano || "—"}</strong>
                       </div>
                     </div>
@@ -511,13 +510,13 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
                       onChange={(e) => onUpdate(idx, { cantidad: itemDecimales ? e.target.value : e.target.value.replace(/[^\d]/g, "") })}
                       style={{
                         padding: "8px 10px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(15,23,42,0.12)",
-                        fontWeight: 800,
+                        borderRadius: "var(--radius-md)",
+                        border: "1px solid var(--border)",
+                        fontWeight: "var(--font-weight-semibold)",
                         textAlign: "right",
                       }}
                     />
-                    <div style={{ fontWeight: 800, color: "#64748b", fontSize: 13 }}>{unidad}</div>
+                    <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", fontSize: 13 }}>{unidad}</div>
                     <button
                       type="button"
                       onClick={() => onRemove(idx)}
@@ -525,11 +524,11 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
                       title="Quitar de la cesta"
                       style={{
                         padding: "6px 10px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(239,68,68,0.30)",
-                        background: "rgba(239,68,68,0.10)",
-                        color: "#991b1b",
-                        fontWeight: 900,
+                        borderRadius: "var(--radius-md)",
+                        border: "1px solid var(--border)",
+                        background: "var(--danger-subtle)",
+                        color: "var(--danger-subtle-foreground)",
+                        fontWeight: "var(--font-weight-semibold)",
                         cursor: saving ? "not-allowed" : "pointer",
                       }}
                     >
@@ -545,7 +544,7 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
         {/* Nota general del pedido */}
         {cart.length > 0 ? (
           <div style={{ marginTop: 4 }}>
-            <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", marginBottom: 6, textTransform: "uppercase" }}>
+            <div style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", marginBottom: 6, textTransform: "uppercase" }}>
               Nota del pedido (opcional)
             </div>
             <textarea
@@ -555,9 +554,9 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
               style={{
                 width: "100%",
                 padding: "10px 12px",
-                borderRadius: 12,
-                border: "1px solid rgba(15,23,42,0.12)",
-                fontWeight: 700,
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
+                fontWeight: "var(--font-weight-medium)",
                 minHeight: 60,
                 resize: "vertical",
                 boxSizing: "border-box",
@@ -572,11 +571,11 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
             style={{
               marginTop: 12,
               padding: 10,
-              borderRadius: 10,
-              background: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.20)",
-              color: "#991b1b",
-              fontWeight: 800,
+              borderRadius: "var(--radius-md)",
+              background: "var(--danger-subtle)",
+              border: "1px solid var(--border)",
+              color: "var(--danger-subtle-foreground)",
+              fontWeight: "var(--font-weight-semibold)",
             }}
           >
             {errorMsg}
@@ -591,11 +590,11 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
             disabled={saving}
             style={{
               padding: "10px 16px",
-              borderRadius: 12,
-              border: "1px solid rgba(59,130,246,0.30)",
-              background: "rgba(59,130,246,0.10)",
-              color: "#1d4ed8",
-              fontWeight: 900,
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              background: "var(--info-subtle)",
+              color: "var(--info-subtle-foreground)",
+              fontWeight: "var(--font-weight-semibold)",
               cursor: saving ? "not-allowed" : "pointer",
             }}
           >
@@ -608,11 +607,11 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
               disabled={saving}
               style={{
                 padding: "10px 16px",
-                borderRadius: 12,
-                border: "1px solid rgba(15,23,42,0.10)",
-                background: "white",
-                color: "#0f172a",
-                fontWeight: 900,
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
+                background: "var(--card)",
+                color: "var(--foreground)",
+                fontWeight: "var(--font-weight-semibold)",
                 cursor: saving ? "not-allowed" : "pointer",
               }}
             >
@@ -624,13 +623,13 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
               disabled={saving || cart.length === 0}
               style={{
                 padding: "10px 18px",
-                borderRadius: 12,
-                border: "1px solid rgba(16,185,129,0.28)",
-                background: (saving || cart.length === 0)
-                  ? "rgba(16,185,129,0.30)"
-                  : "linear-gradient(90deg, #10b981 0%, #06b6d4 100%)",
-                color: "white",
-                fontWeight: 900,
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
+                background: (saving || cart.length === 0) ? "var(--muted)" : "var(--primary)",
+                color: (saving || cart.length === 0)
+                  ? "var(--muted-foreground)"
+                  : "var(--primary-foreground)",
+                fontWeight: "var(--font-weight-semibold)",
                 cursor: (saving || cart.length === 0) ? "not-allowed" : "pointer",
                 minWidth: 180,
               }}
@@ -652,6 +651,9 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
   const [filtroSubcategoria, setFiltroSubcategoria] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+
+  // Confirmación de acciones destructivas. Devuelve promesa: ver `removeProduct`.
+  const { confirmar, dialogo: dialogoConfirmacion } = useConfirm();
   const [nuevo, setNuevo] = useState({
     nombre_cientifico: "",
     nombre_natural: "",
@@ -748,30 +750,15 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
 
   // Exporta TODOS los productos del catálogo a CSV (lo abre Excel).
   const exportarProductosExcel = () => {
-    const lista = Array.isArray(productos) ? productos : [];
-    const esc = (v) => {
-      const s = String(v ?? "");
-      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const headers = ["Nombre científico", "Nombre común", "Categoría", "Subcategoría", "Stock", "Stock mínimo", "Precio (€)", "Interno"];
-    const lineas = lista.map((p) =>
-      [
-        p.nombre_cientifico || "",
-        p.nombre_natural || "",
-        p.categoria || "",
-        p.subcategoria || "",
-        p.stock ?? "",
-        p.stock_minimo === null || p.stock_minimo === undefined ? "" : p.stock_minimo,
-        p.precio === null || p.precio === undefined ? "" : Number(p.precio).toFixed(2).replace(".", ","),
-        p.es_interno ? "Sí" : "No",
-      ].map(esc).join(";")
-    );
-    const csv = [headers.map(esc).join(";"), ...lineas].join("\r\n");
+    // El contenido lo construye `productos.logic.js`, cuyo contrato fija
+    // columnas, orden y formato en `productos.export.contract.test.js`.
+    const csv = construirCsvProductos(productos);
+    // El BOM hace que Excel reconozca UTF-8 y no destroce las tildes.
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "productos_vivero.csv";
+    a.download = CSV_FILENAME;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -812,10 +799,27 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
     }
   };
 
+  /**
+   * Eliminar un producto.
+   *
+   * Era el ÚNICO `window.confirm` que quedaba en Pedidos o Productos, y tenía
+   * el problema de siempre: bloquea el hilo, no se puede estilar, y su
+   * resultado síncrono invierte el control del flujo.
+   *
+   * `useConfirm` devuelve una promesa: la función espera de verdad, Escape y
+   * «Cancelar» son NO, y el foco vuelve al botón que lo abrió. El diálogo
+   * nombra el producto para que se vea CUÁL se va a borrar.
+   */
   const removeProduct = async (p) => {
-    if (!window.confirm(`¿Eliminar el producto "${p.nombre_cientifico}"? Esta acción no se puede deshacer.`)) {
-      return;
-    }
+    const ok = await confirmar({
+      title: "¿Eliminar el producto?",
+      description: `${p.nombre_cientifico || "Sin nombre científico"}. Esta acción no se puede deshacer.`,
+      confirmLabel: "Eliminar",
+      cancelLabel: "Cancelar",
+      destructive: true,
+    });
+    if (!ok) return;
+
     setSaving(true);
     try {
       await deleteProducto(p.id);
@@ -829,21 +833,16 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
   };
 
   const submitNuevo = async () => {
-    if (!nuevo.nombre_cientifico.trim() || !nuevo.categoria.trim() || !nuevo.subcategoria.trim()) {
-      showErr("Nombre científico, categoría y subcategoría son obligatorios.");
+    const errorValidacion = validarNuevoProducto(nuevo);
+    if (errorValidacion) {
+      showErr(errorValidacion);
       return;
     }
     setSaving(true);
     try {
-      await createProducto({
-        nombre_cientifico: nuevo.nombre_cientifico.trim(),
-        nombre_natural: nuevo.nombre_natural.trim() || null,
-        categoria: nuevo.categoria.trim(),
-        subcategoria: nuevo.subcategoria.trim(),
-        stock_minimo: Number(nuevo.stock_minimo) || 0,
-        es_interno: !!nuevo.es_interno,
-        precio: nuevo.precio === "" || nuevo.precio == null ? null : Number(nuevo.precio),
-      });
+      // El payload lo construye `productos.logic.js`; su forma exacta está
+      // comparada con main en las pruebas de equivalencia.
+      await createProducto(construirPayloadNuevo(nuevo));
       showMsg("Producto creado.");
       setNuevo({
         nombre_cientifico: "",
@@ -888,71 +887,56 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
   const inputS = {
     width: "100%",
     padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(15,23,42,0.15)",
-    fontWeight: 700,
+    borderRadius: "var(--radius-md)",
+    border: "1px solid var(--border)",
+    fontWeight: "var(--font-weight-medium)",
     boxSizing: "border-box",
   };
   const tabBtnS = (active) => ({
     padding: "10px 16px",
-    borderRadius: 10,
-    border: active ? "1px solid rgba(6,182,212,0.35)" : "1px solid rgba(15,23,42,0.10)",
-    background: active ? "linear-gradient(135deg, #0ea5e9 0%, #06b6d4 60%, #10b981 100%)" : "white",
-    color: active ? "white" : "#0f172a",
-    fontWeight: 900,
+    borderRadius: "var(--radius-md)",
+    border: active ? "1px solid var(--border)" : "1px solid var(--border)",
+    background: active ? "var(--muted)" : "white",
+    color: active ? "var(--primary-foreground)" : "var(--foreground)",
+    fontWeight: "var(--font-weight-semibold)",
     cursor: "pointer",
   });
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(2,6,23,0.55)",
-        zIndex: 1500,
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        padding: 24,
-        overflowY: "auto",
-        overscrollBehavior: "contain",
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "min(1100px, 96vw)",
-          background: "white",
-          borderRadius: 20,
-          boxShadow: "0 30px 80px rgba(2,6,23,0.35)",
-          display: "flex",
-          flexDirection: "column",
-          marginTop: "auto",
-          marginBottom: "auto",
-        }}
+    /*
+     * `Dialog` del sistema. El `div` fijo anterior no tenía trampa de foco ni
+     * cierre con Escape, y su `onClick` de fondo cerraba el modal también al
+     * soltar una selección de texto iniciada dentro — con un formulario de alta
+     * a medio rellenar, eso perdía el trabajo.
+     */
+    <Dialog open={open} onOpenChange={(abierto) => !abierto && onClose()}>
+      <DialogContent
+        title="Gestionar productos"
+        description="Alta, edición y baja del catálogo, e importación masiva."
+        closeLabel="Cerrar"
+        size="lg"
+        className="max-w-[min(1100px,96vw)]"
       >
+      <div className="flex flex-col">
         <div
           style={{
             padding: "18px 22px",
-            borderBottom: "1px solid rgba(15,23,42,0.08)",
+            borderBottom: "1px solid var(--border)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "start",
             gap: 16,
             position: "sticky",
             top: 0,
-            background: "white",
+            background: "var(--card)",
             zIndex: 2,
             borderTopLeftRadius: 20,
             borderTopRightRadius: 20,
           }}
         >
           <div>
-            <div style={{ fontSize: 24, fontWeight: 900, color: "#0f172a" }}>Gestionar productos</div>
-            <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700, fontSize: 14 }}>
+            <div style={{ fontSize: 24, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Gestionar productos</div>
+            <div style={{ marginTop: 4, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", fontSize: 14 }}>
               Alta, baja, edición e importación masiva.
             </div>
           </div>
@@ -960,31 +944,31 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
             onClick={onClose}
             style={{
               padding: "8px 14px",
-              borderRadius: 10,
-              fontWeight: 900,
+              borderRadius: "var(--radius-md)",
+              fontWeight: "var(--font-weight-semibold)",
               cursor: "pointer",
-              background: "#f59e0b",
-              color: "#111827",
-              border: "2px solid #000",
+              background: "var(--warning-subtle-foreground)",
+              color: "var(--foreground)",
+              border: "1px solid var(--border)",
             }}
           >
             Cerrar
           </button>
         </div>
 
-        <div style={{ padding: "14px 22px", display: "flex", gap: 8, borderBottom: "1px solid rgba(15,23,42,0.05)" }}>
+        <div style={{ padding: "14px 22px", display: "flex", gap: 8, borderBottom: "1px solid var(--border)" }}>
           <button onClick={() => setTab("listado")} style={tabBtnS(tab === "listado")}>Listado</button>
           <button onClick={() => setTab("nuevo")} style={tabBtnS(tab === "nuevo")}>Nuevo producto</button>
           <button onClick={() => setTab("importar")} style={tabBtnS(tab === "importar")}>Importar CSV/Excel</button>
         </div>
 
         {msg ? (
-          <div style={{ margin: "12px 22px 0", padding: "10px 14px", borderRadius: 10, background: "rgba(16,185,129,0.10)", border: "1px solid rgba(16,185,129,0.25)", color: "#065f46", fontWeight: 800 }}>
+          <div style={{ margin: "12px 22px 0", padding: "10px 14px", borderRadius: "var(--radius-md)", background: "var(--success-subtle)", border: "1px solid var(--border)", color: "var(--success-subtle-foreground)", fontWeight: "var(--font-weight-semibold)" }}>
             {msg}
           </div>
         ) : null}
         {err ? (
-          <div style={{ margin: "12px 22px 0", padding: "10px 14px", borderRadius: 10, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", color: "#991b1b", fontWeight: 800 }}>
+          <div style={{ margin: "12px 22px 0", padding: "10px 14px", borderRadius: "var(--radius-md)", background: "var(--danger-subtle)", border: "1px solid var(--border)", color: "var(--danger-subtle-foreground)", fontWeight: "var(--font-weight-semibold)" }}>
             {err}
           </div>
         ) : null}
@@ -1000,6 +984,7 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                   style={{ ...inputS, flex: "1 1 220px", marginBottom: 0 }}
                 />
                 <select
+                  aria-label="Filtrar el catálogo por categoría"
                   value={filtroCategoria}
                   onChange={(e) => setFiltroCategoria(e.target.value)}
                   style={{ ...inputS, flex: "0 1 200px", marginBottom: 0 }}
@@ -1010,6 +995,7 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                   ))}
                 </select>
                 <select
+                  aria-label="Filtrar el catálogo por subcategoría"
                   value={filtroSubcategoria}
                   onChange={(e) => setFiltroSubcategoria(e.target.value)}
                   disabled={!filtroCategoria || subcategoriasDisponibles.length === 0}
@@ -1024,7 +1010,7 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                   <button
                     type="button"
                     onClick={() => { setSearch(""); setFiltroCategoria(""); setFiltroSubcategoria(""); }}
-                    style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(148,163,184,0.35)", background: "#fff", color: "#475569", fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}
+                    style={{ padding: "10px 14px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: "var(--card)", color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer", whiteSpace: "nowrap" }}
                   >
                     Limpiar
                   </button>
@@ -1034,16 +1020,16 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                   onClick={exportarProductosExcel}
                   disabled={!productos.length}
                   title="Exportar todos los productos a Excel"
-                  style={{ marginLeft: "auto", padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.35)", background: productos.length ? "rgba(16,185,129,0.10)" : "#f1f5f9", color: "#065f46", fontWeight: 800, cursor: productos.length ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}
+                  style={{ marginLeft: "auto", padding: "10px 14px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: productos.length ? "var(--success-subtle)" : "var(--muted)", color: "var(--success-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: productos.length ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}
                 >
                   ⬇ Exportar a Excel
                 </button>
               </div>
-              <div style={{ marginBottom: 10, fontSize: 13, color: "#64748b", fontWeight: 700 }}>
+              <div style={{ marginBottom: 10, fontSize: 13, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
                 {productosFiltrados.length} {productosFiltrados.length === 1 ? "producto" : "productos"}
               </div>
 
-              <div style={{ overflowX: "auto", border: "1px solid rgba(15,23,42,0.08)", borderRadius: 12 }}>
+              <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-md)" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", wordBreak: "break-word" }}>
                   <colgroup>
                     <col style={{ width: "18%" }} />
@@ -1056,21 +1042,21 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                     <col style={{ width: "19%" }} />
                   </colgroup>
                   <thead>
-                    <tr style={{ background: "#f8fafc" }}>
-                      <th style={{ padding: 10, textAlign: "left", fontWeight: 900, fontSize: 12, color: "#334155" }}>Científico</th>
-                      <th style={{ padding: 10, textAlign: "left", fontWeight: 900, fontSize: 12, color: "#334155" }}>Común</th>
-                      <th style={{ padding: 10, textAlign: "left", fontWeight: 900, fontSize: 12, color: "#334155" }}>Categoría</th>
-                      <th style={{ padding: 10, textAlign: "left", fontWeight: 900, fontSize: 12, color: "#334155" }}>Subcategoría</th>
-                      <th style={{ padding: 10, textAlign: "center", fontWeight: 900, fontSize: 12, color: "#334155" }}>Precio (€)</th>
-                      <th style={{ padding: 10, textAlign: "center", fontWeight: 900, fontSize: 12, color: "#334155" }}>Stock min.</th>
-                      <th style={{ padding: 10, textAlign: "center", fontWeight: 900, fontSize: 12, color: "#334155" }}>Interno</th>
-                      <th style={{ padding: 10, textAlign: "center", fontWeight: 900, fontSize: 12, color: "#334155" }}>Acciones</th>
+                    <tr style={{ background: "var(--muted)" }}>
+                      <th style={{ padding: 10, textAlign: "left", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)" }}>Científico</th>
+                      <th style={{ padding: 10, textAlign: "left", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)" }}>Común</th>
+                      <th style={{ padding: 10, textAlign: "left", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)" }}>Categoría</th>
+                      <th style={{ padding: 10, textAlign: "left", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)" }}>Subcategoría</th>
+                      <th style={{ padding: 10, textAlign: "center", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)" }}>Precio (€)</th>
+                      <th style={{ padding: 10, textAlign: "center", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)" }}>Stock min.</th>
+                      <th style={{ padding: 10, textAlign: "center", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)" }}>Interno</th>
+                      <th style={{ padding: 10, textAlign: "center", fontWeight: "var(--font-weight-semibold)", fontSize: 12, color: "var(--foreground)" }}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {productosFiltrados.length === 0 ? (
                       <tr>
-                        <td colSpan={8} style={{ padding: 16, textAlign: "center", color: "#64748b" }}>
+                        <td colSpan={8} style={{ padding: 16, textAlign: "center", color: "var(--muted-foreground)" }}>
                           No hay productos.
                         </td>
                       </tr>
@@ -1078,7 +1064,7 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                       productosFiltrados.map((p) => {
                         const isEditing = editingId === p.id;
                         return (
-                          <tr key={p.id} style={{ borderTop: "1px solid rgba(15,23,42,0.06)" }}>
+                          <tr key={p.id} style={{ borderTop: "1px solid var(--border)" }}>
                             {isEditing ? (
                               <>
                                 <td style={{ padding: 6 }}>
@@ -1139,30 +1125,30 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                                 </td>
                                 <td style={{ padding: 6, textAlign: "center" }}>
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
-                                    <button onClick={saveEdit} disabled={saving} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", background: "rgba(16,185,129,0.10)", color: "#065f46", fontWeight: 900, cursor: "pointer" }}>Guardar</button>
-                                    <button onClick={cancelEdit} disabled={saving} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid rgba(15,23,42,0.10)", background: "white", fontWeight: 900, cursor: "pointer" }}>Cancelar</button>
+                                    <button onClick={saveEdit} disabled={saving} style={{ padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--success-subtle)", color: "var(--success-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer" }}>Guardar</button>
+                                    <button onClick={cancelEdit} disabled={saving} style={{ padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--card)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer" }}>Cancelar</button>
                                   </div>
                                 </td>
                               </>
                             ) : (
                               <>
-                                <td style={{ padding: 10, fontWeight: 800 }}>{p.nombre_cientifico}</td>
+                                <td style={{ padding: 10, fontWeight: "var(--font-weight-semibold)" }}>{p.nombre_cientifico}</td>
                                 <td style={{ padding: 10 }}>{p.nombre_natural || "—"}</td>
                                 <td style={{ padding: 10 }}>{p.categoria}</td>
                                 <td style={{ padding: 10 }}>{p.subcategoria}</td>
-                                <td style={{ padding: 10, textAlign: "center", fontWeight: 800 }}>
+                                <td style={{ padding: 10, textAlign: "center", fontWeight: "var(--font-weight-semibold)" }}>
                                   {p.precio === null || p.precio === undefined ? "—" : `${Number(p.precio).toFixed(2).replace(".", ",")} €`}
                                 </td>
-                                <td style={{ padding: 10, textAlign: "center", fontWeight: 800 }}>{p.stock_minimo ?? 0}</td>
+                                <td style={{ padding: 10, textAlign: "center", fontWeight: "var(--font-weight-semibold)" }}>{p.stock_minimo ?? 0}</td>
                                 <td style={{ padding: 10, textAlign: "center" }}>
-                                  <span style={{ padding: "2px 8px", borderRadius: 999, background: p.es_interno ? "rgba(245,158,11,0.15)" : "rgba(148,163,184,0.15)", color: p.es_interno ? "#92400e" : "#475569", fontWeight: 900, fontSize: 12 }}>
+                                  <span style={{ padding: "2px 8px", borderRadius: "var(--radius-full)", background: p.es_interno ? "var(--warning-subtle)" : "var(--muted)", color: p.es_interno ? "var(--warning-subtle-foreground)" : "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)", fontSize: 12 }}>
                                     {p.es_interno ? "Sí" : "No"}
                                   </span>
                                 </td>
                                 <td style={{ padding: 10, textAlign: "center" }}>
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
-                                    <button onClick={() => startEdit(p)} disabled={saving} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid rgba(59,130,246,0.3)", background: "rgba(59,130,246,0.08)", color: "#1d4ed8", fontWeight: 900, cursor: "pointer" }}>Editar</button>
-                                    <button onClick={() => removeProduct(p)} disabled={saving} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.08)", color: "#991b1b", fontWeight: 900, cursor: "pointer" }}>Eliminar</button>
+                                    <button onClick={() => startEdit(p)} disabled={saving} style={{ padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--info-subtle)", color: "var(--info-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer" }}>Editar</button>
+                                    <button onClick={() => removeProduct(p)} disabled={saving} style={{ padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--danger-subtle)", color: "var(--danger-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer" }}>Eliminar</button>
                                   </div>
                                 </td>
                               </>
@@ -1198,17 +1184,17 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
             return (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>Nombre científico *</div>
-                <input value={nuevo.nombre_cientifico} onChange={(e) => setNuevo((n) => ({ ...n, nombre_cientifico: e.target.value }))} style={inputS} placeholder="Ej: Phoenix canariensis" />
+                <label htmlFor="prod-nombre-cientifico" style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", textTransform: "uppercase", marginBottom: 6 }}>Nombre científico *</label>
+                <input id="prod-nombre-cientifico" value={nuevo.nombre_cientifico} onChange={(e) => setNuevo((n) => ({ ...n, nombre_cientifico: e.target.value }))} style={inputS} placeholder="Ej: Phoenix canariensis" />
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>Nombre común</div>
-                <input value={nuevo.nombre_natural} onChange={(e) => setNuevo((n) => ({ ...n, nombre_natural: e.target.value }))} style={inputS} placeholder="Ej: Palmera canaria" />
+                <label htmlFor="prod-nombre-comun" style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", textTransform: "uppercase", marginBottom: 6 }}>Nombre común</label>
+                <input id="prod-nombre-comun" value={nuevo.nombre_natural} onChange={(e) => setNuevo((n) => ({ ...n, nombre_natural: e.target.value }))} style={inputS} placeholder="Ej: Palmera canaria" />
               </div>
 
               <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>Categoría *</div>
-                <select
+                <label htmlFor="prod-categoria" style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", textTransform: "uppercase", marginBottom: 6 }}>Categoría *</label>
+                <select id="prod-categoria"
                   value={nuevoCategoriaSel}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -1240,8 +1226,8 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
               </div>
 
               <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>Subcategoría *</div>
-                <select
+                <label htmlFor="prod-subcategoria" style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", textTransform: "uppercase", marginBottom: 6 }}>Subcategoría *</label>
+                <select id="prod-subcategoria"
                   value={nuevoSubcategoriaSel}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -1270,20 +1256,20 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                 ) : null}
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>Stock mínimo</div>
-                <input type="number" min={0} value={nuevo.stock_minimo} onChange={(e) => setNuevo((n) => ({ ...n, stock_minimo: e.target.value }))} style={inputS} />
+                <label htmlFor="prod-stock-minimo" style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", textTransform: "uppercase", marginBottom: 6 }}>Stock mínimo</label>
+                <input id="prod-stock-minimo" type="number" min={0} value={nuevo.stock_minimo} onChange={(e) => setNuevo((n) => ({ ...n, stock_minimo: e.target.value }))} style={inputS} />
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>Precio unitario (€)</div>
-                <input type="number" min={0} step="0.01" value={nuevo.precio} onChange={(e) => setNuevo((n) => ({ ...n, precio: e.target.value }))} style={inputS} placeholder="Ej: 12,50" />
+                <label htmlFor="prod-precio-unitario" style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", textTransform: "uppercase", marginBottom: 6 }}>Precio unitario (€)</label>
+                <input id="prod-precio-unitario" type="number" min={0} step="0.01" value={nuevo.precio} onChange={(e) => setNuevo((n) => ({ ...n, precio: e.target.value }))} style={inputS} placeholder="Ej: 12,50" />
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(15,23,42,0.10)", background: nuevo.es_interno ? "rgba(245,158,11,0.08)" : "white", fontWeight: 800, color: "#0f172a", cursor: "pointer", marginTop: 22 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: nuevo.es_interno ? "var(--warning-subtle)" : "white", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", cursor: "pointer", marginTop: 22 }}>
                 <input type="checkbox" checked={nuevo.es_interno} onChange={(e) => setNuevo((n) => ({ ...n, es_interno: e.target.checked }))} style={{ width: 18, height: 18 }} />
                 Producto interno (oculto a empresa externa)
               </label>
 
               <div style={{ gridColumn: "span 2", display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
-                <button onClick={submitNuevo} disabled={saving} style={{ padding: "12px 18px", borderRadius: 12, border: "1px solid rgba(16,185,129,0.3)", background: "linear-gradient(90deg, #10b981 0%, #06b6d4 100%)", color: "white", fontWeight: 900, cursor: "pointer", opacity: saving ? 0.75 : 1 }}>
+                <button onClick={submitNuevo} disabled={saving} style={{ padding: "12px 18px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: "var(--primary)", color: "var(--primary-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer", opacity: saving ? 0.75 : 1 }}>
                   {saving ? "Creando..." : "Crear producto"}
                 </button>
               </div>
@@ -1293,9 +1279,9 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
 
           {tab === "importar" && (
             <div>
-              <div style={{ padding: 14, borderRadius: 12, background: "#f8fafc", border: "1px solid rgba(15,23,42,0.08)", marginBottom: 14 }}>
-                <div style={{ fontWeight: 900, color: "#0f172a", marginBottom: 6 }}>Formato del archivo</div>
-                <div style={{ color: "#475569", fontWeight: 700, fontSize: 14, lineHeight: 1.5 }}>
+              <div style={{ padding: 14, borderRadius: "var(--radius-md)", background: "var(--muted)", border: "1px solid var(--border)", marginBottom: 14 }}>
+                <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 6 }}>Formato del archivo</div>
+                <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", fontSize: 14, lineHeight: 1.5 }}>
                   CSV o Excel (.xlsx). Columnas (no importa mayúsculas, acentos o guiones bajos):
                   <ul style={{ margin: "6px 0 0 18px" }}>
                     <li><b>nombre_cientifico</b> (obligatorio)</li>
@@ -1311,7 +1297,15 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                 </div>
               </div>
 
+              {/*
+                Un `input[type=file]` sin etiqueta se anuncia solo como
+                «examinar»: no dice qué se sube ni en qué formato.
+              */}
+              <label htmlFor="prod-importar-fichero" className="mb-2 block text-body-sm font-[var(--font-weight-medium)]">
+                Fichero de productos (CSV o Excel)
+              </label>
               <input
+                id="prod-importar-fichero"
                 type="file"
                 accept=".csv,.xlsx,.xls"
                 onChange={(e) => {
@@ -1322,21 +1316,21 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
               />
 
               <div>
-                <button onClick={submitImport} disabled={saving || !file} style={{ padding: "10px 16px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)", background: saving || !file ? "rgba(148,163,184,0.25)" : "linear-gradient(90deg, #10b981 0%, #06b6d4 100%)", color: "white", fontWeight: 900, cursor: saving || !file ? "not-allowed" : "pointer" }}>
+                <button onClick={submitImport} disabled={saving || !file} style={{ padding: "10px 16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: saving || !file ? "var(--muted)" : "var(--muted)", color: "var(--card)", fontWeight: "var(--font-weight-semibold)", cursor: saving || !file ? "not-allowed" : "pointer" }}>
                   {saving ? "Importando..." : "Importar"}
                 </button>
               </div>
 
               {importResult ? (
-                <div style={{ marginTop: 16, padding: 14, borderRadius: 12, background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.25)" }}>
-                  <div style={{ fontWeight: 900, color: "#065f46", marginBottom: 6 }}>Resultado de la importación</div>
-                  <div style={{ color: "#0f172a", fontWeight: 800 }}>Insertados: {importResult.insertados}</div>
-                  <div style={{ color: "#0f172a", fontWeight: 800 }}>Actualizados: {importResult.actualizados}</div>
-                  <div style={{ color: "#0f172a", fontWeight: 800 }}>Saltados: {importResult.saltados}</div>
+                <div style={{ marginTop: 16, padding: 14, borderRadius: "var(--radius-md)", background: "var(--success-subtle)", border: "1px solid var(--border)" }}>
+                  <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--success-subtle-foreground)", marginBottom: 6 }}>Resultado de la importación</div>
+                  <div style={{ color: "var(--foreground)", fontWeight: "var(--font-weight-semibold)" }}>Insertados: {importResult.insertados}</div>
+                  <div style={{ color: "var(--foreground)", fontWeight: "var(--font-weight-semibold)" }}>Actualizados: {importResult.actualizados}</div>
+                  <div style={{ color: "var(--foreground)", fontWeight: "var(--font-weight-semibold)" }}>Saltados: {importResult.saltados}</div>
                   {importResult.errores?.length > 0 ? (
                     <div style={{ marginTop: 8 }}>
-                      <div style={{ fontWeight: 900, color: "#991b1b" }}>Errores:</div>
-                      <ul style={{ margin: "4px 0 0 18px", color: "#991b1b" }}>
+                      <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--danger-subtle-foreground)" }}>Errores:</div>
+                      <ul style={{ margin: "4px 0 0 18px", color: "var(--danger-subtle-foreground)" }}>
                         {importResult.errores.map((e, i) => <li key={i}>{e}</li>)}
                       </ul>
                     </div>
@@ -1346,8 +1340,11 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
             </div>
           )}
         </div>
+
+      {dialogoConfirmacion}
       </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1449,9 +1446,11 @@ export default function Productos() {
 
   const rol = rolEfectivo(me);  // superadmin/admin_vivero cuentan como admin
   const esEmpresaExterna = rol === "empresa_externa";
-  const puedePedirMas = rol && rol !== "empresa_externa";
-  const puedeMarcarInterno = rol === "admin" || rol === "manager";
-  const puedeGestionar = rol === "admin" || rol === "manager" || rol === "tecnico";
+  // Los permisos salen de `productos.logic.js`, comparados con main en
+  // `productos.equivalence.test.js`.
+  const puedePedirMas = puedePedirMasLogica(rol);
+  const puedeMarcarInterno = puedeMarcarInternoLogica(rol);
+  const puedeGestionar = puedeGestionarLogica(rol);
 
   // Memoizado para mantener la referencia estable y no romper el React.memo
   // de las filas de ProductoRow.
@@ -1553,9 +1552,16 @@ export default function Productos() {
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginTop: 0, marginBottom: 12 }}>
-        <h1 style={{ margin: 0 }}>Productos</h1>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h1 className="text-h2 font-[var(--font-weight-semibold)]">Productos</h1>
+          <p className="text-body-sm text-muted-foreground">
+            Catálogo del vivero con existencias, mínimos y clasificación.
+          </p>
+        </div>
+        {/* Máximo anclado al viewport para que las acciones se partan a 320 px
+            en vez de quedar cortadas: mismo hallazgo que en la Fase 4A. */}
+        <div className="flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2">
           {puedePedirMas ? (
             <button
               onClick={() => setCartOpen(true)}
@@ -1563,15 +1569,15 @@ export default function Productos() {
               style={{
                 position: "relative",
                 padding: "10px 16px",
-                borderRadius: 12,
-                border: "1px solid rgba(245,158,11,0.30)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
                 background: cart.length > 0
-                  ? "linear-gradient(135deg, #f59e0b 0%, #f97316 100%)"
-                  : "rgba(245,158,11,0.10)",
-                color: cart.length > 0 ? "white" : "#92400e",
-                fontWeight: 900,
+                  ? "var(--muted)"
+                  : "var(--warning-subtle)",
+                color: cart.length > 0 ? "var(--primary-foreground)" : "var(--warning-subtle-foreground)",
+                fontWeight: "var(--font-weight-semibold)",
                 cursor: "pointer",
-                boxShadow: cart.length > 0 ? "0 12px 28px rgba(245,158,11,0.22)" : "none",
+                boxShadow: cart.length > 0 ? "var(--shadow-md)" : "none",
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 8,
@@ -1584,10 +1590,10 @@ export default function Productos() {
                     minWidth: 22,
                     height: 22,
                     padding: "0 6px",
-                    borderRadius: 11,
-                    background: "white",
-                    color: "#92400e",
-                    fontWeight: 900,
+                    borderRadius: "var(--radius-md)",
+                    background: "var(--card)",
+                    color: "var(--warning-subtle-foreground)",
+                    fontWeight: "var(--font-weight-semibold)",
                     fontSize: 12,
                     display: "inline-flex",
                     alignItems: "center",
@@ -1600,26 +1606,15 @@ export default function Productos() {
             </button>
           ) : null}
           {puedeGestionar ? (
-            <button
-              onClick={() => setGestionOpen(true)}
-              style={{
-                padding: "10px 16px",
-                borderRadius: 12,
-                border: "1px solid rgba(6,182,212,0.30)",
-                background: "linear-gradient(135deg, #0ea5e9 0%, #06b6d4 60%, #10b981 100%)",
-                color: "white",
-                fontWeight: 900,
-                cursor: "pointer",
-                boxShadow: "0 12px 28px rgba(6,182,212,0.18)",
-              }}
-            >
+            <Button type="button" variant="secondary" onClick={() => setGestionOpen(true)}>
               Gestionar productos
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
 
-      {error && <p style={{ color: "crimson" }}>Error: {error}</p>}
+      {/* `Alert` lleva role="alert": un error solo pintado no se anuncia. */}
+      {error && <Alert tone="error">{error}</Alert>}
       {loading && <p>Cargando...</p>}
 
       {msg && (
@@ -1627,11 +1622,11 @@ export default function Productos() {
           style={{
             marginBottom: 12,
             padding: "10px 14px",
-            borderRadius: 12,
-            background: "rgba(16,185,129,0.10)",
-            border: "1px solid rgba(16,185,129,0.22)",
-            color: "#065f46",
-            fontWeight: 800,
+            borderRadius: "var(--radius-md)",
+            background: "var(--success-subtle)",
+            border: "1px solid var(--border)",
+            color: "var(--success-subtle-foreground)",
+            fontWeight: "var(--font-weight-semibold)",
           }}
         >
           {msg}
@@ -1639,44 +1634,46 @@ export default function Productos() {
       )}
 
       {!loading && (
+        /*
+          Rejilla que REFLOWA. Antes eran cuatro columnas fijas
+          (`1.5fr 1fr 1fr auto`): a 320 px los dos selectores de categoría
+          quedaban cortados por el borde, medido en navegador. `auto-fit` con
+          tope al 100 % los apila cuando no caben.
+        */
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1.5fr 1fr 1fr auto",
-            gap: 12,
-            alignItems: "end",
-            marginBottom: 12,
-          }}
+          className="mb-3 grid items-end gap-3"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))" }}
         >
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>Buscar</span>
+            <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Buscar</span>
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Nombre científico, nombre común, categoría, subcategoría..."
               style={{
                 padding: 10,
-                borderRadius: 10,
-                border: "2px solid #334155",
-                background: "#f8fafc",
-                fontWeight: 700,
-                color: "#0f172a",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
+                background: "var(--muted)",
+                fontWeight: "var(--font-weight-medium)",
+                color: "var(--foreground)",
               }}
             />
           </label>
 
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>Categoría</span>
+            <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Categoría</span>
             <select
+              aria-label="Filtrar por categoría"
               value={categoriaSel}
               onChange={(e) => setCategoriaSel(e.target.value)}
               style={{
                 padding: 10,
-                borderRadius: 10,
-                border: "2px solid #334155",
-                background: "#f8fafc",
-                fontWeight: 700,
-                color: "#0f172a",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
+                background: "var(--muted)",
+                fontWeight: "var(--font-weight-medium)",
+                color: "var(--foreground)",
               }}
             >
               <option value="ALL">Todas</option>
@@ -1689,17 +1686,18 @@ export default function Productos() {
           </label>
 
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>Subcategoría</span>
+            <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>Subcategoría</span>
             <select
+              aria-label="Filtrar por subcategoría"
               value={subcategoriaSel}
               onChange={(e) => setSubcategoriaSel(e.target.value)}
               style={{
                 padding: 10,
-                borderRadius: 10,
-                border: "2px solid #334155",
-                background: "#f8fafc",
-                fontWeight: 700,
-                color: "#0f172a",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
+                background: "var(--muted)",
+                fontWeight: "var(--font-weight-medium)",
+                color: "var(--foreground)",
               }}
             >
               <option value="ALL">Todas</option>
@@ -1720,11 +1718,11 @@ export default function Productos() {
             }}
             style={{
               padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid #e5e7eb",
-              background: "white",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              background: "var(--card)",
               cursor: "pointer",
-              fontWeight: 700,
+              fontWeight: "var(--font-weight-medium)",
               height: 42,
             }}
           >
@@ -1741,12 +1739,12 @@ export default function Productos() {
             gap: 8,
             marginBottom: 12,
             padding: "8px 12px",
-            borderRadius: 10,
-            border: soloConImagen ? "2px solid #10b981" : "1px solid #e5e7eb",
-            background: soloConImagen ? "rgba(16,185,129,0.10)" : "#f8fafc",
+            borderRadius: "var(--radius-md)",
+            border: soloConImagen ? "1px solid var(--border)" : "1px solid var(--border)",
+            background: soloConImagen ? "var(--success-subtle)" : "var(--muted)",
             cursor: "pointer",
-            fontWeight: 800,
-            color: soloConImagen ? "#065f46" : "#334155",
+            fontWeight: "var(--font-weight-semibold)",
+            color: soloConImagen ? "var(--success-subtle-foreground)" : "var(--foreground)",
             userSelect: "none",
           }}
         >
@@ -1754,14 +1752,14 @@ export default function Productos() {
             type="checkbox"
             checked={soloConImagen}
             onChange={(e) => setSoloConImagen(e.target.checked)}
-            style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#10b981" }}
+            style={{ width: 16, height: 16, cursor: "pointer", accentColor: "var(--primary)" }}
           />
           🖼️ Mostrar solo productos con imagen
         </label>
       )}
 
       {!loading && (
-        <p style={{ color: "#6b7280", marginTop: 0 }}>
+        <p style={{ color: "var(--muted-foreground)", marginTop: 0 }}>
           Mostrando <b>{productosFiltrados.length}</b> de <b>{productos.length}</b> productos
         </p>
       )}
