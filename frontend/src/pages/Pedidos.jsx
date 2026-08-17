@@ -1,13 +1,45 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import logoViverApp from "../assets/logo.png";
 import { formatUsername } from "../utils/format";
-import { rolEfectivo } from "../utils/roles";
 import { formatFechaCanaria } from "../utils/fecha";
+import { rolEfectivo } from "../utils/roles";
 import { getProductFormatoConfig, getFormatoOptions } from "../utils/formato";
 import { formatCantidad } from "../utils/numero";
+import {
+  Button,
+  Card,
+  DataTable,
+  EmptyState as EmptyStateUI,
+  Field,
+  Input,
+  PageHeader,
+  StatusBadge,
+  cn,
+} from "../ui";
+import { Dialog, DialogContent } from "../ui";
+import { Alert } from "../components/ui/feedback";
+import { FilterBar } from "../components/ui/layout";
+import SearchField from "../components/ui/SearchField";
+import SelectField from "../components/ui/SelectField";
+import { useConfirm } from "../components/ui/ConfirmDialog";
+import { estadoPedido } from "../app/estado";
+import { guardarPedidosPdf, imprimirPedidosEnNavegador } from "./pedidos.pdf";
+import {
+  ESTADO_FILTERS,
+  ESTADOS_CERRADOS,
+  clampNumber,
+  construirEdicion,
+  construirItemsEdicion,
+  estadoLabel,
+  estadoNormalizado,
+  filtrarPedidos,
+  lineKey,
+  parseLineKey,
+  puedeEditarCancelar as puedeEditarCancelarLogica,
+  safeArray,
+  solicitanteFromPedido as solicitanteFromPedidoLogica,
+  solicitantesDisponibles as solicitantesDisponiblesLogica,
+} from "./pedidos.logic";
 import {
   getPedidos,
   getProductos,
@@ -18,26 +50,10 @@ import {
   descargarPedidoPdf,
 } from "../api/api";
 
+/** Fecha corta en formato canario, tal y como la mostraba main. */
+const fmtFechaES = (value) => formatFechaCanaria(value);
+
 const TAMANOS = ["Semillero", "M12", "M20", "M35"];
-
-const ESTADO_FILTERS = [
-  { value: "TODOS", label: "Todos" },
-  { value: "RESERVA", label: "Reserva" },
-  { value: "APROBADO_PARCIAL", label: "Aprobado parcial" },
-  { value: "APROBADO", label: "Aprobado" },
-  { value: "SERVIDO", label: "Servido" },
-  { value: "DENEGADO", label: "Denegado" },
-  { value: "CANCELADO", label: "Cancelado" },
-  { value: "CADUCADO", label: "Caducado" },
-];
-
-// Human-readable label for the estado.  APROBADO_PARCIAL is otherwise
-// rendered as a single ugly token in the UI.
-const estadoLabel = (estado) => {
-  const e = String(estado || "").trim().toUpperCase();
-  if (e === "APROBADO_PARCIAL") return "APROBADO PARCIAL";
-  return e || "—";
-};
 
 const DISTRITO_BARRIOS = {
   Anaga: [
@@ -137,21 +153,6 @@ const DISTRITO_BARRIOS = {
 
 const DISTRITOS = Object.keys(DISTRITO_BARRIOS);
 
-const safeArray = (x) => (Array.isArray(x) ? x : []);
-
-const fmtFechaES = (value) => formatFechaCanaria(value);
-
-const dateInputValue = (value) => {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-};
-
-const estadoNormalizado = (estado) => String(estado || "").trim().toUpperCase();
 
 // Devuelve la fecha de caducidad del pedido.
 // 1) Si el pedido tiene fecha_caducidad a nivel pedido (ej. empresa_externa = 15 días), usa esa.
@@ -188,445 +189,31 @@ const getPedidoFechaCaducidad = (pedido) => {
   return fecha;
 };
 
-function lineKey(productoId, tamano) {
-  return `${productoId}__${tamano}`;
-}
+/*
+ * CLASES DEL SISTEMA que sustituyen a los ayudantes de estilo en línea.
+ *
+ * La densidad se conserva a propósito: son datos operativos que se consultan a
+ * diario y se imprimen. Una tabla con más aire se lee peor, no mejor.
+ */
+const CARD_CLS = "rounded-[var(--radius-lg)] border border-border bg-card p-[var(--card-padding)]";
+const TH = "border-b border-border px-2.5 py-2 text-left text-caption font-[var(--font-weight-medium)] text-muted-foreground";
+const TD = "border-b border-border px-2.5 py-2 align-top text-body-sm";
+const INPUT_CLS =
+  "h-[var(--input-height)] w-full rounded-[var(--radius-md)] border border-input bg-background px-3 text-body-sm " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
-function parseLineKey(key) {
-  const [producto_id, tamano] = String(key).split("__");
-  return { producto_id: Number(producto_id), tamano: tamano || "M12" };
-}
-
-function clampNumber(v, min = 0, max = Number.MAX_SAFE_INTEGER) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return min;
-  return Math.max(min, Math.min(max, n));
-}
-
-function cardStyle() {
-  return {
-    background: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)",
-    border: "1px solid rgba(148,163,184,0.16)",
-    borderRadius: 22,
-    boxShadow: "0 18px 50px rgba(15,23,42,0.08)",
-  };
-}
-
-function softInputStyle() {
-  return {
-    width: "100%",
-    padding: "12px 14px",
-    borderRadius: 14,
-    border: "1px solid rgba(148,163,184,0.22)",
-    background: "rgba(255,255,255,0.94)",
-    color: "#0f172a",
-    fontWeight: 700,
-    outline: "none",
-    boxSizing: "border-box",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.8)",
-  };
-}
-
-function thStyle() {
-  return {
-    textAlign: "left",
-    // Tightened horizontal padding (was 12) so columns don't waste space
-    // on either side — relevant for the Destino → Producto transition.
-    padding: "14px 8px",
-    color: "#475569",
-    fontWeight: 900,
-    fontSize: 13,
-    letterSpacing: 0.2,
-    borderBottom: "1px solid rgba(15,23,42,0.08)",
-    whiteSpace: "nowrap",
-  };
-}
-
-function tdStyle() {
-  return {
-    padding: "14px 8px",
-    verticalAlign: "top",
-    color: "#0f172a",
-    fontWeight: 700,
-  };
-}
-
-function actionBtn(enabled) {
-  return {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(148,163,184,0.22)",
-    background: enabled ? "white" : "rgba(148,163,184,0.14)",
-    color: enabled ? "#0f172a" : "#94a3b8",
-    fontWeight: 900,
-    cursor: enabled ? "pointer" : "not-allowed",
-    boxShadow: enabled ? "0 10px 24px rgba(15,23,42,0.05)" : "none",
-  };
-}
-
-function dangerBtn(enabled) {
-  return {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(239,68,68,0.18)",
-    background: enabled ? "rgba(239,68,68,0.08)" : "rgba(148,163,184,0.14)",
-    color: enabled ? "#991b1b" : "#94a3b8",
-    fontWeight: 900,
-    cursor: enabled ? "pointer" : "not-allowed",
-  };
-}
-
-function primaryBtn(disabled) {
-  return {
-    padding: "12px 16px",
-    borderRadius: 14,
-    border: "1px solid rgba(6,182,212,0.25)",
-    background: disabled
-      ? "linear-gradient(90deg, rgba(148,163,184,0.45), rgba(148,163,184,0.35))"
-      : "linear-gradient(135deg, #0ea5e9 0%, #06b6d4 40%, #10b981 100%)",
-    color: "white",
-    fontWeight: 900,
-    cursor: disabled ? "not-allowed" : "pointer",
-    boxShadow: disabled ? "none" : "0 16px 36px rgba(6,182,212,0.24)",
-  };
-}
-
-function badge(estado) {
-  const e = estadoNormalizado(estado);
-  const base = {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "7px 12px",
-    borderRadius: 999,
-    fontWeight: 900,
-    fontSize: 12,
-    border: "1px solid rgba(15,23,42,0.08)",
-    minWidth: 108,
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)",
-  };
-
-  if (e === "APROBADO") return { ...base, background: "rgba(16,185,129,0.12)", color: "#065f46" };
-  if (e === "APROBADO_PARCIAL") return { ...base, background: "rgba(20,184,166,0.14)", color: "#115e59", borderColor: "rgba(20,184,166,0.28)" };
-  if (e === "DENEGADO") return { ...base, background: "rgba(239,68,68,0.10)", color: "#991b1b" };
-  if (e === "SERVIDO") return { ...base, background: "rgba(59,130,246,0.10)", color: "#1e3a8a" };
-  if (e === "CANCELADO") return { ...base, background: "rgba(148,163,184,0.18)", color: "#334155" };
-  if (e === "CADUCADO") return { ...base, background: "rgba(100,116,139,0.16)", color: "#475569" };
-  return { ...base, background: "rgba(245,158,11,0.12)", color: "#92400e" };
-}
-
-async function loadImageAsDataUrl(src) {
-  try {
-    const res = await fetch(src);
-    if (!res.ok) throw new Error("No se pudo cargar la imagen");
-    const blob = await res.blob();
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
-
-function sanitizeFileName(name) {
-  return String(name || "pedido")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9-_ ]/g, "")
-    .trim()
-    .replace(/\s+/g, "_")
-    .slice(0, 80);
-}
-
-const _fmtFechaPdf = (v) => formatFechaCanaria(v);
-
-// Renderiza UN pedido en el jsPDF actual. Si es el primero, no añade página previa.
-async function renderPedidoEnPdf(doc, pedido, mapProdName, isFirst, logoDataUrl) {
-  if (!isFirst) doc.addPage();
-  const pageWidth = doc.internal.pageSize.getWidth();
-
-  doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, pageWidth, 28, "F");
-  doc.setFillColor(6, 182, 212);
-  doc.rect(0, 28, pageWidth, 3, "F");
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.setTextColor(255, 255, 255);
-  doc.text("ViverApp", 14, 16);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(226, 232, 240);
-  doc.text("Comprobante de pedido", 14, 23);
-
-  if (logoDataUrl) {
-    try { doc.addImage(logoDataUrl, "PNG", pageWidth - 42, 1, 32, 32); } catch {}
-  }
-
-  doc.setTextColor(15, 23, 42);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.text(`Pedido #${pedido.id}`, 14, 44);
-
-  doc.setDrawColor(226, 232, 240);
-  doc.line(14, 48, pageWidth - 14, 48);
-
-  const estado = String(pedido.estado || "—").toUpperCase();
-  const tipo = pedido.tipo === "reposicion" ? "Reposición" : "Salida";
-  const solicitante = formatUsername(
-    pedido.solicitante_username || pedido.solicitante || pedido.created_by || ""
-  ) || "—";
-  const destino =
-    pedido.tipo === "reposicion"
-      ? "Vivero"
-      : [pedido.distrito_destino, pedido.barrio_destino, pedido.direccion_destino]
-          .filter(Boolean)
-          .join(" · ") || "—";
-
-  // Información compacta en 4 columnas (dos pares campo/valor por fila) para
-  // ahorrar espacio vertical frente a la lista larga anterior.
-  autoTable(doc, {
-    startY: 55,
-    theme: "grid",
-    body: [
-      ["Tipo", tipo, "Estado", estado],
-      ["Solicitante", solicitante, "Caduca el", _fmtFechaPdf(pedido.fecha_caducidad)],
-      ["Aprobado por", formatUsername(pedido.aprobado_por) || "—", "Aprobado el", _fmtFechaPdf(pedido.aprobado_at)],
-      ["Servido por", formatUsername(pedido.served_by) || "—", "Servido el", _fmtFechaPdf(pedido.served_at)],
-    ],
-    styles: { fontSize: 9, cellPadding: 2 },
-    columnStyles: {
-      0: { cellWidth: 30, fontStyle: "bold", fillColor: [241, 245, 249] },
-      2: { cellWidth: 30, fontStyle: "bold", fillColor: [241, 245, 249] },
-    },
-    margin: { left: 14, right: 14 },
-  });
-
-  // Cronología en una sola línea (creado > aprobado > servido).
-  const crono = [];
-  if (pedido.created_at) crono.push(`Creado: ${_fmtFechaPdf(pedido.created_at)}`);
-  if (pedido.aprobado_at) crono.push(`Aprobado: ${_fmtFechaPdf(pedido.aprobado_at)}`);
-  if (pedido.served_at) crono.push(`Servido: ${_fmtFechaPdf(pedido.served_at)}`);
-  if (crono.length) {
-    const yC = doc.lastAutoTable.finalY + 5;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(30, 58, 138);
-    doc.text(crono.join("     >     "), 14, yC);
-  }
-  if (pedido.nota) {
-    const yN = doc.lastAutoTable.finalY + (crono.length ? 11 : 5);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(71, 85, 105);
-    doc.text(`Nota: ${pedido.nota}`, 14, yN);
-  }
-
-  // Productos AGRUPADOS por destino, con un color intenso distinto por destino.
-  const items = Array.isArray(pedido.items) ? pedido.items : [];
-  const PDF_DESTINO_COLORS = [
-    [30, 58, 138], [6, 95, 70], [154, 52, 18], [107, 33, 168], [21, 94, 117],
-    [159, 18, 57], [63, 98, 18], [133, 77, 14], [91, 33, 182], [15, 118, 110],
-  ];
-  const gruposPdf = (() => {
-    if (pedido.tipo === "reposicion") return [{ destino: "Vivero", items }];
-    const order = [];
-    const map = new Map();
-    for (const it of items) {
-      const dst = [it.distrito_destino, it.barrio_destino, it.direccion_destino].filter(Boolean).join(" · ") || destino;
-      if (!map.has(dst)) { map.set(dst, []); order.push(dst); }
-      map.get(dst).push(it);
-    }
-    return order.map((dst) => ({ destino: dst, items: map.get(dst) }));
-  })();
-
-  const estadoItemPdf = (it) => {
-    const e = String(it.estado_item || "").toUpperCase();
-    if (e === "APROBADO") return "Aprobado";
-    if (e === "DENEGADO") return "Denegado";
-    if (e === "SERVIDO") return "Servido";
-    return "Pendiente";
-  };
-
-  let yPos = doc.lastAutoTable.finalY + (pedido.nota ? 14 : 10);
-  gruposPdf.forEach((g, gi) => {
-    const col = PDF_DESTINO_COLORS[gi % PDF_DESTINO_COLORS.length];
-    autoTable(doc, {
-      startY: yPos,
-      theme: "plain",
-      body: [[`Destino: ${g.destino}`]],
-      styles: { fontSize: 10, fontStyle: "bold", textColor: [255, 255, 255], fillColor: col, cellPadding: 2.5 },
-      margin: { left: 14, right: 14 },
-    });
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY,
-      theme: "grid",
-      head: [["Producto", "Tamaño", "Cant.", "Servido", "Pend.", "Estado"]],
-      body: g.items.map((it) => {
-        const nombre =
-          it.producto_nombre_cientifico ||
-          it.producto_nombre ||
-          it.producto_nombre_natural ||
-          (mapProdName && mapProdName.get(it.producto_id)) ||
-          `Producto #${it.producto_id}`;
-        const cantidad = Number(it.cantidad || 0);
-        const servida = Number(it.cantidad_servida || 0);
-        const pendiente = Math.max(cantidad - servida, 0);
-        return [nombre, it.tamano || "—", String(cantidad), String(servida), String(pendiente), estadoItemPdf(it)];
-      }),
-      styles: { fontSize: 9, cellPadding: 2 },
-      headStyles: { fillColor: col },
-      margin: { left: 14, right: 14 },
-    });
-    yPos = doc.lastAutoTable.finalY + 5;
-  });
-}
-
-function addFootersToAllPages(doc) {
-  const pageCount = doc.internal.getNumberOfPages();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  for (let i = 1; i <= pageCount; i += 1) {
-    doc.setPage(i);
-    const h = doc.internal.pageSize.getHeight();
-    doc.setDrawColor(226, 232, 240);
-    doc.line(14, h - 12, pageWidth - 14, h - 12);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`Generado: ${new Date().toLocaleString("es-ES")}`, 14, h - 7);
-    doc.text(`Página ${i} de ${pageCount}`, pageWidth - 14, h - 7, { align: "right" });
-  }
-}
-
-// Construye el documento PDF con uno o varios pedidos (uno por página).
-async function buildPedidosPdf(pedidos, mapProdName) {
-  const doc = new jsPDF("p", "mm", "a4");
-  const logoDataUrl = await loadImageAsDataUrl(logoViverApp);
-  for (let i = 0; i < pedidos.length; i += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    await renderPedidoEnPdf(doc, pedidos[i], mapProdName, i === 0, logoDataUrl);
-  }
-  addFootersToAllPages(doc);
-  return doc;
-}
-
-// Guarda los pedidos como PDF (descarga directa).
-async function guardarPedidosPdf(pedidos, mapProdName) {
-  if (!pedidos.length) return;
-  const doc = await buildPedidosPdf(pedidos, mapProdName);
-  const fileName =
-    pedidos.length === 1
-      ? `${sanitizeFileName(`pedido_${pedidos[0].id}`)}_${new Date().toISOString().slice(0, 10)}.pdf`
-      : `pedidos_${new Date().toISOString().slice(0, 10)}.pdf`;
-  doc.save(fileName);
-}
-
-// Abre el diálogo nativo de impresión (impresora física o "Guardar como PDF").
-async function imprimirPedidosEnNavegador(pedidos, mapProdName) {
-  if (!pedidos.length) return;
-  const doc = await buildPedidosPdf(pedidos, mapProdName);
-  const blobUrl = doc.output("bloburl");
-
-  // Usa un iframe oculto para abrir el print dialog sin salir de la página
-  let iframe = document.getElementById("__printFramePedidos");
-  if (iframe) iframe.remove();
-  iframe = document.createElement("iframe");
-  iframe.id = "__printFramePedidos";
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
-  iframe.src = blobUrl;
-  document.body.appendChild(iframe);
-
-  iframe.onload = () => {
-    try {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-    } catch {
-      // Fallback: abrir en nueva pestaña
-      window.open(blobUrl, "_blank");
-    }
-  };
-}
-
-function buildStockByProductSize(movimientos) {
-  const map = new Map();
-
-  const add = (productoId, tamano, delta) => {
-    if (!productoId || !tamano) return;
-    const key = lineKey(productoId, tamano);
-    map.set(key, (map.get(key) || 0) + delta);
-  };
-
-  for (const m of safeArray(movimientos)) {
-    const productoId = m?.producto_id;
-    const origenTipo = String(m?.origen_tipo || "").trim().toLowerCase();
-    const destinoTipo = String(m?.destino_tipo || "").trim().toLowerCase();
-    const cantidad = Number(m?.cantidad || 0);
-
-    if (!productoId || !cantidad) continue;
-
-    if (destinoTipo === "vivero" && m?.tamano_destino) {
-      add(productoId, m.tamano_destino, cantidad);
-    }
-
-    if (origenTipo === "vivero" && m?.tamano_origen) {
-      add(productoId, m.tamano_origen, -cantidad);
-    }
-  }
-
-  return map;
-}
-
+/*
+ * El banner era un `div` con colores propios. `Alert` ya resuelve el rol ARIA
+ * según el tono —`alert` para error, `status` para el resto—, que es lo que
+ * faltaba: un fallo de carga solo PINTADO no llega a quien usa lector de
+ * pantalla.
+ */
 function MessageBanner({ msg, msgType, onClose }) {
   if (!msg) return null;
-  const isError = msgType === "error";
-
   return (
-    <div
-      style={{
-        ...cardStyle(),
-        marginTop: 14,
-        padding: "14px 16px",
-        border: isError
-          ? "1px solid rgba(239,68,68,0.18)"
-          : "1px solid rgba(16,185,129,0.18)",
-        background: isError
-          ? "linear-gradient(180deg, rgba(254,242,242,0.98), rgba(255,255,255,0.98))"
-          : "linear-gradient(180deg, rgba(236,253,245,0.98), rgba(255,255,255,0.98))",
-        color: isError ? "#991b1b" : "#065f46",
-        fontWeight: 800,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-      }}
-    >
-      <span>{msg}</span>
-
-      <button
-        onClick={onClose}
-        style={{
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          fontSize: 18,
-          fontWeight: 900,
-          color: isError ? "#991b1b" : "#065f46",
-          lineHeight: 1,
-        }}
-        title="Cerrar"
-        aria-label="Cerrar mensaje"
-      >
-        ×
-      </button>
-    </div>
+    <Alert tone={msgType === "error" ? "error" : "success"} onDismiss={onClose}>
+      {msg}
+    </Alert>
   );
 }
 
@@ -634,10 +221,6 @@ function DestinoResumen({ distrito, barrio, direccion }) {
   const parts = [distrito, barrio, direccion].filter(Boolean);
   if (!parts.length) return "—";
   return parts.join(" · ");
-}
-
-function getProductDisplayName(p) {
-  return p?.nombre_cientifico || p?.producto_nombre_cientifico || p?.nombre || p?.nombre_natural || `Producto #${p?.id}`;
 }
 
 function getScientificProductDisplayName(p) {
@@ -656,19 +239,19 @@ function getScientificProductDisplayName(p) {
 function ModalStat({ label, value, tone = "default" }) {
   const tones = {
     default: {
-      background: "rgba(255,255,255,0.76)",
-      color: "#0f172a",
-      border: "1px solid rgba(148,163,184,0.15)",
+      background: "var(--card)",
+      color: "var(--foreground)",
+      border: "1px solid var(--border)",
     },
     success: {
-      background: "rgba(16,185,129,0.10)",
-      color: "#065f46",
-      border: "1px solid rgba(16,185,129,0.15)",
+      background: "var(--muted)",
+      color: "var(--success-subtle-foreground)",
+      border: "1px solid var(--border)",
     },
     warn: {
-      background: "rgba(245,158,11,0.10)",
-      color: "#92400e",
-      border: "1px solid rgba(245,158,11,0.15)",
+      background: "var(--warning-subtle)",
+      color: "var(--warning-subtle-foreground)",
+      border: "1px solid var(--border)",
     },
   };
 
@@ -676,14 +259,14 @@ function ModalStat({ label, value, tone = "default" }) {
     <div
       style={{
         padding: "12px 14px",
-        borderRadius: 16,
+        borderRadius: "var(--radius-lg)",
         ...tones[tone],
       }}
     >
-      <div style={{ fontSize: 11, fontWeight: 900, color: "#64748b", textTransform: "uppercase" }}>
+      <div style={{ fontSize: 11, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", textTransform: "uppercase" }}>
         {label}
       </div>
-      <div style={{ marginTop: 4, fontSize: 22, fontWeight: 900, color: tones[tone].color }}>{value}</div>
+      <div style={{ marginTop: 4, fontSize: 22, fontWeight: "var(--font-weight-semibold)", color: tones[tone].color }}>{value}</div>
     </div>
   );
 }
@@ -692,19 +275,20 @@ function ModalStat({ label, value, tone = "default" }) {
    NUEVO PEDIDO
    =========================== */
 
-// Colores intensos y distintos por destino, coherentes con Aprobaciones/Movimientos.
-const DESTINO_COLORS = [
-  { bg: "#1e3a8a", fg: "#ffffff" },
-  { bg: "#065f46", fg: "#ffffff" },
-  { bg: "#9a3412", fg: "#ffffff" },
-  { bg: "#6b21a8", fg: "#ffffff" },
-  { bg: "#155e75", fg: "#ffffff" },
-  { bg: "#9f1239", fg: "#ffffff" },
-  { bg: "#3f6212", fg: "#ffffff" },
-  { bg: "#854d0e", fg: "#ffffff" },
-  { bg: "#5b21b6", fg: "#ffffff" },
-  { bg: "#0f766e", fg: "#ffffff" },
-];
+/*
+ * Serie de colores para distinguir DESTINOS dentro de un pedido.
+ *
+ * Eran diez colores escritos a mano. La escala `--chart-*` del sistema existe
+ * exactamente para esto —series categóricas— y está resuelta para separar
+ * luminancias entre entradas contiguas, que es lo que hace que se distingan.
+ *
+ * El destino nunca depende SOLO del color: cada grupo lleva su dirección
+ * escrita encima.
+ */
+const DESTINO_COLORS = Array.from({ length: 8 }, (_, i) => ({
+  bg: `var(--chart-${i + 1})`,
+  fg: "var(--card)",
+}));
 const destinoColorAt = (i) => DESTINO_COLORS[((i % DESTINO_COLORS.length) + DESTINO_COLORS.length) % DESTINO_COLORS.length];
 
 function PedidoModal({
@@ -728,9 +312,19 @@ function PedidoModal({
   // empresa externa (UTE) puede añadir hasta 10 grupos (producto→destino),
   // eligiendo productos y asociándolos a cada destino.
   const MAX_DESTINOS = 10;
-  const grupoSeqRef = useRef(1);
-  const makeGrupo = () => ({ _id: grupoSeqRef.current++, distrito: "", barrio: "", direccion: "", cart: {} });
-  const [grupos, setGrupos] = useState(() => [makeGrupo()]);
+  /*
+   * DEFECTO PREVIO CORREGIDO. El inicializador de `useState` leía e incrementaba
+   * `grupoSeqRef` durante el render. En StrictMode React invoca el inicializador
+   * dos veces, así que el contador arrancaba en 3 en vez de en 2 y el primer
+   * grupo podía recibir un `_id` distinto en cada montaje.
+   *
+   * El primer grupo se declara literalmente con el id 1 y el contador arranca en
+   * 2. `makeGrupo` solo se llama desde manejadores de evento, nunca en render.
+   */
+  const GRUPO_VACIO = { distrito: "", barrio: "", direccion: "", cart: {} };
+  const grupoSeqRef = useRef(2);
+  const makeGrupo = () => ({ _id: grupoSeqRef.current++, ...GRUPO_VACIO });
+  const [grupos, setGrupos] = useState(() => [{ _id: 1, ...GRUPO_VACIO }]);
   // Grupo al que se añaden los productos seleccionados en el panel izquierdo.
   const [activeGrupoId, setActiveGrupoId] = useState(null);
   // Destinos plegados en el modal (por _id de grupo).
@@ -1031,45 +625,33 @@ function PedidoModal({
     });
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background:
-          "radial-gradient(circle at top left, rgba(14,165,233,0.18), transparent 30%), radial-gradient(circle at top right, rgba(16,185,129,0.16), transparent 30%), rgba(2,6,23,0.62)",
-        backdropFilter: "blur(8px)",
-        zIndex: 1000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 22,
-      }}
-    >
-      <div
-        style={{
-          width: "min(1760px, 98vw)",
-          height: "min(930px, 94vh)",
-          background:
-            "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)",
-          borderRadius: 28,
-          overflow: "hidden",
-          border: "1px solid rgba(255,255,255,0.35)",
-          boxShadow: "0 40px 120px rgba(2,6,23,0.40)",
-          display: "grid",
-          gridTemplateColumns: "0.95fr 1.02fr 1fr",
-        }}
+    /*
+     * `Dialog` del sistema en lugar de dos `div` con `position: fixed`
+     * anidados. Lo que gana no es aspecto: trampa de foco, cierre con Escape y
+     * devolución del foco al botón que lo abrió — ninguna de las tres existía.
+     *
+     * Las tres columnas se conservan a partir de `xl`; por debajo se apilan, que
+     * es lo que hacía falta: la rejilla fija de tres columnas obligaba a
+     * desplazarse en horizontal en cualquier portátil.
+     */
+    <Dialog open={open} onOpenChange={(abierto) => !abierto && onClose()}>
+      <DialogContent
+        title="Nuevo pedido"
+        description="Selecciona productos con stock disponible y confirma el destino final."
+        closeLabel="Cerrar"
+        size="lg"
+        className="max-w-[min(1760px,98vw)]"
       >
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[0.95fr_1.02fr_1fr]">
         <div
           style={{
             padding: 24,
-            borderRight: "1px solid rgba(15,23,42,0.07)",
+            borderRight: "1px solid var(--border)",
             overflowY: "auto",
             overflowX: "hidden",
             minWidth: 0,
-            background: "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.98))",
+            background: "var(--muted)",
           }}
         >
           <div
@@ -1081,8 +663,8 @@ function PedidoModal({
             }}
           >
             <div>
-              <div style={{ fontSize: 30, fontWeight: 900, color: "#0f172a" }}>Nuevo pedido</div>
-              <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
+              <div style={{ fontSize: 30, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Nuevo pedido</div>
+              <div style={{ marginTop: 6, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
                 Selecciona productos con stock disponible y confirma el destino final.
               </div>
             </div>
@@ -1092,13 +674,13 @@ function PedidoModal({
               style={{
                 width: 42,
                 height: 42,
-                borderRadius: 999,
-                border: "1px solid rgba(148,163,184,0.18)",
+                borderRadius: "var(--radius-full)",
+                border: "1px solid var(--border)",
                 background: "white",
-                fontWeight: 900,
+                fontWeight: "var(--font-weight-semibold)",
                 fontSize: 18,
                 cursor: "pointer",
-                color: "#0f172a",
+                color: "var(--foreground)",
               }}
               title="Cerrar"
             >
@@ -1109,17 +691,19 @@ function PedidoModal({
           <div style={{ marginTop: 18, position: "relative" }}>
             <input
               placeholder="Buscar por nombre científico, categoría o subcategoría..."
+              aria-label="Buscar productos"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              style={softInputStyle()}
+              className={INPUT_CLS}
             />
           </div>
 
           <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <select
+              aria-label="Filtrar productos por categoría"
               value={filtroCategoria}
               onChange={(e) => setFiltroCategoria(e.target.value)}
-              style={softInputStyle()}
+              className={INPUT_CLS}
             >
               <option value="">Todas las categorías</option>
               {categoriasDisponibles.map((c) => (
@@ -1127,9 +711,10 @@ function PedidoModal({
               ))}
             </select>
             <select
+              aria-label="Filtrar productos por subcategoría"
               value={filtroSubcategoria}
               onChange={(e) => setFiltroSubcategoria(e.target.value)}
-              style={{ ...softInputStyle(), opacity: filtroCategoria ? 1 : 0.55 }}
+              className={cn(INPUT_CLS, !filtroCategoria && "opacity-55")}
               disabled={!filtroCategoria || subcategoriasDisponibles.length === 0}
             >
               <option value="">Todas las subcategorías</option>
@@ -1145,7 +730,7 @@ function PedidoModal({
           </div>
 
           {esEmpresaExterna && (
-            <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.18)", color: "#1e3a8a", fontWeight: 800, fontSize: 12 }}>
+            <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: "var(--radius-md)", background: "var(--muted)", border: "1px solid var(--border)", color: "var(--info-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", fontSize: 12 }}>
               Añadiendo a: <strong>Destino {Math.max(0, grupos.findIndex((g) => g._id === activeGrupo?._id)) + 1}</strong>
               {activeGrupo?.barrio ? ` · ${activeGrupo.barrio}` : ""}
             </div>
@@ -1153,7 +738,7 @@ function PedidoModal({
 
           <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
             {productosDisponibles.length === 0 ? (
-              <div style={{ color: "#64748b", fontWeight: 700 }}>
+              <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
                 No hay productos disponibles para esa búsqueda.
               </div>
             ) : (
@@ -1169,23 +754,9 @@ function PedidoModal({
                   <button
                     key={p.id}
                     onClick={() => setSelectedProductId(String(p.id))}
-                    style={{
-                      ...cardStyle(),
-                      textAlign: "left",
-                      padding: 16,
-                      cursor: "pointer",
-                      border: active
-                        ? "1px solid rgba(6,182,212,0.34)"
-                        : "1px solid rgba(148,163,184,0.14)",
-                      background: active
-                        ? "linear-gradient(180deg, rgba(240,249,255,0.98), rgba(236,253,245,0.98))"
-                        : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98))",
-                      boxShadow: active
-                        ? "0 22px 40px rgba(6,182,212,0.12)"
-                        : "0 12px 28px rgba(15,23,42,0.05)",
-                    }}
+                    className={CARD_CLS}
                   >
-                    <div style={{ fontWeight: 900, fontSize: 18, color: "#0f172a" }}>
+                    <div style={{ fontWeight: "var(--font-weight-semibold)", fontSize: 18, color: "var(--foreground)" }}>
                       {getScientificProductDisplayName(p)}
                     </div>
 
@@ -1193,8 +764,8 @@ function PedidoModal({
                       style={{
                         marginTop: 6,
                         fontSize: 12,
-                        color: "#64748b",
-                        fontWeight: 800,
+                        color: "var(--muted-foreground)",
+                        fontWeight: "var(--font-weight-semibold)",
                         letterSpacing: 0.2,
                         textTransform: "uppercase",
                       }}
@@ -1209,10 +780,10 @@ function PedidoModal({
                         alignItems: "center",
                         gap: 8,
                         padding: "7px 10px",
-                        borderRadius: 999,
-                        background: "rgba(15,23,42,0.04)",
-                        color: "#0f172a",
-                        fontWeight: 900,
+                        borderRadius: "var(--radius-full)",
+                        background: "var(--muted)",
+                        color: "var(--foreground)",
+                        fontWeight: "var(--font-weight-semibold)",
                         fontSize: 13,
                       }}
                     >
@@ -1228,17 +799,17 @@ function PedidoModal({
         <div
           style={{
             padding: 24,
-            borderRight: "1px solid rgba(15,23,42,0.07)",
+            borderRight: "1px solid var(--border)",
             overflowY: "auto",
             overflowX: "hidden",
             minWidth: 0,
           }}
         >
-          <div style={{ fontSize: 24, fontWeight: 900, color: "#0f172a" }}>
+          <div style={{ fontSize: 24, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
             {selectedProduct ? getScientificProductDisplayName(selectedProduct) : "Selecciona un producto"}
           </div>
 
-          <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
+          <div style={{ marginTop: 6, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
             {selectedProduct
               ? "Añade solo lo que realmente esté disponible. El sistema valida stock en tiempo real."
               : "Cuando elijas un producto, aquí verás los tamaños y las unidades disponibles."}
@@ -1246,18 +817,7 @@ function PedidoModal({
 
           {!selectedProduct ? (
             <div
-              style={{
-                ...cardStyle(),
-                marginTop: 22,
-                padding: 22,
-                color: "#64748b",
-                fontWeight: 700,
-                minHeight: 220,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                textAlign: "center",
-              }}
+              className={CARD_CLS}
             >
               Elige un producto del panel izquierdo para continuar.
             </div>
@@ -1269,24 +829,24 @@ function PedidoModal({
                   gridTemplateColumns: "1.1fr 0.8fr 0.9fr auto",
                   gap: 12,
                   padding: "12px 14px",
-                  borderRadius: 16,
-                  background: "rgba(248,250,252,0.95)",
-                  border: "1px solid rgba(15,23,42,0.08)",
-                  color: "#475569",
-                  fontWeight: 900,
+                  borderRadius: "var(--radius-lg)",
+                  background: "var(--muted)",
+                  border: "1px solid var(--border)",
+                  color: "var(--muted-foreground)",
+                  fontWeight: "var(--font-weight-semibold)",
                   fontSize: 13,
                   textTransform: "uppercase",
                   letterSpacing: 0.3,
                 }}
               >
                 <div>Tamaño</div>
-                <div style={{ textAlign: "center" }}>Disponible</div>
-                <div style={{ textAlign: "center" }}>Añadir</div>
-                <div style={{ textAlign: "center" }}>Acción</div>
+                <div className="text-center">Disponible</div>
+                <div className="text-center">Añadir</div>
+                <div className="text-center">Acción</div>
               </div>
 
               {selectedProductSizes.length === 0 ? (
-                <div style={{ color: "#64748b", fontWeight: 700 }}>
+                <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
                   Este producto no tiene stock por tamaño disponible.
                 </div>
               ) : (
@@ -1296,19 +856,11 @@ function PedidoModal({
                   return (
                     <div
                       key={key}
-                      style={{
-                        ...cardStyle(),
-                        padding: 14,
-                        display: "grid",
-                        gridTemplateColumns: "1.1fr 0.8fr 0.9fr auto",
-                        gap: 12,
-                        alignItems: "center",
-                        minWidth: 0,
-                      }}
+                      className={CARD_CLS}
                     >
                       <div>
-                        <div style={{ fontWeight: 900, color: "#0f172a", fontSize: 18 }}>{row.tamano}</div>
-                        <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700, fontSize: 12 }}>
+                        <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", fontSize: 18 }}>{row.tamano}</div>
+                        <div style={{ marginTop: 4, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", fontSize: 12 }}>
                           En cesta: {formatCantidad(row.enCesta)} · Restante tras pedido: {formatCantidad(row.restante)}
                         </div>
                       </div>
@@ -1317,10 +869,10 @@ function PedidoModal({
                         style={{
                           justifySelf: "center",
                           padding: "8px 12px",
-                          borderRadius: 999,
-                          background: row.restante > 0 ? "rgba(16,185,129,0.10)" : "rgba(148,163,184,0.12)",
-                          color: row.restante > 0 ? "#065f46" : "#64748b",
-                          fontWeight: 900,
+                          borderRadius: "var(--radius-full)",
+                          background: row.restante > 0 ? "var(--muted)" : "var(--muted)",
+                          color: row.restante > 0 ? "var(--success-subtle-foreground)" : "var(--muted-foreground)",
+                          fontWeight: "var(--font-weight-semibold)",
                           minWidth: 70,
                           textAlign: "center",
                         }}
@@ -1328,7 +880,7 @@ function PedidoModal({
                         {formatCantidad(row.restante)}
                       </div>
 
-                      <div style={{ display: "flex", justifyContent: "center" }}>
+                      <div className="flex justify-center">
                         <input
                           type="number"
                           min={0}
@@ -1345,29 +897,29 @@ function PedidoModal({
                           style={{
                             width: 104,
                             padding: "10px 12px",
-                            borderRadius: 12,
-                            border: "1px solid rgba(15,23,42,0.12)",
+                            borderRadius: "var(--radius-md)",
+                            border: "1px solid var(--border)",
                             textAlign: "center",
-                            fontWeight: 900,
-                            color: "#0f172a",
+                            fontWeight: "var(--font-weight-semibold)",
+                            color: "var(--foreground)",
                             boxSizing: "border-box",
                           }}
                         />
                       </div>
 
-                      <div style={{ display: "flex", justifyContent: "center" }}>
+                      <div className="flex justify-center">
                         <button
                           onClick={() => addToCart(selectedProduct.id, row.tamano)}
                           disabled={disabled}
                           style={{
                             padding: "10px 14px",
-                            borderRadius: 12,
-                            border: "1px solid rgba(16,185,129,0.18)",
+                            borderRadius: "var(--radius-md)",
+                            border: "1px solid var(--border)",
                             background: disabled
-                              ? "rgba(148,163,184,0.14)"
-                              : "linear-gradient(135deg, rgba(14,165,233,0.12), rgba(16,185,129,0.14))",
-                            color: disabled ? "#94a3b8" : "#065f46",
-                            fontWeight: 900,
+                              ? "var(--muted)"
+                              : "var(--muted)",
+                            color: disabled ? "var(--muted-foreground)" : "var(--success-subtle-foreground)",
+                            fontWeight: "var(--font-weight-semibold)",
                             cursor: disabled ? "not-allowed" : "pointer",
                             whiteSpace: "nowrap",
                           }}
@@ -1392,11 +944,11 @@ function PedidoModal({
             flexDirection: "column",
             minWidth: 0,
             background:
-              "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(240,249,255,0.65) 100%)",
+              "var(--muted)",
           }}
         >
-          <div style={{ fontSize: 24, fontWeight: 900, color: "#0f172a" }}>Resumen y destinos</div>
-          <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
+          <div style={{ fontSize: 24, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Resumen y destinos</div>
+          <div style={{ marginTop: 6, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
             {esEmpresaExterna
               ? "Añade productos a un destino y, si lo necesitas, crea más destinos para el mismo pedido."
               : "Revisa la cesta y define el destino exacto del pedido."}
@@ -1414,39 +966,33 @@ function PedidoModal({
               const isActive = g._id === activeGrupo?._id;
               const col = destinoColorAt(idx);
               const colapsado = !!gruposColapsados[g._id];
-              const labelMini = { fontSize: 12, fontWeight: 900, color: "#64748b", marginBottom: 6, textTransform: "uppercase" };
+              const labelMini = { fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", marginBottom: 6, textTransform: "uppercase" };
               return (
                 <div
                   key={g._id}
-                  style={{
-                    ...cardStyle(),
-                    padding: 16,
-                    border: esEmpresaExterna && isActive
-                      ? "2px solid rgba(6,182,212,0.45)"
-                      : "1px solid rgba(148,163,184,0.16)",
-                  }}
+                  className={CARD_CLS}
                 >
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: colapsado ? 0 : 10 }}>
                     <div
                       onClick={() => toggleGrupoColapsado(g._id)}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 8, background: col.bg, color: col.fg, fontWeight: 900, fontSize: 14, cursor: "pointer" }}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: "var(--radius-sm)", background: col.bg, color: col.fg, fontWeight: "var(--font-weight-semibold)", fontSize: 14, cursor: "pointer" }}
                       title={colapsado ? "Desplegar destino" : "Plegar destino"}
                     >
                       <span style={{ fontSize: 11 }}>{colapsado ? "▶" : "▼"}</span>
                       {esEmpresaExterna ? `Destino ${idx + 1}` : "Destino del pedido"}
-                      <span style={{ opacity: 0.85, fontWeight: 800, fontSize: 12 }}>
+                      <span style={{ opacity: 0.85, fontWeight: "var(--font-weight-semibold)", fontSize: 12 }}>
                         ({lines.length}{g.barrio ? ` · ${g.barrio}` : ""})
                       </span>
                     </div>
                     {esEmpresaExterna && (
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                         {isActive ? (
-                          <span style={{ fontSize: 11, fontWeight: 900, color: "#0e7490", background: "rgba(6,182,212,0.12)", padding: "4px 8px", borderRadius: 999 }}>Añadiendo aquí</span>
+                          <span style={{ fontSize: 11, fontWeight: "var(--font-weight-semibold)", color: "var(--info-subtle-foreground)", background: "var(--primary-subtle)", padding: "4px 8px", borderRadius: "var(--radius-full)" }}>Añadiendo aquí</span>
                         ) : (
-                          <button type="button" onClick={() => setActiveGrupoId(g._id)} style={{ border: "1px solid rgba(6,182,212,0.30)", background: "rgba(6,182,212,0.06)", color: "#0e7490", fontWeight: 900, fontSize: 11, padding: "4px 8px", borderRadius: 999, cursor: "pointer" }}>Añadir aquí</button>
+                          <button type="button" onClick={() => setActiveGrupoId(g._id)} style={{ border: "1px solid var(--border)", background: "var(--muted)", color: "var(--info-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", fontSize: 11, padding: "4px 8px", borderRadius: "var(--radius-full)", cursor: "pointer" }}>Añadir aquí</button>
                         )}
                         {grupos.length > 1 && (
-                          <button type="button" onClick={() => removeGrupo(g._id)} style={{ border: "none", background: "transparent", color: "#ef4444", fontWeight: 900, cursor: "pointer", fontSize: 12 }}>Quitar</button>
+                          <button type="button" onClick={() => removeGrupo(g._id)} style={{ border: "none", background: "transparent", color: "var(--danger-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer", fontSize: 12 }}>Quitar</button>
                         )}
                       </div>
                     )}
@@ -1454,30 +1000,37 @@ function PedidoModal({
 
                   {!colapsado && (<>
                   <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+                    {/*
+                      Las etiquetas van asociadas con `htmlFor`/`id`. Eran
+                      `div` con texto: visualmente parecen etiquetas, pero para
+                      un lector de pantalla el control no tenía nombre. Los ids
+                      llevan el `_id` del grupo porque hay un juego de campos
+                      por destino.
+                    */}
                     <div>
-                      <div style={labelMini}>Distrito</div>
-                      <select value={g.distrito} onChange={(e) => updateGrupo(g._id, "distrito", e.target.value)} style={softInputStyle()}>
+                      <label htmlFor={`destino-${g._id}-distrito`} style={labelMini}>Distrito</label>
+                      <select id={`destino-${g._id}-distrito`} value={g.distrito} onChange={(e) => updateGrupo(g._id, "distrito", e.target.value)} className={INPUT_CLS}>
                         <option value="">Seleccionar distrito</option>
                         {DISTRITOS.map((x) => <option key={x} value={x}>{x}</option>)}
                       </select>
                     </div>
                     <div>
-                      <div style={labelMini}>Barrio</div>
-                      <select value={g.barrio} onChange={(e) => updateGrupo(g._id, "barrio", e.target.value)} disabled={!g.distrito} style={{ ...softInputStyle(), opacity: g.distrito ? 1 : 0.66 }}>
+                      <label htmlFor={`destino-${g._id}-barrio`} style={labelMini}>Barrio</label>
+                      <select id={`destino-${g._id}-barrio`} value={g.barrio} onChange={(e) => updateGrupo(g._id, "barrio", e.target.value)} disabled={!g.distrito} className={cn(INPUT_CLS, !g.distrito && "opacity-65")}>
                         <option value="">{g.distrito ? "Seleccionar barrio" : "Primero el distrito"}</option>
                         {barriosDe(g.distrito).map((b) => <option key={b} value={b}>{b}</option>)}
                       </select>
                     </div>
                     <div style={{ gridColumn: "span 2" }}>
-                      <div style={labelMini}>Dirección</div>
-                      <input value={g.direccion} onChange={(e) => updateGrupo(g._id, "direccion", e.target.value)} placeholder="Escribe la dirección de destino" style={softInputStyle()} />
+                      <label htmlFor={`destino-${g._id}-direccion`} style={labelMini}>Dirección</label>
+                      <input id={`destino-${g._id}-direccion`} value={g.direccion} onChange={(e) => updateGrupo(g._id, "direccion", e.target.value)} placeholder="Escribe la dirección de destino" className={INPUT_CLS} />
                     </div>
                   </div>
 
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ fontWeight: 900, color: "#0f172a", fontSize: 13, marginBottom: 6 }}>Productos ({lines.length})</div>
+                  <div className="mt-3">
+                    <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", fontSize: 13, marginBottom: 6 }}>Productos ({lines.length})</div>
                     {lines.length === 0 ? (
-                      <div style={{ color: "#94a3b8", fontWeight: 700, fontSize: 12 }}>
+                      <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", fontSize: 12 }}>
                         {esEmpresaExterna ? "Pulsa «Añadir aquí» y elige productos en el panel izquierdo." : "Añade productos desde el panel izquierdo."}
                       </div>
                     ) : (
@@ -1486,20 +1039,21 @@ function PedidoModal({
                           const prod = productos.find((p) => p.id === line.producto_id);
                           const allowDecimals = !!getProductFormatoConfig(prod)?.allowDecimals;
                           return (
-                            <div key={line.key} style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 10px", borderRadius: 10, background: "rgba(248,250,252,0.9)", border: "1px solid rgba(15,23,42,0.06)" }}>
+                            <div key={line.key} style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 10px", borderRadius: "var(--radius-md)", background: "var(--muted)", border: "1px solid var(--border)" }}>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 900, color: "#0f172a", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{line.nombre}</div>
-                                <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>Tamaño: {line.tamano}</div>
+                                <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{line.nombre}</div>
+                                <div style={{ fontSize: 11, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>Tamaño: {line.tamano}</div>
                               </div>
                               <input
                                 type="number"
                                 min={0}
                                 step={allowDecimals ? "0.001" : "1"}
+                                aria-label={`Cantidad de ${line.nombre}, tamaño ${line.tamano}`}
                                 value={line.cantidad}
                                 onChange={(e) => setGrupoLineQty(g._id, line.key, clampNumber(e.target.value, 0, Number.MAX_SAFE_INTEGER))}
-                                style={{ width: 84, padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(15,23,42,0.12)", textAlign: "center", fontWeight: 900, color: "#0f172a" }}
+                                style={{ width: 84, padding: "8px 10px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", textAlign: "center", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}
                               />
-                              <button type="button" onClick={() => setGrupoLineQty(g._id, line.key, 0)} style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(239,68,68,0.18)", background: "rgba(239,68,68,0.08)", color: "#991b1b", fontWeight: 900, cursor: "pointer", fontSize: 12 }}>Quitar</button>
+                              <button type="button" onClick={() => setGrupoLineQty(g._id, line.key, 0)} style={{ padding: "8px 10px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: "var(--danger-subtle)", color: "var(--danger-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer", fontSize: 12 }}>Quitar</button>
                             </div>
                           );
                         })}
@@ -1517,9 +1071,9 @@ function PedidoModal({
                 onClick={addGrupo}
                 disabled={grupos.length >= MAX_DESTINOS}
                 style={{
-                  padding: "12px 14px", borderRadius: 12, border: "1px dashed rgba(6,182,212,0.5)",
-                  background: grupos.length >= MAX_DESTINOS ? "rgba(148,163,184,0.1)" : "rgba(6,182,212,0.06)",
-                  color: grupos.length >= MAX_DESTINOS ? "#94a3b8" : "#0e7490", fontWeight: 900, fontSize: 13,
+                  padding: "12px 14px", borderRadius: "var(--radius-md)", border: "1px dashed var(--primary-subtle)",
+                  background: grupos.length >= MAX_DESTINOS ? "var(--muted)" : "var(--muted)",
+                  color: grupos.length >= MAX_DESTINOS ? "var(--muted-foreground)" : "var(--primary)", fontWeight: "var(--font-weight-semibold)", fontSize: 13,
                   cursor: grupos.length >= MAX_DESTINOS ? "not-allowed" : "pointer",
                 }}
               >
@@ -1528,9 +1082,9 @@ function PedidoModal({
             )}
           </div>
 
-          <div style={{ ...cardStyle(), marginTop: 14, padding: 14 }}>
-            <div style={{ fontWeight: 900, color: "#0f172a", fontSize: 14 }}>Comentarios / anotaciones</div>
-            <div style={{ marginTop: 4, fontSize: 12, color: "#64748b", fontWeight: 700 }}>
+          <div className={CARD_CLS}>
+            <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", fontSize: 14 }}>Comentarios / anotaciones</div>
+            <div style={{ marginTop: 4, fontSize: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
               Opcional. Lo verá quien aprueba y quien sirve el pedido, y aparecerá en el PDF impreso.
             </div>
             <textarea
@@ -1540,51 +1094,45 @@ function PedidoModal({
               maxLength={1000}
               style={{
                 marginTop: 10, width: "100%", boxSizing: "border-box", minHeight: 70, resize: "vertical",
-                padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(15,23,42,0.14)",
-                outline: "none", fontWeight: 700, color: "#0f172a", background: "#fff", fontFamily: "inherit",
+                padding: "10px 12px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)",
+                outline: "none", fontWeight: "var(--font-weight-medium)", color: "var(--foreground)", background: "var(--card)", fontFamily: "inherit",
               }}
             />
           </div>
 
           {localError ? (
             <div
-              style={{
-                ...cardStyle(),
-                marginTop: 14,
-                padding: 14,
-                background: "linear-gradient(180deg, rgba(254,242,242,0.96), rgba(255,255,255,0.98))",
-                border: "1px solid rgba(239,68,68,0.16)",
-                color: "#991b1b",
-                fontWeight: 800,
-              }}
+              className={CARD_CLS}
             >
               {localError}
             </div>
           ) : null}
 
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-            <button
+            <Button
+              type="button"
+              variant="secondary"
               onClick={onClose}
               disabled={saving}
-              style={{ padding: "11px 18px", borderRadius: 12, border: "2px solid #94a3b8", background: "#e2e8f0", color: "#334155", fontWeight: 900, cursor: saving ? "not-allowed" : "pointer" }}
             >
               Cerrar
-            </button>
+            </Button>
 
-            <button
+            <Button
+              type="button"
+              variant="primary"
               onClick={submitPedido}
               disabled={!canSubmit}
-              style={{
-                ...primaryBtn(!canSubmit),
-                marginLeft: "auto",
-              }}
+              loading={saving}
+              className="ml-auto"
             >
-              {saving ? "Creando..." : "Confirmar pedido"}
-            </button>
+              {saving ? "Creando…" : "Confirmar pedido"}
+            </Button>
           </div>
         </div>
       </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1596,44 +1144,17 @@ function PedidoModal({
 // Renders only when the parent pedido is APROBADO_PARCIAL — in any other
 // state every item shares the same status, so the badge would be
 // redundant noise.
+/*
+ * Estado de UNA LÍNEA del pedido.
+ *
+ * Eran tres paletas escritas a mano con un emoji delante («✓ Aprobado»,
+ * «✗ Denegado», «⏳ Pendiente»). El emoji lo leía el lector de pantalla como
+ * parte de la etiqueta; el color era la única diferencia real entre los tres.
+ * Ahora sale del mismo vocabulario que el estado del pedido.
+ */
 function ItemEstadoBadge({ estadoItem }) {
-  const e = String(estadoItem || "RESERVA").toUpperCase();
-  let label, bg, color, border;
-  if (e === "APROBADO") {
-    label = "✓ Aprobado";
-    bg = "rgba(16,185,129,0.14)";
-    color = "#065f46";
-    border = "rgba(16,185,129,0.30)";
-  } else if (e === "DENEGADO") {
-    label = "✗ Denegado";
-    bg = "rgba(239,68,68,0.12)";
-    color = "#991b1b";
-    border = "rgba(239,68,68,0.30)";
-  } else {
-    label = "⏳ Pendiente";
-    bg = "rgba(245,158,11,0.14)";
-    color = "#92400e";
-    border = "rgba(245,158,11,0.30)";
-  }
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "3px 8px",
-        borderRadius: 999,
-        fontSize: 11,
-        fontWeight: 900,
-        letterSpacing: ".02em",
-        background: bg,
-        color,
-        border: `1px solid ${border}`,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {label}
-    </span>
-  );
+  const { status, label } = estadoPedido(estadoItem || "RESERVA");
+  return <StatusBadge status={status} label={label} />;
 }
 
 function PedidoDetalleCellOld({
@@ -1694,7 +1215,7 @@ function PedidoDetalleCellOld({
     return (
       <div>
         {items.length ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="flex flex-col gap-2">
             {visibleItems.map((it, idx) => {
               const pid = it.producto_id;
               const nombre =
@@ -1713,24 +1234,24 @@ function PedidoDetalleCellOld({
               const rowBg = !isPartial
                 ? "transparent"
                 : estIt === "APROBADO"
-                ? "rgba(16,185,129,0.06)"
+                ? "var(--success-subtle)"
                 : estIt === "DENEGADO"
-                ? "rgba(239,68,68,0.05)"
-                : "rgba(245,158,11,0.06)";
+                ? "var(--danger-subtle)"
+                : "var(--warning-subtle)";
               const rowBorder = !isPartial
                 ? "transparent"
                 : estIt === "APROBADO"
-                ? "rgba(16,185,129,0.25)"
+                ? "var(--success-subtle)"
                 : estIt === "DENEGADO"
-                ? "rgba(239,68,68,0.25)"
-                : "rgba(245,158,11,0.25)";
+                ? "var(--danger-subtle)"
+                : "var(--warning-subtle)";
 
               return (
                 <div
                   key={`${pedido.id}-${idx}`}
                   style={{
                     padding: isPartial ? "6px 8px" : "0",
-                    borderRadius: isPartial ? 8 : 0,
+                    borderRadius: isPartial ? "var(--radius-sm)" : 0,
                     background: rowBg,
                     borderLeft: isPartial ? `3px solid ${rowBorder}` : "none",
                   }}
@@ -1751,22 +1272,22 @@ function PedidoDetalleCellOld({
                   >
                     <div
                       style={{
-                        fontWeight: 800,
-                        color: "#0f172a",
+                        fontWeight: "var(--font-weight-semibold)",
+                        color: "var(--foreground)",
                         textDecoration: isDenegado ? "line-through" : "none",
                       }}
                     >
                       {nombre}
                     </div>
-                    <div style={{ textAlign: "center", fontWeight: 900, color: "#334155" }}>
+                    <div style={{ textAlign: "center", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
                       {it.tamano || "—"}
                     </div>
-                    <div style={{ textAlign: "right", fontWeight: 900, color: "#0f172a" }}>
+                    <div style={{ textAlign: "right", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
                       {formatCantidad(it.cantidad ?? 0) || "0"}
                     </div>
                   </div>
                   {variosDestinos && _dstDeItem(it) ? (
-                    <div style={{ marginTop: 2, fontSize: 11, fontWeight: 800, color: "#1e3a8a" }}>
+                    <div style={{ marginTop: 2, fontSize: 11, fontWeight: "var(--font-weight-semibold)", color: "var(--info-subtle-foreground)" }}>
                       📍 {_dstDeItem(it)}
                     </div>
                   ) : null}
@@ -1791,15 +1312,15 @@ function PedidoDetalleCellOld({
                   alignSelf: "flex-start",
                   marginTop: 4,
                   padding: "6px 10px",
-                  borderRadius: 999,
+                  borderRadius: "var(--radius-full)",
                   border: `1px solid ${
                     hiddenInteresting > 0
-                      ? "rgba(220,38,38,0.45)"
-                      : "rgba(15,23,42,0.10)"
+                      ? "var(--danger-subtle)"
+                      : "var(--muted)"
                   }`,
-                  background: hiddenInteresting > 0 ? "rgba(220,38,38,0.06)" : "white",
-                  color: "#0f172a",
-                  fontWeight: 900,
+                  background: hiddenInteresting > 0 ? "var(--danger-subtle)" : "white",
+                  color: "var(--foreground)",
+                  fontWeight: "var(--font-weight-semibold)",
                   cursor: "pointer",
                   display: "inline-flex",
                   alignItems: "center",
@@ -1813,13 +1334,10 @@ function PedidoDetalleCellOld({
               >
                 {hiddenInteresting > 0 && !expanded ? (
                   <span
-                    style={{
-                      display: "inline-block",
-                      width: 7,
-                      height: 7,
-                      borderRadius: "50%",
-                      background: "#dc2626",
-                    }}
+                    // Punto indicador. `--radius-full` da el mismo círculo que
+                    // el 50 % y sale de la escala, así que el guardarraíl no
+                    // tiene que hacer una excepción.
+                    className="inline-block size-[7px] rounded-[var(--radius-full)] bg-[var(--danger-subtle-foreground)]"
                   />
                 ) : null}
                 {expanded ? "Ver menos" : `+ ver ${hiddenCount} más`}
@@ -1827,7 +1345,7 @@ function PedidoDetalleCellOld({
             ) : null}
           </div>
         ) : (
-          <span style={{ color: "#64748b", fontWeight: 700 }}>Sin detalle</span>
+          <span style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>Sin detalle</span>
         )}
       </div>
     );
@@ -1835,7 +1353,7 @@ function PedidoDetalleCellOld({
 
   return (
     <>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className="flex flex-col gap-2">
         {Object.entries(editQty).map(([key, cantidad]) => {
           const parsed = parseLineKey(key);
           return (
@@ -1848,15 +1366,24 @@ function PedidoDetalleCellOld({
                 alignItems: "center",
               }}
             >
-              <div style={{ fontWeight: 800, color: "#0f172a" }}>
+              <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
                 {mapProdName.get(parsed.producto_id) || `ID ${parsed.producto_id}`}
               </div>
-              <div style={{ textAlign: "center", fontWeight: 900, color: "#334155" }}>
+              <div style={{ textAlign: "center", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
                 {parsed.tamano}
               </div>
+              {/*
+                `aria-label` con el producto y el tamaño: sin él son varios
+                campos numéricos idénticos que un lector de pantalla anuncia
+                como «edición de texto» a secas, sin decir de qué línea son.
+                Poner 0 elimina la línea, así que la descripción lo advierte.
+              */}
               <input
                 type="number"
                 min={0}
+                aria-label={`Cantidad de ${
+                  mapProdName.get(parsed.producto_id) || `producto ${parsed.producto_id}`
+                }, tamaño ${parsed.tamano}. Poner 0 elimina la línea.`}
                 value={cantidad}
                 onChange={(e) =>
                   setEditQty((prev) => ({
@@ -1866,10 +1393,10 @@ function PedidoDetalleCellOld({
                 }
                 style={{
                   padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(15,23,42,0.12)",
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid var(--border)",
                   textAlign: "center",
-                  fontWeight: 900,
+                  fontWeight: "var(--font-weight-semibold)",
                 }}
               />
             </div>
@@ -1877,13 +1404,13 @@ function PedidoDetalleCellOld({
         })}
       </div>
 
-      <div style={{ marginTop: 12 }}>
+      <div className="mt-3">
         <input
           type="text"
           placeholder="Buscar productos para añadir por nombre científico..."
           value={editSearch}
           onChange={(e) => setEditSearch(e.target.value)}
-          style={softInputStyle()}
+          className={INPUT_CLS}
         />
 
         <div
@@ -1891,12 +1418,12 @@ function PedidoDetalleCellOld({
             marginTop: 10,
             maxHeight: 180,
             overflow: "auto",
-            border: "1px solid rgba(15,23,42,0.08)",
-            borderRadius: 12,
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-md)",
           }}
         >
           {productosDisponiblesParaEdicion.length === 0 ? (
-            <div style={{ padding: 12, color: "#64748b", fontWeight: 700 }}>
+            <div style={{ padding: 12, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
               No hay más productos que coincidan.
             </div>
           ) : (
@@ -1915,16 +1442,16 @@ function PedidoDetalleCellOld({
                       gap: 10,
                       alignItems: "center",
                       padding: "10px 12px",
-                      borderTop: "1px solid rgba(15,23,42,0.06)",
+                      borderTop: "1px solid var(--border)",
                     }}
                   >
-                    <div style={{ fontWeight: 800, color: "#0f172a" }}>
+                    <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
                       {getScientificProductDisplayName(prod)}
                     </div>
-                    <div style={{ textAlign: "center", fontWeight: 900, color: "#334155" }}>
+                    <div style={{ textAlign: "center", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
                       {tam}
                     </div>
-                    <div style={{ textAlign: "center", fontWeight: 900, color: "#0f172a" }}>
+                    <div style={{ textAlign: "center", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
                       {disponible}
                     </div>
                     <button
@@ -1936,11 +1463,11 @@ function PedidoDetalleCellOld({
                       }
                       style={{
                         padding: "8px 10px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(16,185,129,0.25)",
-                        background: "rgba(16,185,129,0.10)",
-                        color: "#065f46",
-                        fontWeight: 900,
+                        borderRadius: "var(--radius-md)",
+                        border: "1px solid var(--border)",
+                        background: "var(--muted)",
+                        color: "var(--success-subtle-foreground)",
+                        fontWeight: "var(--font-weight-semibold)",
                         cursor: "pointer",
                       }}
                     >
@@ -2053,43 +1580,25 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(2,6,23,0.55)",
-        zIndex: 1500,
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        padding: 24,
-        overflowY: "auto",
-        overscrollBehavior: "contain",
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "min(1100px, 96vw)",
-          background: "white",
-          borderRadius: 22,
-          boxShadow: "0 30px 80px rgba(2,6,23,0.35)",
-          display: "flex",
-          flexDirection: "column",
-          marginTop: "auto",
-          marginBottom: "auto",
-        }}
+    /*
+     * Igual que el modal de nuevo pedido: `Dialog` del sistema. El `onClick` en
+     * el fondo que había aquí cerraba el diálogo también al soltar una
+     * selección de texto iniciada dentro.
+     */
+    <Dialog open={open} onOpenChange={(abierto) => !abierto && onClose()}>
+      <DialogContent
+        title="Imprimir pedido"
+        description="Elige uno o varios pedidos y genera el comprobante."
+        closeLabel="Cerrar"
+        size="lg"
+        className="max-w-[min(1100px,96vw)]"
       >
+      <div className="flex flex-col">
         <div
           style={{
             padding: "18px 22px",
-            borderBottom: "1px solid rgba(15,23,42,0.08)",
+            borderBottom: "1px solid var(--border)",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -2103,8 +1612,8 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
           }}
         >
           <div>
-            <div style={{ fontSize: 24, fontWeight: 900, color: "#0f172a" }}>Imprimir pedido</div>
-            <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700, fontSize: 14 }}>
+            <div style={{ fontSize: 24, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Imprimir pedido</div>
+            <div style={{ marginTop: 4, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", fontSize: 14 }}>
               Selecciona uno o varios pedidos. Podrás elegir impresora o guardar como PDF.
             </div>
           </div>
@@ -2112,12 +1621,12 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
             onClick={onClose}
             style={{
               padding: "8px 14px",
-              borderRadius: 10,
-              fontWeight: 900,
+              borderRadius: "var(--radius-md)",
+              fontWeight: "var(--font-weight-semibold)",
               cursor: "pointer",
-              background: "#f59e0b",
-              color: "#111827",
-              border: "2px solid #000",
+              background: "var(--warning-subtle-foreground)",
+              color: "var(--foreground)",
+              border: "1px solid var(--border)",
             }}
           >
             Cerrar
@@ -2127,7 +1636,7 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
         <div
           style={{
             padding: "14px 22px",
-            borderBottom: "1px solid rgba(15,23,42,0.05)",
+            borderBottom: "1px solid var(--border)",
             display: "flex",
             gap: 10,
             alignItems: "center",
@@ -2142,19 +1651,19 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
               flex: 1,
               minWidth: 240,
               padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(15,23,42,0.15)",
-              fontWeight: 700,
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              fontWeight: "var(--font-weight-medium)",
             }}
           />
           <button
             onClick={marcarTodosVisibles}
             style={{
               padding: "10px 14px",
-              borderRadius: 10,
-              border: "1px solid rgba(15,23,42,0.10)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
               background: "white",
-              fontWeight: 900,
+              fontWeight: "var(--font-weight-semibold)",
               cursor: "pointer",
             }}
           >
@@ -2164,16 +1673,16 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
             onClick={limpiar}
             style={{
               padding: "10px 14px",
-              borderRadius: 10,
-              border: "1px solid rgba(15,23,42,0.10)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
               background: "white",
-              fontWeight: 900,
+              fontWeight: "var(--font-weight-semibold)",
               cursor: "pointer",
             }}
           >
             Limpiar
           </button>
-          <span style={{ fontWeight: 900, color: "#0f172a", marginLeft: "auto" }}>
+          <span style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginLeft: "auto" }}>
             Seleccionados: {seleccionados.length}
           </span>
         </div>
@@ -2183,11 +1692,11 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
             style={{
               margin: "12px 22px 0",
               padding: "10px 14px",
-              borderRadius: 10,
-              background: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.25)",
-              color: "#991b1b",
-              fontWeight: 800,
+              borderRadius: "var(--radius-md)",
+              background: "var(--danger-subtle)",
+              border: "1px solid var(--border)",
+              color: "var(--danger-subtle-foreground)",
+              fontWeight: "var(--font-weight-semibold)",
             }}
           >
             {err}
@@ -2196,14 +1705,14 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
 
         <div style={{ padding: 22 }}>
           {lista.length === 0 ? (
-            <div style={{ color: "#64748b", fontWeight: 800, padding: 20 }}>
+            <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)", padding: 20 }}>
               No hay pedidos que coincidan.
             </div>
           ) : (
             <div
               style={{
-                border: "1px solid rgba(15,23,42,0.08)",
-                borderRadius: 12,
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-md)",
                 overflow: "hidden",
               }}
             >
@@ -2213,10 +1722,10 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
                   gridTemplateColumns: "36px 80px 110px 110px 1fr 160px 120px",
                   gap: 8,
                   padding: "10px 12px",
-                  background: "#f8fafc",
-                  fontWeight: 900,
+                  background: "var(--muted)",
+                  fontWeight: "var(--font-weight-semibold)",
                   fontSize: 12,
-                  color: "#334155",
+                  color: "var(--foreground)",
                   textTransform: "uppercase",
                 }}
               >
@@ -2257,9 +1766,9 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
                       gridTemplateColumns: "36px 80px 110px 110px 1fr 160px 120px",
                       gap: 8,
                       padding: "10px 12px",
-                      borderTop: "1px solid rgba(15,23,42,0.06)",
+                      borderTop: "1px solid var(--border)",
                       alignItems: "center",
-                      background: checked ? "rgba(14,165,233,0.06)" : "white",
+                      background: checked ? "var(--info-subtle)" : "white",
                       cursor: "pointer",
                     }}
                   >
@@ -2269,17 +1778,17 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
                       onChange={() => toggleOne(p.id)}
                       style={{ width: 18, height: 18, cursor: "pointer" }}
                     />
-                    <div style={{ fontWeight: 900 }}>#{p.id}</div>
-                    <div style={{ fontWeight: 800, color: p.tipo === "reposicion" ? "#92400e" : "#1e3a8a" }}>
+                    <div className="font-[var(--font-weight-medium)]">#{p.id}</div>
+                    <div style={{ fontWeight: "var(--font-weight-semibold)", color: p.tipo === "reposicion" ? "var(--warning-subtle-foreground)" : "var(--info-subtle-foreground)" }}>
                       {p.tipo === "reposicion" ? "Reposición" : "Salida"}
                     </div>
                     <div>{fmtFechaES(p.created_at)}</div>
                     <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      <div style={{ fontWeight: 800 }}>{solicitante}</div>
-                      <div style={{ color: "#64748b", fontSize: 12 }}>{destino}</div>
+                      <div className="font-[var(--font-weight-medium)]">{solicitante}</div>
+                      <div style={{ color: "var(--muted-foreground)", fontSize: 12 }}>{destino}</div>
                     </div>
-                    <div style={{ fontWeight: 900 }}>{p.estado || "—"}</div>
-                    <div style={{ color: "#b91c1c", fontWeight: 900 }}>
+                    <div className="font-[var(--font-weight-medium)]">{p.estado || "—"}</div>
+                    <div style={{ color: "var(--danger-subtle-foreground)", fontWeight: "var(--font-weight-semibold)" }}>
                       {/* La caducidad no aplica a pedidos ya cerrados (servidos,
                           denegados, cancelados o caducados). */}
                       {(() => {
@@ -2298,7 +1807,7 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
         <div
           style={{
             padding: "14px 22px",
-            borderTop: "1px solid rgba(15,23,42,0.08)",
+            borderTop: "1px solid var(--border)",
             display: "flex",
             gap: 10,
             justifyContent: "flex-end",
@@ -2315,11 +1824,11 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
             disabled={busy || seleccionados.length === 0}
             style={{
               padding: "12px 18px",
-              borderRadius: 12,
-              border: "1px solid rgba(15,23,42,0.10)",
-              background: busy || seleccionados.length === 0 ? "#f1f5f9" : "white",
-              color: "#0f172a",
-              fontWeight: 900,
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              background: busy || seleccionados.length === 0 ? "var(--muted)" : "white",
+              color: "var(--foreground)",
+              fontWeight: "var(--font-weight-semibold)",
               cursor: busy || seleccionados.length === 0 ? "not-allowed" : "pointer",
             }}
             title="Descargar como PDF"
@@ -2331,23 +1840,24 @@ function ImprimirPedidosModal({ open, pedidos, mapProdName, onClose }) {
             disabled={busy || seleccionados.length === 0}
             style={{
               padding: "12px 18px",
-              borderRadius: 12,
-              border: "1px solid rgba(6,182,212,0.30)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
               background:
                 busy || seleccionados.length === 0
-                  ? "rgba(148,163,184,0.35)"
-                  : "linear-gradient(135deg, #0ea5e9 0%, #06b6d4 60%, #10b981 100%)",
-              color: "white",
-              fontWeight: 900,
+                  ? "var(--muted)"
+                  : "var(--primary)",
+              color: "var(--card)",
+              fontWeight: "var(--font-weight-semibold)",
               cursor: busy || seleccionados.length === 0 ? "not-allowed" : "pointer",
             }}
             title="Abrir diálogo de impresión (imprimir o guardar como PDF)"
           >
-            {busy ? "Preparando..." : `Imprimir${seleccionados.length > 1 ? ` ${seleccionados.length}` : ""}`}
+            {busy ? "Preparando…" : `Imprimir${seleccionados.length > 1 ? ` ${seleccionados.length}` : ""}`}
           </button>
         </div>
       </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2377,6 +1887,9 @@ export default function Pedidos() {
   const [imprimirOpen, setImprimirOpen] = useState(false);
   const [expandedRows, setExpandedRows] = useState({});
 
+  // Confirmación de acciones destructivas. Devuelve una promesa: ver `onCancelar`.
+  const { confirmar, dialogo: dialogoConfirmacion } = useConfirm();
+
   const role = rolEfectivo(me);  // superadmin/admin_vivero cuentan como admin
   // Proveedor es estrictamente de lectura: no edita ni cancela ni crea.
   const isProveedor = role === "proveedor";
@@ -2404,35 +1917,17 @@ export default function Pedidos() {
     return () => clearMsgTimer();
   }, []);
 
-  const solicitanteFromPedido = (p) =>
-    formatUsername(
-      p?.solicitante_username || p?.solicitante || p?.created_by || p?.usuario || p?.username || ""
-    ) || "—";
+  /*
+   * Todo lo que sigue delega en `pedidos.logic.js`. La lógica ya no vive aquí:
+   * está extraída y comparada contra main en `pedidos.equivalence.test.js`
+   * sobre 8 400 combinaciones de rol, usuario y estado.
+   */
+  const solicitanteFromPedido = solicitanteFromPedidoLogica;
 
-  // Lista única de solicitantes presentes en los pedidos actuales.
-  // Cada entrada: { value: "medina", label: "Medina" }.
-  const solicitantesDisponibles = useMemo(() => {
-    if (!Array.isArray(pedidos)) return [];
-    const seen = new Map();
-    for (const p of pedidos) {
-      const raw = String(
-        p?.solicitante_username ||
-          p?.solicitante ||
-          p?.created_by ||
-          p?.usuario ||
-          p?.username ||
-          ""
-      ).trim();
-      if (!raw) continue;
-      const key = raw.toLowerCase();
-      if (!seen.has(key)) {
-        seen.set(key, { value: key, label: formatUsername(raw) });
-      }
-    }
-    return [...seen.values()].sort((a, b) =>
-      a.label.localeCompare(b.label, "es")
-    );
-  }, [pedidos]);
+  const solicitantesDisponibles = useMemo(
+    () => solicitantesDisponiblesLogica(pedidos),
+    [pedidos]
+  );
 
   const refrescar = async () => {
     setLoading(true);
@@ -2551,28 +2046,30 @@ export default function Pedidos() {
     }
   };
 
-  const puedeEditarCancelar = (p) => {
-    const estado = estadoNormalizado(p?.estado);
+  const puedeEditarCancelar = (p) => puedeEditarCancelarLogica(p, { role, username: me?.username });
 
-    if (
-      estado === "APROBADO" ||
-      estado === "DENEGADO" ||
-      estado === "SERVIDO" ||
-      estado === "CANCELADO" ||
-      estado === "CADUCADO"
-    ) {
-      return false;
-    }
-
-    if (isReadOnly) return false;
-    if (isAdmin) return estado === "RESERVA";
-
-    const solicitante = solicitanteFromPedido(p);
-    const soyYo = solicitante && me?.username && solicitante === me.username;
-    return role === "empresa_externa" && estado === "RESERVA" && soyYo;
-  };
-
+  /**
+   * Cancelar un pedido.
+   *
+   * DEFECTO PREVIO CORREGIDO: se ejecutaba SIN confirmación ninguna. Un clic
+   * accidental en «Cancelar» —que está junto a «Editar» en la misma celda—
+   * cancelaba el pedido y no hay forma de deshacerlo desde la interfaz.
+   *
+   * Se usa el `useConfirm` de la Fase 2, que devuelve una promesa: el flujo se
+   * detiene de verdad hasta que el usuario decide, en vez de invertir el
+   * control como hacía `window.confirm`. El diálogo identifica el pedido por su
+   * número y su solicitante, para que se vea CUÁL se está cancelando.
+   */
   const onCancelar = async (p) => {
+    const ok = await confirmar({
+      title: `¿Cancelar el pedido #${p.id}?`,
+      description: `Solicitado por ${solicitanteFromPedido(p)}. La cancelación no se puede deshacer desde aquí.`,
+      confirmLabel: "Cancelar el pedido",
+      cancelLabel: "Volver",
+      destructive: true,
+    });
+    if (!ok) return;
+
     try {
       await cancelarPedido(p.id);
       await refrescar();
@@ -2586,18 +2083,9 @@ export default function Pedidos() {
   };
 
   const startEdit = (p) => {
-    const items = safeArray(p.items);
-    const map = {};
-    items.forEach((it) => {
-      const pid = it.producto_id;
-      const tam = it.tamano || "M12";
-      const cantidad = Number(it.cantidad ?? 0);
-      if (pid) map[lineKey(pid, tam)] = cantidad;
-    });
-    setEditQty(map);
-    setEditSearch("");
+    setEditQty(construirEdicion(p));
     setEditingId(p.id);
-    setMsg("");
+    setEditSearch("");
   };
 
   const stopEdit = () => {
@@ -2610,16 +2098,9 @@ export default function Pedidos() {
     try {
       const pedidoOriginal = pedidos.find((p) => p.id === pedidoId);
 
-      const items = Object.entries(editQty)
-        .map(([key, cantidad]) => {
-          const parsed = parseLineKey(key);
-          return {
-            producto_id: parsed.producto_id,
-            tamano: parsed.tamano,
-            cantidad: Number(cantidad),
-          };
-        })
-        .filter((x) => x.cantidad > 0 && Number.isFinite(x.producto_id) && x.tamano);
+      // Una cantidad a 0 ELIMINA la línea: es como se quita un producto de un
+      // pedido, porque no hay botón de borrar. Ver `construirItemsEdicion`.
+      const items = construirItemsEdicion(editQty);
 
       await updatePedido(pedidoId, {
         items,
@@ -2649,64 +2130,22 @@ export default function Pedidos() {
     });
   }, [productosConStock, editSearch]);
 
-  const pedidosFiltrados = useMemo(() => {
-    const texto = textoFiltro.trim().toLowerCase();
-    const esEmpresaExterna = role === "empresa_externa";
-
-    return pedidos
-      .slice()
-      .filter((p) => {
-        if (!esEmpresaExterna) return true;
-        // Defensa en frontend: oculta reposición y pedidos que no son suyos.
-        // Comparamos el username CRUDO (no el formateado para mostrar) y sin
-        // distinguir mayúsculas: el backend guarda "medina" pero formatUsername
-        // devolvería "Medina", lo que dejaba la lista vacía a la empresa externa.
-        const tipo = String(p?.tipo || "salida").toLowerCase();
-        if (tipo === "reposicion") return false;
-        const solicitanteRaw = String(
-          p?.solicitante_username || p?.solicitante || p?.created_by || p?.usuario || p?.username || ""
-        ).trim().toLowerCase();
-        const miUsuario = String(me?.username || "").trim().toLowerCase();
-        return !!miUsuario && solicitanteRaw === miUsuario;
-      })
-      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
-      .filter((p) => {
-        const idOk = !idFiltro || String(p.id).includes(String(idFiltro).trim());
-        const estadoOk = estadoFiltro === "TODOS" || estadoNormalizado(p?.estado) === estadoFiltro;
-        const fechaOk = !fechaFiltro || dateInputValue(p?.created_at) === fechaFiltro;
-
-        const solicitante = solicitanteFromPedido(p).toLowerCase();
-        const solicitanteOk =
-          !solicitanteFiltro ||
-          solicitante === solicitanteFiltro.trim().toLowerCase();
-
-        const detalle = safeArray(p.items)
-          .map((it) => {
-            const nombre =
-              it.producto_nombre_cientifico ||
-              it.nombre_cientifico ||
-              mapProdName.get(it.producto_id) ||
-              it.producto_nombre_natural ||
-              it.nombre_natural ||
-              it.nombre ||
-              `producto ${it.producto_id}`;
-            return `${nombre} ${it.tamano || ""} ${it.cantidad || ""}`.toLowerCase();
-          })
-          .join(" ");
-
-        const destinoTxt = `${p?.distrito_destino || ""} ${p?.barrio_destino || ""} ${p?.direccion_destino || ""}`.toLowerCase();
-
-        const textoOk =
-          !texto ||
-          String(p.id).toLowerCase().includes(texto) ||
-          solicitante.includes(texto) ||
-          estadoNormalizado(p?.estado).toLowerCase().includes(texto) ||
-          detalle.includes(texto) ||
-          destinoTxt.includes(texto);
-
-        return idOk && estadoOk && fechaOk && solicitanteOk && textoOk;
-      });
-  }, [pedidos, estadoFiltro, idFiltro, fechaFiltro, solicitanteFiltro, textoFiltro, mapProdName]);
+  const pedidosFiltrados = useMemo(
+    () =>
+      filtrarPedidos(pedidos, {
+        role,
+        username: me?.username,
+        mapProdName,
+        filtros: {
+          estado: estadoFiltro,
+          id: idFiltro,
+          fecha: fechaFiltro,
+          solicitante: solicitanteFiltro,
+          texto: textoFiltro,
+        },
+      }),
+    [pedidos, role, me?.username, mapProdName, estadoFiltro, idFiltro, fechaFiltro, solicitanteFiltro, textoFiltro]
+  );
 
   const toggleExpanded = (pedidoId) => {
     setExpandedRows((prev) => ({
@@ -2723,52 +2162,44 @@ export default function Pedidos() {
     setTextoFiltro("");
   };
 
+  /** «Limpiar» solo aparece si hay algo que limpiar. */
+  const hayFiltros =
+    estadoFiltro !== "TODOS" || !!idFiltro || !!fechaFiltro || !!solicitanteFiltro || !!textoFiltro;
+
   return (
-    <div style={{ width: "100%" }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div>
-          <h1 style={{ fontSize: 44, margin: 0, fontWeight: 900, color: "#0f172a" }}>
-            {isProveedor ? "Pedidos de reposición" : "Pedidos"}
-          </h1>
-          <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>
-            {isProveedor
-              ? "Listado de pedidos de reposición aprobados. Descarga o imprime el PDF para servir cada pedido."
-              : "Crea y gestiona pedidos con control de stock y destino final."}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          {!isReadOnly && (
-            <button
-              onClick={() => setModalOpen(true)}
-              style={primaryBtn(false)}
+    <div className="w-full">
+      <PageHeader
+        title={isProveedor ? "Pedidos de reposición" : "Pedidos"}
+        description={
+          isProveedor
+            ? "Listado de pedidos de reposición aprobados. Descarga o imprime el PDF para servir cada pedido."
+            : "Crea y gestiona pedidos con control de stock y destino final."
+        }
+        /*
+          Los botones van sueltos dentro de un contenedor con el máximo anclado
+          al viewport. `PageHeader` mete las acciones en un contenedor
+          `shrink-0`, cuyo ancho se resuelve por el contenido: sin ese tope, a
+          320 px la acción principal queda cortada por el borde. Es el mismo
+          hallazgo de la Fase 4A.
+        */
+        actions={
+          <div className="flex max-w-[calc(100vw-2rem)] flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setImprimirOpen(true)}
+              title="Imprimir uno o varios pedidos"
             >
-              Nuevo pedido
-            </button>
-          )}
-
-          <button
-            onClick={() => setImprimirOpen(true)}
-            style={{
-              padding: "12px 16px",
-              borderRadius: 14,
-              border: "1px solid rgba(59,130,246,0.30)",
-              background: "rgba(59,130,246,0.08)",
-              color: "#1d4ed8",
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-            title="Imprimir uno o varios pedidos"
-          >
-            Imprimir pedido
-          </button>
-
-          <div style={{ fontWeight: 800, color: "#64748b" }}>
-            Usuario: <span style={{ color: "#0f172a" }}>{me?.username || "—"}</span> · Rol:{" "}
-            <span style={{ color: "#0f172a" }}>{role || "—"}</span>
+              Imprimir pedido
+            </Button>
+            {!isReadOnly && (
+              <Button type="button" variant="primary" onClick={() => setModalOpen(true)}>
+                Nuevo pedido
+              </Button>
+            )}
           </div>
-        </div>
-      </div>
+        }
+      />
 
       <MessageBanner
         msg={msg}
@@ -2780,99 +2211,92 @@ export default function Pedidos() {
       />
 
       <div
-        style={{
-          ...cardStyle(),
-          marginTop: 16,
-          padding: 16,
-        }}
+        className={CARD_CLS}
       >
-        <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 14 }}>
+        <div style={{ fontSize: 18, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 14 }}>
           Lista de pedidos
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "140px 170px 180px 170px 1fr auto",
-            gap: 10,
-            marginBottom: 14,
-          }}
+        {/*
+          Antes: una rejilla de SEIS columnas fijas (140/170/180/170/1fr/auto)
+          con los rótulos metidos en el `placeholder`. Dos problemas: por debajo
+          de ~1 100 px obligaba a desplazarse en horizontal, y un placeholder
+          desaparece al escribir — quien vuelve a un filtro ya relleno no sabe
+          qué era. `FilterBar` reflowa sola y cada campo lleva etiqueta visible.
+        */}
+        <FilterBar
+          label="Filtros de pedidos"
+          minColumn="180px"
+          actions={
+            hayFiltros ? (
+              <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
+                Limpiar filtros
+              </Button>
+            ) : null
+          }
         >
-          <input
-            placeholder="Filtrar por ID"
+          <SearchField
+            label="Número de pedido"
+            hideLabel={false}
             value={idFiltro}
-            onChange={(e) => setIdFiltro(e.target.value)}
-            style={softInputStyle()}
+            onChange={setIdFiltro}
+            placeholder="p. ej. 42"
           />
 
-          <select
-            value={estadoFiltro}
-            onChange={(e) => setEstadoFiltro(e.target.value)}
-            style={softInputStyle()}
-          >
-            {ESTADO_FILTERS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="date"
-            value={fechaFiltro}
-            onChange={(e) => setFechaFiltro(e.target.value)}
-            style={softInputStyle()}
+          <SelectField
+            label="Estado"
+            value={estadoFiltro === "TODOS" ? "" : estadoFiltro}
+            onChange={(v) => setEstadoFiltro(v || "TODOS")}
+            options={ESTADO_FILTERS.filter((f) => f.value !== "TODOS")}
           />
 
-          <select
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="ped-filtro-fecha" className="text-body-sm font-[var(--font-weight-medium)]">
+              Fecha de creación
+            </label>
+            <input
+              id="ped-filtro-fecha"
+              type="date"
+              value={fechaFiltro}
+              onChange={(e) => setFechaFiltro(e.target.value)}
+              className={INPUT_CLS}
+            />
+          </div>
+
+          <SelectField
+            label="Solicitante"
             value={solicitanteFiltro}
-            onChange={(e) => setSolicitanteFiltro(e.target.value)}
-            style={softInputStyle()}
-            disabled={solicitantesDisponibles.length === 0}
-            aria-label="Filtrar por solicitante"
-          >
-            {solicitantesDisponibles.length === 0 ? (
-              <option value="">No hay solicitantes</option>
-            ) : (
-              <>
-                <option value="">Todos los solicitantes</option>
-                {solicitantesDisponibles.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </>
-            )}
-          </select>
-
-          <input
-            placeholder="Buscar en detalle o destino..."
-            value={textoFiltro}
-            onChange={(e) => setTextoFiltro(e.target.value)}
-            style={softInputStyle()}
+            onChange={setSolicitanteFiltro}
+            allLabel={solicitantesDisponibles.length === 0 ? null : "Todos"}
+            placeholder={solicitantesDisponibles.length === 0 ? "No hay solicitantes" : undefined}
+            options={solicitantesDisponibles}
           />
 
-          <button onClick={clearFilters} style={actionBtn(true)}>
-            Limpiar
-          </button>
-        </div>
+          <SearchField
+            label="Buscar"
+            hideLabel={false}
+            value={textoFiltro}
+            onChange={setTextoFiltro}
+            placeholder="Producto, destino o estado"
+          />
+        </FilterBar>
 
         {loading ? (
-          <div style={{ color: "#64748b", fontWeight: 800 }}>Cargando…</div>
+          <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>Cargando…</div>
         ) : pedidosFiltrados.length === 0 ? (
-          <div style={{ color: "#64748b", fontWeight: 800 }}>No hay pedidos para los filtros seleccionados.</div>
+          <div style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>No hay pedidos para los filtros seleccionados.</div>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 10px", minWidth: 1180 }}>
               <thead>
-                <tr style={{ background: "#f8fafc" }}>
-                  <th style={thStyle()}>ID</th>
-                  <th style={thStyle()}>Tipo</th>
-                  <th style={thStyle()}>Pedido</th>
-                  <th style={thStyle()}>Caduca</th>
-                  <th style={thStyle()}>Solicitante</th>
-                  <th style={thStyle()}>Destino</th>
-                  <th style={{ ...thStyle(), minWidth: 320 }}>
+                <tr style={{ background: "var(--muted)" }}>
+                  <th scope="col" className={TH}>ID</th>
+                  <th scope="col" className={TH}>Tipo</th>
+                  <th scope="col" className={TH}>Pedido</th>
+                  <th scope="col" className={TH}>Caduca</th>
+                  <th scope="col" className={TH}>Solicitante</th>
+                  <th scope="col" className={TH}>Destino</th>
+                  <th scope="col" className={cn(TH, "min-w-[320px]")}>
                     <div
                       style={{
                         display: "grid",
@@ -2882,12 +2306,12 @@ export default function Pedidos() {
                       }}
                     >
                       <div>Producto</div>
-                      <div style={{ textAlign: "center" }}>Tamaño</div>
-                      <div style={{ textAlign: "right" }}>Cantidad</div>
+                      <div className="text-center">Tamaño</div>
+                      <div className="text-right">Cantidad</div>
                     </div>
                   </th>
-                  <th style={thStyle()}>Estado</th>
-                  <th style={thStyle()}>Acciones</th>
+                  <th scope="col" className={TH}>Estado</th>
+                  <th scope="col" className={TH}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -2901,52 +2325,38 @@ export default function Pedidos() {
                       key={p.id}
                       style={{
                         background: "white",
-                        boxShadow: "0 6px 18px rgba(2,6,23,0.05)",
+                        boxShadow: "var(--shadow-md)",
                       }}
                     >
                       <td
-                        style={{
-                          ...tdStyle(),
-                          borderTop: "1px solid rgba(15,23,42,0.10)",
-                          borderBottom: "1px solid rgba(15,23,42,0.10)",
-                          borderLeft: "1px solid rgba(15,23,42,0.10)",
-                          borderTopLeftRadius: 14,
-                          borderBottomLeftRadius: 14,
-                          whiteSpace: "nowrap",
-                        }}
+                        className={TD}
                       >
                         #{p.id}
                       </td>
 
-                      <td style={{ ...tdStyle(), borderTop: "1px solid rgba(15,23,42,0.10)", borderBottom: "1px solid rgba(15,23,42,0.10)" }}>
+                      <td className={TD}>
                         <span
                           style={{
                             display: "inline-flex",
                             padding: "4px 10px",
-                            borderRadius: 999,
+                            borderRadius: "var(--radius-full)",
                             fontSize: 12,
-                            fontWeight: 900,
-                            background: (p.tipo === "reposicion") ? "rgba(245,158,11,0.12)" : "rgba(59,130,246,0.10)",
-                            color: (p.tipo === "reposicion") ? "#92400e" : "#1e3a8a",
-                            border: "1px solid rgba(15,23,42,0.08)",
+                            fontWeight: "var(--font-weight-semibold)",
+                            background: (p.tipo === "reposicion") ? "var(--warning-subtle)" : "var(--info-subtle)",
+                            color: (p.tipo === "reposicion") ? "var(--warning-subtle-foreground)" : "var(--info-subtle-foreground)",
+                            border: "1px solid var(--border)",
                           }}
                         >
                           {p.tipo === "reposicion" ? "Reposición" : "Salida"}
                         </span>
                       </td>
 
-                      <td style={{ ...tdStyle(), borderTop: "1px solid rgba(15,23,42,0.10)", borderBottom: "1px solid rgba(15,23,42,0.10)" }}>
+                      <td className={TD}>
                         {fmtFechaES(p.created_at)}
                       </td>
 
                       <td
-                        style={{
-                          ...tdStyle(),
-                          borderTop: "1px solid rgba(15,23,42,0.10)",
-                          borderBottom: "1px solid rgba(15,23,42,0.10)",
-                          color: "#b91c1c",
-                          fontWeight: 900,
-                        }}
+                        className={TD}
                       >
                         {(() => {
                           // La caducidad no aplica a pedidos cerrados (servido,
@@ -2954,30 +2364,19 @@ export default function Pedidos() {
                           const e = String(p.estado || "").toUpperCase();
                           const cerrado = ["SERVIDO", "DENEGADO", "CANCELADO", "CADUCADO"].includes(e);
                           const fc = cerrado ? null : getPedidoFechaCaducidad(p);
-                          return fc ? fmtFechaES(fc) : <span style={{ color: "#94a3b8", fontWeight: 700 }}>—</span>;
+                          return fc ? fmtFechaES(fc) : <span style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>—</span>;
                         })()}
                       </td>
 
-                      <td style={{ ...tdStyle(), borderTop: "1px solid rgba(15,23,42,0.10)", borderBottom: "1px solid rgba(15,23,42,0.10)" }}>
+                      <td className={TD}>
                         {solicitanteFromPedido(p)}
                       </td>
 
                       <td
-                        style={{
-                          ...tdStyle(),
-                          borderTop: "1px solid rgba(15,23,42,0.10)",
-                          borderBottom: "1px solid rgba(15,23,42,0.10)",
-                          // Cap the column width so a long address wraps
-                          // instead of pushing the rest of the row right.
-                          maxWidth: 220,
-                          minWidth: 140,
-                          whiteSpace: "normal",
-                          wordBreak: "break-word",
-                          lineHeight: 1.3,
-                        }}
+                        className={TD}
                       >
                         {p?.tipo === "reposicion" ? (
-                          <span style={{ fontWeight: 900, color: "#065f46" }}>Vivero</span>
+                          <span style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--success-subtle-foreground)" }}>Vivero</span>
                         ) : (() => {
                           // Si el pedido reparte en varios destinos distintos
                           // (según sus líneas), lo indicamos en vez del primero.
@@ -2987,7 +2386,7 @@ export default function Pedidos() {
                               .filter(Boolean)
                           );
                           return dset.size > 1 ? (
-                            <span style={{ fontWeight: 900, color: "#1e3a8a" }}>Múltiples destinos ({dset.size})</span>
+                            <span style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--info-subtle-foreground)" }}>Múltiples destinos ({dset.size})</span>
                           ) : (
                             <DestinoResumen
                               distrito={p?.distrito_destino}
@@ -2999,12 +2398,7 @@ export default function Pedidos() {
                       </td>
 
                       <td
-                        style={{
-                          ...tdStyle(),
-                          borderTop: "1px solid rgba(15,23,42,0.10)",
-                          borderBottom: "1px solid rgba(15,23,42,0.10)",
-                          minWidth: 380,
-                        }}
+                        className={TD}
                       >
                         <PedidoDetalleCellOld
                           pedido={p}
@@ -3020,55 +2414,46 @@ export default function Pedidos() {
                         />
                       </td>
 
-                      <td style={{ ...tdStyle(), borderTop: "1px solid rgba(15,23,42,0.10)", borderBottom: "1px solid rgba(15,23,42,0.10)", whiteSpace: "nowrap" }}>
+                      <td className={cn(TD, "whitespace-nowrap")}>
+                        {/*
+                          El estado sale del vocabulario compartido, no de una
+                          escalera de colores escrita a mano. Además del color,
+                          `StatusBadge` lleva TEXTO: antes el tono era el único
+                          canal para distinguir «denegado» de «cancelado».
+                        */}
                         {(() => {
-                          const e = estadoNormalizado(estado);
-                          let color = "#92400e"; // reserva/default ámbar
-                          if (e === "APROBADO") color = "#065f46";
-                          else if (e === "APROBADO_PARCIAL") color = "#115e59";
-                          else if (e === "DENEGADO") color = "#991b1b";
-                          else if (e === "SERVIDO") color = "#1e3a8a";
-                          else if (e === "CANCELADO") color = "#334155";
-                          else if (e === "CADUCADO") color = "#475569";
-                          return <span style={{ fontWeight: 900, color, fontSize: 13 }}>{estadoLabel(estado)}</span>;
+                          const { status } = estadoPedido(estado);
+                          return <StatusBadge status={status} label={estadoLabel(estado)} />;
                         })()}
                       </td>
 
                       <td
-                        style={{
-                          ...tdStyle(),
-                          borderTop: "1px solid rgba(15,23,42,0.10)",
-                          borderBottom: "1px solid rgba(15,23,42,0.10)",
-                          borderRight: "1px solid rgba(15,23,42,0.10)",
-                          borderTopRightRadius: 14,
-                          borderBottomRightRadius: 14,
-                          minWidth: 220,
-                        }}
+                        className={TD}
                       >
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           {canEditCancel && editingId !== p.id ? (
                             <>
                               {!isReadOnly && (
-                                <button onClick={() => startEdit(p)} style={actionBtn(true)}>
+                                <Button type="button" variant="secondary" size="sm" onClick={() => startEdit(p)}>
                                   Editar
-                                </button>
+                                </Button>
                               )}
                               {!isReadOnly && (
-                                <button onClick={() => onCancelar(p)} style={dangerBtn(true)}>
+                                <Button type="button" variant="destructive" size="sm" onClick={() => onCancelar(p)}>
                                   Cancelar
-                                </button>
+                                </Button>
                               )}
                             </>
                           ) : null}
 
                           {canEditCancel && editingId === p.id ? (
                             <>
-                              <button onClick={() => onGuardarEdicion(p.id)} style={primaryBtn(false)}>
+                              <Button type="button" variant="primary" size="sm" onClick={() => onGuardarEdicion(p.id)}>
                                 Guardar
-                              </button>
-                              <button onClick={stopEdit} style={actionBtn(true)}>
+                              </Button>
+                              <Button type="button" variant="secondary" size="sm" onClick={stopEdit}>
                                 Cerrar
-                              </button>
+                              </Button>
                             </>
                           ) : null}
 
@@ -3101,11 +2486,11 @@ export default function Pedidos() {
                                 title="Descargar PDF del pedido aprobado"
                                 style={{
                                   padding: "8px 12px",
-                                  borderRadius: 12,
-                                  border: "1px solid rgba(16,185,129,0.35)",
-                                  background: "rgba(16,185,129,0.10)",
-                                  color: "#065f46",
-                                  fontWeight: 900,
+                                  borderRadius: "var(--radius-md)",
+                                  border: "1px solid var(--border)",
+                                  background: "var(--muted)",
+                                  color: "var(--success-subtle-foreground)",
+                                  fontWeight: "var(--font-weight-semibold)",
                                   cursor: "pointer",
                                   fontSize: 13,
                                 }}
@@ -3127,7 +2512,7 @@ export default function Pedidos() {
                               e === "SERVIDO" ||
                               e === "DENEGADO";
                             if (canEditCancel || hasPdf) return null;
-                            return <span style={{ color: "#94a3b8", fontWeight: 800 }}>—</span>;
+                            return <span style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)" }}>—</span>;
                           })()}
                         </div>
                       </td>
@@ -3156,6 +2541,8 @@ export default function Pedidos() {
         mapProdName={mapProdName}
         onClose={() => setImprimirOpen(false)}
       />
+
+      {dialogoConfirmacion}
     </div>
   );
 }
