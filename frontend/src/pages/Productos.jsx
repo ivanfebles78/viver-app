@@ -1776,18 +1776,43 @@ export default function Productos() {
       )}
 
       {!loading && (
+        /*
+         * CAUSA RAÍZ DEL SOLAPE DE «PEDIR MÁS».
+         *
+         * Esta tabla se maquetaba con los atributos de presentación de HTML4
+         * `border="1" cellPadding="8"`. El reinicio de CSS de Tailwind declara
+         * `padding: 0` sobre todos los elementos, y una regla CSS gana siempre
+         * a un atributo de presentación: `cellPadding` quedaba MUERTO y las
+         * celdas tenían 0 px de relleno.
+         *
+         * Sin relleno, la altura de la fila la fijaba su control más alto —el
+         * botón, 28 px— así que la fila medía exactamente 28 px y el hueco
+         * vertical entre botones de filas consecutivas era de 0 px: se veían
+         * pegados, como un bloque azul continuo que invade la fila siguiente.
+         * Medido en navegador: filaH 28, botonH 28, huecos [0,0,0,…].
+         *
+         * El arreglo es estructural: relleno real por CSS en cada celda. No hay
+         * altura de fila fija, ni márgenes negativos, ni posicionamiento
+         * absoluto, ni números por pantalla.
+         */
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }} border="1" cellPadding="8">
+          <table
+            className="w-full border-collapse [&_td]:p-3 [&_td]:align-middle [&_th]:p-3 [&_tbody_tr]:border-t [&_tbody_tr]:border-[var(--border)]"
+            style={{ minWidth: 720 }}
+          >
+            <caption className="sr-only">
+              Catálogo de productos con existencias, mínimos y clasificación.
+            </caption>
             <thead>
-              <tr>
-                <th>Nombre científico</th>
-                <th>Nombre común</th>
-                <th>Categoría</th>
-                <th>Subcategoría</th>
-                <th style={{ textAlign: "center" }}>Stock</th>
-                {!esEmpresaExterna && <th style={{ textAlign: "center" }}>Stock mínimo</th>}
-                {puedeMarcarInterno && <th style={{ textAlign: "center" }}>Interno</th>}
-                {puedePedirMas && <th style={{ textAlign: "center" }}>Acciones</th>}
+              <tr className="bg-[var(--muted)]">
+                <th scope="col" className="text-left">Nombre científico</th>
+                <th scope="col" className="text-left">Nombre común</th>
+                <th scope="col" className="text-left">Categoría</th>
+                <th scope="col" className="text-left">Subcategoría</th>
+                <th scope="col" className="text-center">Stock</th>
+                {!esEmpresaExterna && <th scope="col" className="text-center">Stock mínimo</th>}
+                {puedeMarcarInterno && <th scope="col" className="text-center">Interno</th>}
+                {puedePedirMas && <th scope="col" className="text-center">Acciones</th>}
               </tr>
             </thead>
             <tbody>
