@@ -9,6 +9,7 @@ import {
   EmptyState,
   Field,
   Input,
+  Badge,
   StatusBadge,
   Textarea,
   cn,
@@ -1144,7 +1145,7 @@ export default function MovimientoModal({
 
                 {form.pedido_id && (
                   <div className="flex items-center justify-between gap-3">
-                    <StatusBadge status="success" label={`Pedido #${form.pedido_id} asociado`} />
+                    <Badge tone="success">{`Pedido #${form.pedido_id} asociado`}</Badge>
                     <Button
                       type="button"
                       variant="ghost"

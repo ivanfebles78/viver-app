@@ -9,11 +9,12 @@ import { formatCantidadConUnidad } from "../utils/numero";
 import { getZonaLabel } from "../utils/zonas";
 import { formatFechaCanaria } from "../utils/fecha";
 
-import { Button, Card, DataTable, EmptyState, PageHeader, StatusBadge } from "../ui";
+import { Badge, Button, Card, DataTable, EmptyState, PageHeader } from "../ui";
 import { Alert, Truncated } from "../components/ui/feedback";
 import { FilterBar } from "../components/ui/layout";
 import SearchField from "../components/ui/SearchField";
 import SelectField from "../components/ui/SelectField";
+import MovementTypeBadge from "../components/ui/MovementTypeBadge";
 
 import {
   DEFAULT_ZONAS,
@@ -68,19 +69,12 @@ const TABLE_LABELS = {
   selectedCount: (n) => `${n} seleccionado${n === 1 ? "" : "s"}`,
 };
 
-/**
- * Estado semántico de cada tipo de movimiento.
- *
- * La versión anterior lo resolvía con `fontWeight: 900` y un color a mano por
- * tipo. Aquí se usa el sistema de estados, que además garantiza que el tipo se
- * lee como TEXTO y no solo como color.
+/*
+ * El tono y el icono de cada tipo viven en `MovementTypeBadge`, para que la
+ * tabla y cualquier vista futura los pinten igual. Antes se resolvía aquí con
+ * un mapa de tonos: los cuatro tipos compartían forma y solo cambiaba el
+ * color, y al recorrer la tabla se leían iguales.
  */
-const TONO_TIPO = {
-  entrada: "success",
-  salida: "danger",
-  devolucion: "warning",
-  traslado_interno: "info",
-};
 
 const MENSAJE_MS = 3000;
 const UUID_COPIADO_MS = 1800;
@@ -290,7 +284,7 @@ export default function Movimientos() {
         header: "Tipo",
         cell: (m) => {
           const tipo = m.tipo_movimiento || getMovimientoTipo(m);
-          return <StatusBadge status={TONO_TIPO[String(tipo).toLowerCase()] || "info"} label={getTipoDisplayLabel(tipo)} />;
+          return <MovementTypeBadge tipo={tipo} label={getTipoDisplayLabel(tipo)} />;
         },
       },
       {
@@ -324,8 +318,14 @@ export default function Movimientos() {
         hideOnMobile: true,
         cell: (m) => {
           const kind = getPrestamoKind(m);
-          if (kind === "prestamo") return <StatusBadge status="info" label="Préstamo" />;
-          if (kind === "devolucion") return <StatusBadge status="warning" label="Devolución" />;
+          /*
+           * Mismo defecto que en el tipo de movimiento: «info» y «warning» son
+           * TONOS, no estados del vocabulario, así que `StatusBadge` los caía a
+           * `draft` y ambas insignias salían grises e iguales. Préstamo y
+           * devolución son etiquetas, no estados de flujo: `Badge` con tono.
+           */
+          if (kind === "prestamo") return <Badge tone="info">Préstamo</Badge>;
+          if (kind === "devolucion") return <Badge tone="pending">Devolución</Badge>;
           return <span className="text-muted-foreground">—</span>;
         },
       },

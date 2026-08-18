@@ -174,3 +174,77 @@ describe("Productos · la tabla del modal puede desplazarse en vez de aplastarse
     }
   });
 });
+
+describe("Productos · la tabla principal tiene relleno real en las celdas", () => {
+  /*
+   * DEFECTO SEPARADO del solape del modal: «Pedir más» se veía pegado a la
+   * fila siguiente.
+   *
+   * CAUSA RAÍZ: la tabla se maquetaba con los atributos de presentación de
+   * HTML4 `border="1" cellPadding="8"`. El reinicio de CSS de Tailwind declara
+   * `padding: 0` en todos los elementos, y una regla CSS gana siempre a un
+   * atributo de presentación: `cellPadding` quedaba MUERTO.
+   *
+   * Sin relleno, la altura de la fila la fijaba su control más alto —el botón,
+   * 28 px— así que la fila medía 28 px y el hueco vertical entre botones de
+   * filas consecutivas era de 0 px. Medido en navegador antes y después:
+   *
+   *              filaH   botonH   hueco mínimo
+   *   antes       28       28          0 px
+   *   después     53       28         25 px
+   *
+   * jsdom no maqueta, así que aquí se fija la CAUSA: que las celdas declaren
+   * relleno por CSS y que no vuelvan los atributos de presentación.
+   */
+
+  it("no quedan atributos de presentación de HTML4 en la tabla", () => {
+    // Son los que el reinicio de CSS anula en silencio.
+    expect(FUENTE).not.toMatch(/cellPadding/i);
+    expect(FUENTE).not.toMatch(/<table[^>]*\sborder="1"/i);
+  });
+
+  it("las celdas declaran relleno por CSS", () => {
+    // `[&_td]:p-3` aplica a TODAS las celdas, incluidas las de `ProductoRow`,
+    // que es un componente aparte y no podría recibirlo fila a fila.
+    expect(FUENTE).toMatch(/\[&_td\]:p-3/);
+    expect(FUENTE).toMatch(/\[&_th\]:p-3/);
+  });
+
+  it("la separación NO se consigue con recursos prohibidos", () => {
+    /*
+     * El arreglo tiene que ser estructural. Se comprueba que no se haya
+     * colado ninguna de las salidas fáciles en la tabla principal.
+     */
+    expect(FUENTE).not.toMatch(/position:\s*"absolute"/);
+    expect(FUENTE).not.toMatch(/margin\w*:\s*-\d/);
+    expect(FUENTE).not.toMatch(/height:\s*\d+,\s*\/\/\s*fila/);
+    // Ninguna altura de fila fija.
+    expect(FUENTE).not.toMatch(/rowHeight/i);
+  });
+
+  it("la tabla principal puede desplazarse en vez de aplastarse", () => {
+    expect(FUENTE).toMatch(/minWidth:\s*720/);
+  });
+
+  it("las filas siguen renderizándose con su botón dentro", async () => {
+    const user = userEvent.setup();
+    render(<Productos />);
+    await screen.findByText("Dracaena draco");
+    const botones = screen.getAllByRole("button", { name: /pedir m[áa]s/i });
+    expect(botones.length).toBeGreaterThan(0);
+    for (const b of botones) {
+      // Cada botón vive DENTRO de una fila, nunca suelto entre filas.
+      expect(b.closest("tr")).not.toBeNull();
+      expect(b.closest("td")).not.toBeNull();
+    }
+    void user;
+  });
+
+  it("la cabecera de la tabla principal es semántica", async () => {
+    render(<Productos />);
+    await screen.findByText("Dracaena draco");
+    const cabeceras = screen.getAllByRole("columnheader");
+    expect(cabeceras.length).toBeGreaterThanOrEqual(5);
+    for (const th of cabeceras) expect(th).toHaveAttribute("scope", "col");
+  });
+});
