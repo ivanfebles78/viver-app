@@ -7,6 +7,9 @@ import ZoneEditor from "./ZoneEditor";
 import { loadZonasFromServer, saveZonasToServer } from "./zonesStorage";
 import { formatCantidad } from "../../utils/numero";
 import { getZonaDisplayName } from "../../utils/zonas";
+import { Button, Dialog, DialogContent } from "../../ui";
+import { Alert } from "../ui/feedback";
+import { contarProductosDistintos, nombreItem } from "./zonas.logic";
 
 const DEBUG_MAPA = false;
 // Cinturón de seguridad: si está en false, el editor está oculto para todos
@@ -137,7 +140,10 @@ export default function MapaVivero() {
       setEditMode(false);
     } catch (err) {
       console.error("Error guardando zonas en servidor:", err);
-      window.alert(
+      // Antes era un `window.alert`: bloqueaba el hilo y no dejaba rastro en la
+      // pantalla, así que al aceptarlo el usuario se quedaba sin saber si sus
+      // cambios seguían ahí. Ahora es un aviso persistente con rol ARIA.
+      setError(
         "No se pudo guardar la configuración de zonas en el servidor. " +
           "Revisa la conexión y vuelve a intentarlo."
       );
@@ -147,13 +153,9 @@ export default function MapaVivero() {
   };
 
   const items = zonaData?.items || zonaData?.productos || [];
-  // Nº de productos DIFERENTES en la zona (una misma especie en varios tamaños
-  // cuenta como un solo producto).
-  const numProductosDistintos = new Set(
-    items
-      .map((i) => String(i.nombre_cientifico || i.cientifico || i.producto || "").trim().toLowerCase())
-      .filter(Boolean)
-  ).size;
+  // Nº de productos DIFERENTES: una misma especie en varios tamaños cuenta como
+  // un solo producto. La regla vive en `zonas.logic.js`, fijada por equivalencia.
+  const numProductosDistintos = contarProductosDistintos(items);
 
   if (editMode && canEdit) {
     return (
@@ -194,11 +196,17 @@ export default function MapaVivero() {
         </div>
       )}
 
-      {error && (
-        <div style={{ margin: "6px 0", color: "#b91c1c", fontWeight: 700 }}>
+      {/*
+        El mismo `error` alimenta este aviso y el del diálogo de zona. Con el
+        diálogo abierto se veía DOS VECES el mismo mensaje, uno detrás del otro.
+        Aquí se muestra sólo cuando no hay diálogo: dentro, el usuario ya lo
+        tiene delante.
+      */}
+      {error && !zonaSeleccionada ? (
+        <Alert tone="error" onDismiss={() => setError("")}>
           {error}
-        </div>
-      )}
+        </Alert>
+      ) : null}
 
       <div className="vivero-map-wrapper">
         <img
@@ -217,17 +225,35 @@ export default function MapaVivero() {
           {DEBUG_MAPA && (
             <rect x="0" y="0" width="2048" height="1365" fill="transparent" />
           )}
-          {zonas.map((zona) => (
-            <polygon
-              key={zona.id}
-              points={zona.puntos}
-              className="zona-clickable"
-              style={{ "--zona-color": zona.color }}
-              onClick={() => handleZonaClick(zona)}
-            >
-              <title>{getZonaDisplayName(zona.nombre || zona.apiId || zona.id)}</title>
-            </polygon>
-          ))}
+          {/*
+            DEFECTO CORREGIDO: los polígonos eran `<polygon onClick>` sin
+            `tabIndex`, sin rol y sin manejador de teclado, así que el mapa
+            entero era inalcanzable sin ratón. Ahora cada zona es un control
+            con nombre accesible, enfocable y activable con Enter o Espacio.
+          */}
+          {zonas.map((zona) => {
+            const nombre = getZonaDisplayName(zona.nombre || zona.apiId || zona.id);
+            return (
+              <polygon
+                key={zona.id}
+                points={zona.puntos}
+                className="zona-clickable"
+                style={{ "--zona-color": zona.color }}
+                tabIndex={0}
+                role="button"
+                aria-label={`Consultar inventario de ${nombre}`}
+                onClick={() => handleZonaClick(zona)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleZonaClick(zona);
+                  }
+                }}
+              >
+                <title>{nombre}</title>
+              </polygon>
+            );
+          })}
         </svg>
 
       </div>
@@ -235,81 +261,62 @@ export default function MapaVivero() {
       {/* Modal de zona: overlay AUTÓNOMO (fuera del wrapper del mapa, que tiene
           overflow:hidden). Cabecera y botón fijos; la lista de especies hace
           scroll dentro del modal aunque haya muchas. */}
-      {zonaSeleccionada && (
-        <div
-          onClick={cerrarModal}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.5)",
-            zIndex: 3000,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "#fff",
-              borderRadius: 14,
-              width: "min(560px, 96vw)",
-              maxHeight: "90vh",
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              boxShadow: "0 18px 50px rgba(0,0,0,0.28)",
-            }}
+      {/*
+        DEFECTO CORREGIDO: era un `div position:fixed` hecho a mano, sin trampa
+        de foco, sin cierre con Escape y sin devolver el foco al cerrarse — un
+        usuario de teclado se quedaba tabulando por detrás del modal.
+      */}
+      <Dialog
+        open={!!zonaSeleccionada}
+        onOpenChange={(abierto) => !abierto && cerrarModal()}
+      >
+        {zonaSeleccionada ? (
+          <DialogContent
+            title={getZonaDisplayName(
+              zonaSeleccionada.nombre || zonaSeleccionada.apiId || zonaSeleccionada.id
+            )}
+            description="Inventario registrado en esta zona del vivero."
+            closeLabel="Cerrar"
+            size="md"
           >
-            {/* Cabecera fija */}
-            <div style={{ padding: "18px 20px 10px", borderBottom: "1px solid rgba(15,23,42,0.08)" }}>
-              <h2 style={{ margin: 0, fontSize: 20 }}>
-                {getZonaDisplayName(zonaSeleccionada.nombre || zonaSeleccionada.apiId || zonaSeleccionada.id)}
-              </h2>
-              {!loading && !error && items.length > 0 && (
-                <div style={{ fontSize: 13, color: "#1e3a8a", fontWeight: 800, marginTop: 4 }}>
-                  {numProductosDistintos} {numProductosDistintos === 1 ? "producto diferente" : "productos diferentes"}
+            <div className="flex max-h-[70dvh] min-w-0 flex-col gap-3 overflow-y-auto">
+              {!loading && !error && items.length > 0 ? (
+                <p className="text-body-sm text-muted-foreground">
+                  {numProductosDistintos}{" "}
+                  {numProductosDistintos === 1 ? "producto diferente" : "productos diferentes"}
                   {items.length !== numProductosDistintos ? ` · ${items.length} líneas` : ""}
-                </div>
-              )}
-            </div>
+                </p>
+              ) : null}
 
-            {/* Cuerpo con scroll */}
-            <div style={{ padding: "12px 20px", overflowY: "auto", flex: 1 }}>
-              {loading && <p>Cargando información...</p>}
-              {error && <p style={{ color: "#b91c1c" }}>{error}</p>}
-              {!loading && !error && items.length === 0 && (
-                <p>No hay stock registrado en esta zona.</p>
-              )}
-              {!loading && !error && items.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {loading ? <p className="text-muted-foreground">Cargando información…</p> : null}
+              {error ? <Alert tone="error">{error}</Alert> : null}
+              {!loading && !error && items.length === 0 ? (
+                <p className="text-muted-foreground">No hay stock registrado en esta zona.</p>
+              ) : null}
+
+              {!loading && !error && items.length > 0 ? (
+                <ul className="flex list-none flex-col gap-2 p-0">
                   {items.map((item, index) => (
-                    <div key={index} className="zona-item">
-                      <strong>
-                        {item.nombre_cientifico || item.cientifico || item.producto || "Producto"}
-                      </strong>
-                      <br />
-                      Cantidad: {formatCantidad(item.cantidad || item.total || 0) || "0"}
-                      {item.tamano && (
-                        <>
-                          <br />
-                          Tamaño: {item.tamano}
-                        </>
-                      )}
-                    </div>
+                    <li key={index} className="zona-item">
+                      <span className="font-[var(--font-weight-medium)]">{nombreItem(item)}</span>
+                      <span className="mt-1 block text-body-sm text-muted-foreground">
+                        Cantidad: {formatCantidad(item.cantidad || item.total || 0) || "0"}
+                        {item.tamano ? ` · Tamaño: ${item.tamano}` : ""}
+                      </span>
+                    </li>
                   ))}
-                </div>
-              )}
-            </div>
+                </ul>
+              ) : null}
 
-            {/* Pie fijo */}
-            <div style={{ padding: "10px 20px 16px", borderTop: "1px solid rgba(15,23,42,0.08)", textAlign: "right" }}>
-              <button onClick={cerrarModal}>Cerrar</button>
+              <div className="flex justify-end">
+                <Button type="button" variant="secondary" onClick={cerrarModal}>
+                  Cerrar
+                </Button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogContent>
+        ) : null}
+      </Dialog>
     </>
   );
 }

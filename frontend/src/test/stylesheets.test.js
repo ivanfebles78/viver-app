@@ -87,8 +87,21 @@ describe("hojas de estilo de la aplicación", () => {
       const blocks = stripComments(source).split("}");
       for (const block of blocks) {
         if (!/outline\s*:\s*(none|0)\b/.test(block)) continue;
-        const drawsRing = /outline\s*:\s*[^;]*\b(solid|auto|dotted|dashed)\b/.test(block)
-          || /box-shadow\s*:[^;]*(inset\s+)?0\s+0\s+0/.test(block);
+        /*
+         * En SVG el anillo de foco del navegador se dibuja alrededor de la CAJA
+         * del elemento, no de su forma: sobre un poligono irregular senala un
+         * rectangulo que no se corresponde con lo que el usuario ve. El
+         * equivalente nativo es engrosar el trazo, y ese si sigue la silueta.
+         *
+         * Se acepta solo si el bloque declara `stroke` Y `stroke-width`, un par
+         * que no aparece en CSS de HTML: la regla no se relaja para el resto.
+         */
+        const drawsSvgRing =
+          /(^|[\s;{])stroke\s*:/.test(block) && /stroke-width\s*:/.test(block);
+        const drawsRing =
+          /outline\s*:\s*[^;]*\b(solid|auto|dotted|dashed)\b/.test(block) ||
+          /box-shadow\s*:[^;]*(inset\s+)?0\s+0\s+0/.test(block) ||
+          drawsSvgRing;
         if (!drawsRing) {
           offenders.push(`${path}: ${block.trim().split("\n")[0]}`);
         }

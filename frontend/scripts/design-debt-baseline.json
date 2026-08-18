@@ -21,12 +21,11 @@
       "estilo-en-linea": 4
     },
     "components/shell/ZonaMapDialog.jsx": {
-      "hex": 18,
-      "rgb": 24,
+      "hex": 16,
+      "rgb": 20,
       "peso-tipografico": 10,
       "radio": 1,
-      "estilo-en-linea": 31,
-      "dialogo-nativo": 1
+      "estilo-en-linea": 29
     },
     "components/ui/ProportionBar.jsx": {
       "estilo-en-linea": 2
@@ -34,25 +33,15 @@
     "components/ui/layout.jsx": {
       "estilo-en-linea": 1
     },
-    "components/vivero/MapaVivero.css": {
-      "hex": 60,
-      "rgb": 8
-    },
     "components/vivero/MapaVivero.jsx": {
-      "hex": 4,
-      "rgb": 4,
-      "peso-tipografico": 1,
-      "radio": 1,
-      "estilo-en-linea": 13,
-      "dialogo-nativo": 1
+      "estilo-en-linea": 3
     },
     "components/vivero/ZoneEditor.jsx": {
-      "hex": 18,
-      "estilo-en-linea": 4,
-      "dialogo-nativo": 6
+      "hex": 1,
+      "estilo-en-linea": 2
     },
     "components/vivero/zonasConfig.js": {
-      "hex": 17
+      "hex": 32
     },
     "components/vivero/zonesStorage.js": {
       "hex": 1

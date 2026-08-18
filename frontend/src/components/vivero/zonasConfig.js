@@ -21,4 +21,18 @@ const zonas = [
   { id: "zona-12", apiId: "12", nombre: "Zona 12", color: "#C77DBA", puntos: "1750,150 1950,150 1950,300 1750,300" },
 ];
 
+/**
+ * Paleta para zonas NUEVAS.
+ *
+ * Vive aquí, junto al resto de colores de zona, porque es lo mismo: el valor
+ * por defecto de un DATO que se persiste en el servidor y que el administrador
+ * puede cambiar con el selector de color del editor. No son tokens de la
+ * aplicación y no deben convertirse en tokens — ver la nota de `MapaVivero.css`.
+ */
+export const PALETA_ZONAS = [
+  "#F4E2C1", "#E87B69", "#9FD486", "#BFD9EA", "#F5D547",
+  "#F08A80", "#F3CF39", "#A7D98C", "#9ECBE2", "#F3E0BD",
+  "#F7E85B", "#6BAED6", "#4E8BC5", "#E56F61", "#C77DBA",
+];
+
 export default zonas;
