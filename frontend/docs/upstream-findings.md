@@ -216,20 +216,45 @@ Medido en navegador real sobre ViverApp, con el diálogo «Gestionar productos»
 El alto se mantiene en 28 px en todos los casos: es el **ancho** el que se
 comprime al estrecharse el diálogo.
 
-### Corrección propuesta
+### Causa raíz (confirmada en la Fase 8)
 
-Fijar el área mínima del disparador de cierre en vez de dejar que la herede del
-contenido:
+No es que falte un tamaño: **es que el que hay no es un suelo**.
 
-```tsx
-className="... size-[max(24px,var(--control-height-sm))] shrink-0 ..."
+`icon-sm` e `icon` fijan alto y ancho con `--control-height-*`, pero ese ancho
+es la medida BASE del botón. Como elemento de un flex junto a contenido que
+crece —la cabecera del diálogo, con el título y la descripción— el
+`flex-shrink: 1` por defecto lo comprime en horizontal mientras el alto se
+queda quieto. Medido: `flex-shrink: 1`, `width: 18px` a 320 px, `height: 28px`.
+
+Por eso a 768 px y más se ve correcto: ahí sobra espacio y no llega a encogerse.
+
+### Corrección
+
+En `packages/ui/src/components/button.tsx`, en las dos variantes de icono:
+
+```diff
+-        'icon-sm': 'h-[var(--control-height-sm)] w-[var(--control-height-sm)] p-0',
+-        icon: 'h-[var(--control-height-md)] w-[var(--control-height-md)] p-0',
++        'icon-sm': 'h-[var(--control-height-sm)] w-[var(--control-height-sm)] shrink-0 p-0',
++        icon: 'h-[var(--control-height-md)] w-[var(--control-height-md)] shrink-0 p-0',
 ```
 
-Basta con `min-width`/`min-height` de 24 px y `shrink-0`, para que el botón no
-se comprima cuando el encabezado del diálogo se estrecha. El icono puede seguir
-midiendo lo mismo; lo que tiene que crecer es el área pulsable.
+Va en la VARIANTE y no en `DialogContent`: un botón de icono es cuadrado por
+definición, y dejar que se comprima rompe ese contrato para todos los
+consumidores, no sólo dentro de un diálogo.
+
+Verificado aplicando el cambio y volviendo a medir el mismo diálogo: **28×28 px
+a 320, 375 y 768 px**, por encima del mínimo de 24.
+
+### Estado
+
+Preparada aguas arriba en `devcon8-platform`, rama `fix/icon-button-shrink`,
+commit `ed740c3`. Sin publicar: queda a decisión de quien mantiene el paquete.
 
 ### Rodeo en ViverApp
 
-**Ninguno.** `src/ui/` es copia byte a byte de aguas arriba y no se parchea en
-local. Queda anotado aquí para la auditoría final de la migración.
+**Ninguno, y a propósito.** `src/ui/` sigue siendo copia byte a byte del
+paquete: parchearlo sólo aquí crearía una divergencia que la próxima
+sincronización borraría en silencio, y dejaría a ViverApp con un sistema de
+diseño que ya no es el sistema de diseño. El defecto sigue presente en ViverApp
+hasta que se sincronice la corrección de aguas arriba.

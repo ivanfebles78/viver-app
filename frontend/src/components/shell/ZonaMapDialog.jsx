@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import { getZonaItems, marcarZonaInterna } from "../../api/api";
-import { Button, Dialog, DialogContent, Skeleton } from "../../ui";
+import { Badge, Button, Dialog, DialogContent, Skeleton } from "../../ui";
+import { useConfirm } from "../ui/ConfirmDialog";
 import mapaVivero from "../../assets/mapa-vivero.png";
 import "../vivero/MapaVivero.css";
 import zonasDefault from "../vivero/zonasConfig";
@@ -36,32 +37,33 @@ const ENABLE_ZONE_EDITOR = true;
  */
 
 function ZonePanelLoading() {
+  /*
+   * Esqueleto de carga. Antes eran barras con `rgba` a mano; ahora usa el
+   * `Skeleton` del sistema, que además respeta `prefers-reduced-motion`.
+   *
+   * `aria-busy` + `role="status"`: sin esto, un lector de pantalla no anuncia
+   * que se está cargando y el panel parece simplemente vacío.
+   */
   return (
-    <div style={{ marginTop: 18, display: "grid", gap: 12 }}>
+    <div className="mt-3 flex flex-col gap-3" role="status" aria-busy="true">
+      <span className="sr-only">Cargando el inventario de la zona…</span>
       {[0, 1, 2].map((item) => (
         <div
           key={item}
-          style={{
-            padding: 14,
-            borderRadius: 16,
-            border: "1px solid rgba(15,23,42,0.08)",
-            background: "rgba(248,250,252,0.72)",
-          }}
+          className="flex flex-col gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] p-3"
         >
-          <div style={{ height: 14, width: "62%", borderRadius: 999, background: "rgba(148,163,184,0.26)", marginBottom: 10 }} />
-          <div style={{ height: 12, width: "84%", borderRadius: 999, background: "rgba(148,163,184,0.20)", marginBottom: 12 }} />
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ height: 26, width: 82, borderRadius: 999, background: "rgba(6,182,212,0.12)" }} />
-            <span style={{ height: 26, width: 72, borderRadius: 999, background: "rgba(6,182,212,0.10)" }} />
-            <span style={{ height: 26, width: 94, borderRadius: 999, background: "rgba(6,182,212,0.08)" }} />
+          <Skeleton className="h-3.5 w-3/5" />
+          <Skeleton className="h-3 w-4/5" />
+          <div className="flex flex-wrap gap-2">
+            <Skeleton className="h-6 w-20" />
+            <Skeleton className="h-6 w-16" />
+            <Skeleton className="h-6 w-24" />
           </div>
         </div>
       ))}
     </div>
   );
 }
-
-
 
 /** Cuántos productos de la zona se muestran por tanda ("Mostrar más"). */
 const ZONA_ITEMS_STEP = 8;
@@ -72,6 +74,7 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
   const [loading, setLoading] = useState(false);
   const [zonaError, setZonaError] = useState("");
   const [internaBusy, setInternaBusy] = useState(false);
+  const { confirmar, dialogo: dialogoConfirmacion } = useConfirm();
   // Nº de productos visibles (paginación "Mostrar más"). Se reinicia al cambiar
   // de zona.
   const [visibleCount, setVisibleCount] = useState(ZONA_ITEMS_STEP);
@@ -157,6 +160,23 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
   const handleMarcarInterna = async (checked) => {
     const zid = zonaData?._resolvedZone;
     if (!zid) return;
+
+    /*
+     * Cambia la VISIBILIDAD de todos los productos de la zona para la empresa
+     * externa. Es una acción de permisos: se espera la confirmación antes de
+     * tocar el backend. Si se cancela, la casilla vuelve sola a su sitio,
+     * porque su valor lo manda `zonaData.todos_internos`, no el clic.
+     */
+    const ok = await confirmar({
+      title: checked ? "¿Marcar la zona como interna?" : "¿Quitar la marca de zona interna?",
+      description: checked
+        ? `Todos los productos de «${selectedZoneLabel}» pasarán a ser internos: la empresa externa dejará de verlos y no podrá pedirlos.`
+        : `Los productos de «${selectedZoneLabel}» dejarán de ser internos: la empresa externa volverá a verlos y podrá pedirlos.`,
+      confirmLabel: checked ? "Marcar como interna" : "Quitar la marca",
+      destructive: checked,
+    });
+    if (!ok) return;
+
     setInternaBusy(true);
     setZonaError("");
     try {
@@ -295,177 +315,128 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
           </div>
         </div>
 
-        <div style={{ padding: 20, overflowY: "auto", minHeight: 0, maxHeight: "86vh" }}>
-          <div style={{ fontSize: 22, fontWeight: 900, color: "#0f172a" }}>
+        <div className="min-h-0 overflow-y-auto p-4">
+          <h3 className="text-h3 font-[var(--font-weight-semibold)]">
             {selectedZone ? selectedZoneLabel : "Selecciona una zona"}
-          </div>
+          </h3>
 
           {selectedZone && !loading && !zonaError && zonaData?.items?.length ? (
-            <div style={{ marginTop: 2, fontSize: 14, fontWeight: 800, color: "#1e3a8a" }}>
-              {zonaData.items.length} {zonaData.items.length === 1 ? "producto" : "productos"} en esta zona
-            </div>
+            <p className="text-body-sm text-muted-foreground">
+              {zonaData.items.length}{" "}
+              {zonaData.items.length === 1 ? "producto" : "productos"} en esta zona
+            </p>
           ) : null}
 
+          {/*
+            MARCAR ZONA COMO INTERNA — acción de PERMISOS.
+            Esconde todos los productos de la zona a la empresa externa. Antes
+            se disparaba con un simple clic en la casilla, sin confirmación de
+            ningún tipo. Ahora pasa por `useConfirm`, esperado, y la casilla
+            sigue reflejando el estado del SERVIDOR: si se cancela, no se mueve.
+          */}
           {isAdmin && selectedZone && !loading && !zonaError && zonaData?.items?.length ? (
-            <label
-              style={{
-                marginTop: 12,
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "10px 12px",
-                borderRadius: 12,
-                border: "1px solid rgba(15,23,42,0.12)",
-                background: zonaData.todos_internos ? "rgba(239,68,68,0.06)" : "#f8fafc",
-                cursor: internaBusy ? "wait" : "pointer",
-                fontWeight: 800,
-                color: "#0f172a",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={!!zonaData.todos_internos}
-                disabled={internaBusy}
-                onChange={(e) => handleMarcarInterna(e.target.checked)}
-                style={{ width: 18, height: 18, cursor: internaBusy ? "wait" : "pointer" }}
-              />
-              <span>
-                Marcar zona como interna
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600, marginTop: 2 }}>
-                  {internaBusy
-                    ? "Actualizando…"
-                    : "Si está marcada, todos los productos de esta zona son internos y la empresa externa no los ve ni los puede pedir."}
-                </div>
-              </span>
-            </label>
+            <div className="mt-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--muted)] p-3">
+              <label htmlFor="zona-interna" className="flex items-start gap-3">
+                <input
+                  id="zona-interna"
+                  type="checkbox"
+                  checked={!!zonaData.todos_internos}
+                  disabled={internaBusy}
+                  onChange={(e) => handleMarcarInterna(e.target.checked)}
+                  className="mt-0.5 size-4 shrink-0"
+                />
+                <span className="min-w-0">
+                  <span className="font-[var(--font-weight-medium)]">Marcar zona como interna</span>
+                  <span className="mt-1 block text-body-sm text-muted-foreground">
+                    {internaBusy
+                      ? "Actualizando…"
+                      : "Si está marcada, todos los productos de esta zona son internos y la empresa externa no los ve ni los puede pedir."}
+                  </span>
+                </span>
+              </label>
+            </div>
           ) : null}
 
           {!selectedZone ? (
-            <div style={{ marginTop: 12, color: "#64748b", fontWeight: 700 }}>
+            <p className="mt-3 text-muted-foreground">
               Selecciona una zona del mapa para consultar su inventario.
-            </div>
+            </p>
           ) : loading ? (
             <ZonePanelLoading />
           ) : zonaError ? (
-            <div
-              style={{
-                marginTop: 12,
-                padding: 12,
-                borderRadius: 14,
-                border: "1px solid rgba(239,68,68,0.25)",
-                background: "rgba(239,68,68,0.08)",
-                color: "#991b1b",
-                fontWeight: 800,
-              }}
-            >
-              {zonaError}
+            <div className="mt-3">
+              <Alert tone="error">{zonaError}</Alert>
             </div>
           ) : !zonaData?.items?.length ? (
-            <div
-              style={{
-                marginTop: 12,
-                color: "#92400e",
-                fontWeight: 800,
-                background: "rgba(245,158,11,0.10)",
-                border: "1px solid rgba(245,158,11,0.25)",
-                borderRadius: 12,
-                padding: 12,
-              }}
-            >
-              No se encontraron productos para esta zona con el identificador consultado.
-              {zonaData?._resolvedZone ? ` Consulta usada: ${zonaData._resolvedZone}` : ""}
+            <div className="mt-3">
+              {/*
+                El identificador consultado se sigue mostrando a propósito: la
+                config del servidor puede traer ids corruptos, y saber con qué
+                se preguntó es lo que permite darse cuenta.
+              */}
+              <Alert tone="warning">
+                No se encontraron productos para esta zona con el identificador consultado.
+                {zonaData?._resolvedZone ? ` Consulta usada: ${zonaData._resolvedZone}` : ""}
+              </Alert>
             </div>
           ) : (
-            <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
-              {zonaData.items.slice(0, visibleCount).map((item, idx) => (
-                <div
-                  key={`${item.producto_id || item.nombre_cientifico || "item"}-${idx}`}
-                  style={{
-                    padding: 14,
-                    borderRadius: 16,
-                    border: "1px solid rgba(15,23,42,0.08)",
-                    background: "rgba(248,250,252,0.72)",
-                  }}
-                >
-                  <div style={{ fontWeight: 900, color: "#0f172a" }}>
-                    {item.nombre_cientifico || item.nombre_natural || "Producto"}
-                  </div>
-
-                  <div style={{ marginTop: 4, color: "#64748b", fontWeight: 700 }}>
-                    {item.nombre_natural || "—"}
-                    {item.categoria ? ` · ${item.categoria}` : ""}
-                    {item.subcategoria ? ` · ${item.subcategoria}` : ""}
-                  </div>
-
-                  <div style={{ marginTop: 8, fontWeight: 900, color: "#0f172a" }}>
-                    Cantidad total: {formatCantidad(item.cantidad ?? 0) || "0"}
-                  </div>
-
-                  <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {(item.tamanos || []).length === 0 ? (
-                      <span style={{ color: "#64748b", fontWeight: 700 }}>Sin detalle por tamaño</span>
-                    ) : (
-                      item.tamanos.map((t, tIdx) => (
-                        <span
-                          key={`${item.producto_id || item.nombre_cientifico || "item"}-${t.tamano || tIdx}`}
-                          style={{
-                            padding: "6px 10px",
-                            borderRadius: 999,
-                            background: "rgba(6,182,212,0.10)",
-                            border: "1px solid rgba(6,182,212,0.18)",
-                            color: "#0f172a",
-                            fontWeight: 900,
-                            fontSize: 12,
-                          }}
-                        >
-                          {t.tamano}: {formatCantidad(t.cantidad)}
+            <div className="mt-3 flex flex-col gap-3">
+              <ul className="flex list-none flex-col gap-3 p-0">
+                {zonaData.items.slice(0, visibleCount).map((item, idx) => (
+                  <li
+                    key={`${item.producto_id || item.nombre_cientifico || "item"}-${idx}`}
+                    className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] p-3"
+                  >
+                    <p className="break-words [overflow-wrap:anywhere] font-[var(--font-weight-medium)]">
+                      {item.nombre_cientifico || item.nombre_natural || "Producto"}
+                    </p>
+                    <p className="text-body-sm text-muted-foreground">
+                      {item.nombre_natural || "—"}
+                      {item.categoria ? ` · ${item.categoria}` : ""}
+                      {item.subcategoria ? ` · ${item.subcategoria}` : ""}
+                    </p>
+                    <p className="tabular mt-2 font-[var(--font-weight-medium)]">
+                      Cantidad total: {formatCantidad(item.cantidad ?? 0) || "0"}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(item.tamanos || []).length === 0 ? (
+                        <span className="text-body-sm text-muted-foreground">
+                          Sin detalle por tamaño
                         </span>
-                      ))
-                    )}
-                  </div>
-                </div>
-              ))}
+                      ) : (
+                        item.tamanos.map((t, tIdx) => (
+                          <Badge
+                            key={`${item.producto_id || item.nombre_cientifico || "item"}-${t.tamano || tIdx}`}
+                            tone="info"
+                          >
+                            {t.tamano}: {formatCantidad(t.cantidad)}
+                          </Badge>
+                        ))
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
 
-              {zonaData.items.length > visibleCount && (
-                <button
+              {zonaData.items.length > visibleCount ? (
+                <Button
                   type="button"
+                  variant="secondary"
                   onClick={() => setVisibleCount((c) => c + ZONA_ITEMS_STEP)}
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: 12,
-                    border: "1px dashed rgba(6,182,212,0.5)",
-                    background: "rgba(6,182,212,0.06)",
-                    color: "#0e7490",
-                    fontWeight: 900,
-                    fontSize: 14,
-                    cursor: "pointer",
-                  }}
                 >
                   Mostrar más ({zonaData.items.length - visibleCount} restantes)
-                </button>
-              )}
-              {visibleCount > ZONA_ITEMS_STEP && (
-                <button
-                  type="button"
-                  onClick={() => setVisibleCount(ZONA_ITEMS_STEP)}
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: 12,
-                    border: "1px solid rgba(148,163,184,0.35)",
-                    background: "#fff",
-                    color: "#475569",
-                    fontWeight: 800,
-                    fontSize: 13,
-                    cursor: "pointer",
-                  }}
-                >
+                </Button>
+              ) : null}
+              {visibleCount > ZONA_ITEMS_STEP ? (
+                <Button type="button" variant="ghost" onClick={() => setVisibleCount(ZONA_ITEMS_STEP)}>
                   Mostrar menos
-                </button>
-              )}
+                </Button>
+              ) : null}
             </div>
           )}
         </div>
         </div>
+        {dialogoConfirmacion}
       </DialogContent>
     </Dialog>
   );

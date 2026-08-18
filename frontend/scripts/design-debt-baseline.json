@@ -1,31 +1,8 @@
 {
   "generado": "manual",
   "ficheros": {
-    "components/VerPlanta.jsx": {
-      "hex": 8,
-      "rgb": 6,
-      "peso-tipografico": 3,
-      "radio": 3,
-      "estilo-en-linea": 10
-    },
-    "components/common/CambiarPasswordModal.jsx": {
-      "hex": 19,
-      "rgb": 2,
-      "peso-tipografico": 4,
-      "radio": 6,
-      "estilo-en-linea": 17
-    },
-    "components/common/ClienteSelector.jsx": {
-      "hex": 7,
-      "peso-tipografico": 1,
-      "estilo-en-linea": 4
-    },
     "components/shell/ZonaMapDialog.jsx": {
-      "hex": 16,
-      "rgb": 20,
-      "peso-tipografico": 10,
-      "radio": 1,
-      "estilo-en-linea": 29
+      "estilo-en-linea": 2
     },
     "components/ui/ProportionBar.jsx": {
       "estilo-en-linea": 2
@@ -45,14 +22,6 @@
     },
     "components/vivero/zonesStorage.js": {
       "hex": 1
-    },
-    "components/welcome/WelcomeModal.jsx": {
-      "hex": 18,
-      "rgb": 14,
-      "peso-tipografico": 6,
-      "radio": 3,
-      "estilo-en-linea": 22,
-      "gradiente": 2
     },
     "pages/Aprobaciones.jsx": {
       "estilo-en-linea": 5
