@@ -1,59 +1,106 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { getSuperadminStats, enrollAyuntamiento, setActiveClienteId, updateCliente, importClienteData } from "../api/api";
+import { useEffect, useMemo, useState } from "react";
 
-// ── estilos base (inline, como el resto de la app) ──────────────────────────
-const card = {
-  background: "#fff",
-  border: "1px solid #e2e8f0",
-  borderRadius: 16,
-  padding: 18,
-  boxShadow: "0 10px 24px rgba(2,6,23,0.05)",
+import {
+  enrollAyuntamiento,
+  getSuperadminStats,
+  importClienteData,
+  setActiveClienteId,
+  updateCliente,
+} from "../api/api";
+import { Badge, Button, Card, CardContent, PageHeader, StatusBadge } from "../ui";
+import { Alert } from "../components/ui/feedback";
+import { useConfirm } from "../components/ui/ConfirmDialog";
+import {
+  CHART,
+  CONFIRMAR_IMPORT_TEXTO,
+  CONFIRMAR_IMPORT_TITULO,
+  aplicarNombre,
+  construirKpis,
+  construirPayloadCuota,
+  construirPayloadEnroll,
+  geometriaEvolucion,
+  mensajeAlta,
+  money,
+  parsearCuota,
+  resumenImportacion,
+} from "./plataforma.logic";
+
+/*
+ * Panel de plataforma — el dueño del SaaS da de alta ayuntamientos, fija lo que
+ * paga cada uno y puede volcar una copia de seguridad sobre sus datos.
+ *
+ * La lógica vive en `plataforma.logic.js`, fijada por
+ * `plataforma.equivalence.test.js` contra una copia literal de main; el flujo
+ * de control de los diálogos, por `plataforma.flujo.test.jsx`.
+ *
+ * Comportamiento documentado en `docs/plataforma-behaviour.md`.
+ */
+
+const EMPTY_FORM = {
+  nombre: "",
+  slug: "",
+  cif: "",
+  direccion: "",
+  email_contacto: "",
+  telefono: "",
+  admin_username: "",
+  admin_email: "",
+  admin_rol: "admin",
 };
-const label = { fontSize: 12, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4 };
-const kpiNum = { fontSize: 30, fontWeight: 900, color: "#0f172a", lineHeight: 1.1 };
 
-const money = (n) =>
-  new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(n || 0);
+const CLASE_CONTROL =
+  "h-[var(--control-height-md)] w-full min-w-0 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] px-3 outline-none focus-visible:outline-[length:var(--focus-ring-width)] focus-visible:outline-solid focus-visible:outline-ring";
 
-// ── Gráfica SVG (línea de ayuntamientos acumulados por mes) ─────────────────
+/* ── Gráfica ───────────────────────────────────────────────────────────── */
+
 function EvolucionChart({ data }) {
-  const W = 640, H = 220, P = 34;
-  if (!data || data.length === 0) {
-    return <div style={{ color: "#94a3b8", padding: 20 }}>Aún no hay altas registradas.</div>;
+  const g = geometriaEvolucion(data);
+  const { W, H, P } = CHART;
+
+  if (!g) {
+    return <p className="text-muted-foreground">Aún no hay altas registradas.</p>;
   }
-  const pts = data.map((d) => ({ x: d.mes, y: d.acumulado }));
-  const maxY = Math.max(1, ...pts.map((p) => p.y));
-  const stepX = pts.length > 1 ? (W - 2 * P) / (pts.length - 1) : 0;
-  const px = (i) => P + i * stepX;
-  const py = (v) => H - P - (v / maxY) * (H - 2 * P);
-  const linePath = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${px(i)} ${py(p.y)}`).join(" ");
-  const areaPath = `${linePath} L ${px(pts.length - 1)} ${H - P} L ${px(0)} ${H - P} Z`;
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, minWidth: 360 }}>
-        <defs>
-          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {/* rejilla horizontal */}
+    <div className="overflow-x-auto">
+      {/*
+       * `role="img"` con nombre: sin él, el SVG llega al lector de pantalla
+       * como un montón de trazados sin significado.
+       */}
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        role="img"
+        aria-label={`Altas acumuladas de ayuntamientos por mes. Último valor: ${g.pts[g.pts.length - 1].y}.`}
+        className="max-w-[640px] min-w-[320px]"
+      >
         {[0, 0.5, 1].map((f, i) => {
           const y = H - P - f * (H - 2 * P);
           return (
             <g key={i}>
-              <line x1={P} y1={y} x2={W - P} y2={y} stroke="#eef2f7" strokeWidth="1" />
-              <text x={8} y={y + 4} fontSize="11" fill="#94a3b8">{Math.round(f * maxY)}</text>
+              <line x1={P} y1={y} x2={W - P} y2={y} stroke="var(--border)" strokeWidth="1" />
+              <text x={8} y={y + 4} fontSize="11" fill="var(--muted-foreground)">
+                {Math.round(f * g.maxY)}
+              </text>
             </g>
           );
         })}
-        <path d={areaPath} fill="url(#areaGrad)" />
-        <path d={linePath} fill="none" stroke="#059669" strokeWidth="2.5" strokeLinejoin="round" />
-        {pts.map((p, i) => (
-          <g key={i}>
-            <circle cx={px(i)} cy={py(p.y)} r="4" fill="#059669" />
-            <text x={px(i)} y={H - P + 16} fontSize="10" fill="#64748b" textAnchor="middle">{p.x}</text>
+        {/* El área se pintaba con un degradado a mano; ahora es el color del
+            sistema con opacidad, sin introducir ningún valor en crudo. */}
+        <path d={g.areaPath} fill="var(--primary)" fillOpacity="0.12" />
+        <path d={g.linePath} fill="none" stroke="var(--primary)" strokeWidth="2.5" strokeLinejoin="round" />
+        {g.pts.map((p, i) => (
+          <g key={p.x}>
+            <circle cx={g.px(i)} cy={g.py(p.y)} r="4" fill="var(--primary)" />
+            <text
+              x={g.px(i)}
+              y={H - P + 16}
+              fontSize="10"
+              fill="var(--muted-foreground)"
+              textAnchor="middle"
+            >
+              {p.x}
+            </text>
           </g>
         ))}
       </svg>
@@ -61,10 +108,27 @@ function EvolucionChart({ data }) {
   );
 }
 
-const EMPTY_FORM = {
-  nombre: "", slug: "", cif: "", direccion: "", email_contacto: "", telefono: "",
-  admin_username: "", admin_email: "", admin_rol: "admin",
-};
+/* ── Campo del formulario de alta ──────────────────────────────────────── */
+
+function Campo({ id, label, value, onChange, placeholder, requerido }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <label htmlFor={id} className="text-caption uppercase text-muted-foreground">
+        {label}
+        {requerido ? " *" : null}
+      </label>
+      <input
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={CLASE_CONTROL}
+      />
+    </div>
+  );
+}
+
+/* ── Pantalla ──────────────────────────────────────────────────────────── */
 
 export default function Plataforma() {
   const [stats, setStats] = useState(null);
@@ -73,295 +137,466 @@ export default function Plataforma() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [enrollBusy, setEnrollBusy] = useState(false);
   const [enrollMsg, setEnrollMsg] = useState(null);
-  // Edición de la cuota de un ayuntamiento: {id, value} o null.
+
   const [editCuota, setEditCuota] = useState(null);
   const [cuotaBusy, setCuotaBusy] = useState(false);
+  const [cuotaError, setCuotaError] = useState("");
+
+  const [importBusyId, setImportBusyId] = useState(null);
+  const [importMsg, setImportMsg] = useState(null);
+
+  const { confirmar, dialogo: dialogoConfirmacion } = useConfirm();
 
   const cargar = async () => {
     setLoading(true);
     setError("");
     try {
-      const data = await getSuperadminStats();
-      setStats(data);
+      setStats(await getSuperadminStats());
     } catch (e) {
       setError(e?.response?.data?.detail || "No se pudieron cargar las estadísticas.");
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => { cargar(); }, []);
 
-  // Autocompletar slug a partir del nombre si el usuario no lo ha tocado.
-  const onNombre = (v) => {
-    setForm((f) => {
-      const autoSlug = v.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
-        .replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-      const slugTouched = f.slug && f.slug !== f._autoSlug;
-      return { ...f, nombre: v, slug: slugTouched ? f.slug : autoSlug, _autoSlug: autoSlug };
-    });
-  };
+  useEffect(() => {
+    cargar();
+  }, []);
+
+  const resumen = stats?.resumen;
+  const fact = stats?.facturacion;
+  const kpis = useMemo(() => construirKpis(resumen), [resumen]);
 
   const submitEnroll = async (e) => {
     e.preventDefault();
     setEnrollBusy(true);
     setEnrollMsg(null);
     try {
-      const payload = {
-        nombre: form.nombre, slug: form.slug, cif: form.cif || null,
-        direccion: form.direccion || null, email_contacto: form.email_contacto || null,
-        telefono: form.telefono || null, admin_username: form.admin_username,
-        admin_email: form.admin_email, admin_rol: form.admin_rol,
-      };
-      const res = await enrollAyuntamiento(payload);
-      setEnrollMsg({
-        ok: true,
-        text: `Ayuntamiento "${res.cliente.nombre}" (id ${res.cliente.id}) creado. ` +
-          (res.email_invitacion_enviado
-            ? `Se envió invitación a ${res.admin.email}.`
-            : `Aviso: no se pudo enviar el email de invitación a ${res.admin.email} (revisa la config de correo).`),
-      });
+      const res = await enrollAyuntamiento(construirPayloadEnroll(form));
+      setEnrollMsg({ ok: true, text: mensajeAlta(res) });
       setForm(EMPTY_FORM);
       cargar();
     } catch (err) {
-      setEnrollMsg({ ok: false, text: err?.response?.data?.detail || "No se pudo crear el ayuntamiento." });
+      setEnrollMsg({
+        ok: false,
+        text: err?.response?.data?.detail || "No se pudo crear el ayuntamiento.",
+      });
     } finally {
       setEnrollBusy(false);
     }
   };
 
-  const resumen = stats?.resumen;
-  const fact = stats?.facturacion;
-
-  const kpis = useMemo(() => ([
-    { k: "Ayuntamientos", v: resumen?.ayuntamientos_total, sub: `${resumen?.ayuntamientos_activos ?? 0} activos` },
-    { k: "Usuarios", v: resumen?.usuarios_total },
-    { k: "Productos", v: resumen?.productos_total },
-    { k: "Pedidos", v: resumen?.pedidos_total },
-    { k: "Movimientos", v: resumen?.movimientos_total },
-  ]), [resumen]);
-
   const entrarComo = (cid) => {
-    // El superadmin "entra" en un ayuntamiento: fija el X-Cliente-Id y va al panel.
+    // El superadmin «entra» en un ayuntamiento: fija el X-Cliente-Id y recarga.
+    // La recarga completa es deliberada: la cabecera debe aplicarse a TODAS las
+    // peticiones siguientes.
     setActiveClienteId(cid);
     window.location.assign("/dashboard");
   };
 
-  const [importBusyId, setImportBusyId] = useState(null);
-  const importarDatos = async (clienteId, file) => {
+  /*
+   * DEFECTO CORREGIDO — el `window.confirm` que autorizaba sobrescribir los
+   * datos de un ayuntamiento entero.
+   *
+   * Tres detalles que la sustitución no puede romper, y que están fijados en
+   * `plataforma.flujo.test.jsx`:
+   *
+   *   1. El fichero llega por ARGUMENTO, capturado antes de vaciar el input.
+   *      Leerlo del input después del `await` daría `undefined`.
+   *   2. El input se vacía SIEMPRE, se confirme o no; si conservara el valor,
+   *      reelegir el mismo fichero no dispararía `change`.
+   *   3. La confirmación se ESPERA. `window.confirm` bloqueaba y devolvía un
+   *      booleano; `useConfirm` devuelve una promesa, así que sin el `await` la
+   *      importación se ejecutaría antes de que el usuario decidiera.
+   */
+  const importarDatos = async (cliente, file) => {
     if (!file) return;
-    if (!window.confirm("Vas a importar los datos de la copia de seguridad a este ayuntamiento. ¿Continuar?")) return;
-    setImportBusyId(clienteId);
+
+    const ok = await confirmar({
+      title: CONFIRMAR_IMPORT_TITULO,
+      description: `${CONFIRMAR_IMPORT_TEXTO} Ayuntamiento afectado: ${cliente.nombre}.`,
+      confirmLabel: "Importar",
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setImportBusyId(cliente.id);
+    setImportMsg(null);
     try {
-      const res = await importClienteData(clienteId, file);
-      const r = res.importado || {};
-      alert("Importación completada:\n" + Object.entries(r).map(([k, v]) => `· ${k}: ${v}`).join("\n"));
+      const res = await importClienteData(cliente.id, file);
+      setImportMsg({ ok: true, lineas: resumenImportacion(res) });
       cargar();
     } catch (err) {
-      alert(err?.response?.data?.detail || "No se pudo importar.");
+      setImportMsg({
+        ok: false,
+        lineas: [err?.response?.data?.detail || "No se pudo importar."],
+      });
     } finally {
       setImportBusyId(null);
     }
   };
 
-  // Guarda la cuota de un ayuntamiento. value === "" o null => quita el
-  // descuento (vuelve a la cuota por defecto de la plataforma).
   const guardarCuota = async (clienteId, value) => {
+    const { valida, num, error: errCuota } = parsearCuota(value);
+    if (!valida) {
+      // No se llama al backend y el editor sigue abierto con lo escrito.
+      setCuotaError(errCuota);
+      return;
+    }
+    setCuotaError("");
     setCuotaBusy(true);
     try {
-      const raw = String(value ?? "").trim().replace(",", ".");
-      const num = raw === "" ? null : Number(raw);
-      if (num !== null && (Number.isNaN(num) || num < 0)) {
-        alert("Introduce una cuota válida (número ≥ 0) o vacío para la cuota por defecto.");
-        setCuotaBusy(false);
-        return;
-      }
-      await updateCliente(clienteId, { set_cuota: true, cuota_mensual: num });
+      await updateCliente(clienteId, construirPayloadCuota(num));
       setEditCuota(null);
-      cargar();
     } catch (err) {
-      alert(err?.response?.data?.detail || "No se pudo actualizar la cuota.");
+      setCuotaError(err?.response?.data?.detail || "No se pudo actualizar la cuota.");
     } finally {
       setCuotaBusy(false);
+      cargar();
     }
   };
 
   return (
-    <div style={{ display: "grid", gap: 18 }}>
-      <div>
-        <h1 style={{ fontSize: 26, fontWeight: 900, color: "#0f172a", margin: 0 }}>
-          Panel de plataforma
-        </h1>
-        <p style={{ color: "#64748b", marginTop: 4 }}>
-          Gestión SaaS de ViverApp — ayuntamientos, uso y facturación.
-        </p>
-      </div>
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title="Panel de plataforma"
+        description="Gestión SaaS de ViverApp — ayuntamientos, uso y facturación."
+      />
 
-      {error && <div style={{ ...card, borderColor: "#fecaca", color: "#b91c1c" }}>{error}</div>}
-      {loading && <div style={{ color: "#94a3b8" }}>Cargando estadísticas…</div>}
+      {error ? <Alert tone="error">{error}</Alert> : null}
+      {loading ? <p className="text-muted-foreground">Cargando estadísticas…</p> : null}
 
-      {stats && (
+      {importMsg ? (
+        <Alert tone={importMsg.ok ? "success" : "error"} onDismiss={() => setImportMsg(null)}>
+          {importMsg.ok ? (
+            <>
+              Importación completada.
+              <ul className="mt-1 list-disc ps-5">
+                {importMsg.lineas.map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            importMsg.lineas[0]
+          )}
+        </Alert>
+      ) : null}
+
+      {stats ? (
         <>
-          {/* KPIs */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14 }}>
-            {kpis.map((k) => (
-              <div key={k.k} style={card}>
-                <div style={label}>{k.k}</div>
-                <div style={kpiNum}>{k.v ?? 0}</div>
-                {k.sub && <div style={{ color: "#64748b", fontSize: 13, marginTop: 2 }}>{k.sub}</div>}
-              </div>
-            ))}
-          </div>
-
-          {/* Facturación + gráfica */}
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.4fr)", gap: 14 }}>
-            <div style={{ ...card, background: "linear-gradient(135deg,#065f46,#047857)", color: "#ecfdf5", border: "none" }}>
-              <div style={{ ...label, color: "#a7f3d0" }}>Facturación estimada</div>
-              <div style={{ fontSize: 34, fontWeight: 900, marginTop: 6 }}>{money(fact?.ingreso_mensual_estimado)}<span style={{ fontSize: 15, fontWeight: 700 }}>/mes</span></div>
-              <div style={{ marginTop: 4, color: "#d1fae5" }}>{money(fact?.ingreso_anual_estimado)} / año</div>
-              <div style={{ marginTop: 12, fontSize: 13, color: "#d1fae5" }}>
-                {fact?.ayuntamientos_facturables} ayuntamientos facturables · cuota por defecto {money(fact?.cuota_mensual_por_defecto)}/mes
-              </div>
+          <section aria-labelledby="kpis-titulo">
+            <h2 id="kpis-titulo" className="sr-only">
+              Resumen de la plataforma
+            </h2>
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(150px, 100%), 1fr))" }}
+            >
+              {kpis.map((k) => (
+                <Card key={k.k}>
+                  <CardContent className="p-4">
+                    <div className="text-caption uppercase text-muted-foreground">{k.k}</div>
+                    <div className="tabular text-h3 font-[var(--font-weight-semibold)]">{k.v ?? 0}</div>
+                    {k.sub ? <div className="text-body-sm text-muted-foreground">{k.sub}</div> : null}
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-            <div style={card}>
-              <div style={{ ...label, marginBottom: 8 }}>Evolución de altas (acumulado)</div>
-              <EvolucionChart data={stats.evolucion_altas} />
-            </div>
-          </div>
+          </section>
 
-          {/* Tabla por ayuntamiento */}
-          <div style={card}>
-            <div style={{ ...label, marginBottom: 10 }}>Uso por ayuntamiento</div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 640 }}>
+          <section
+            className="grid gap-3"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))" }}
+            aria-labelledby="facturacion-titulo"
+          >
+            <Card>
+              <CardContent className="p-4">
+                <h2 id="facturacion-titulo" className="text-caption uppercase text-muted-foreground">
+                  Facturación estimada
+                </h2>
+                {/* Antes: tarjeta con degradado verde y texto claro encima. */}
+                <p className="tabular mt-1 text-h3 font-[var(--font-weight-semibold)]">
+                  {money(fact?.ingreso_mensual_estimado)}
+                  <span className="text-body-sm text-muted-foreground"> /mes</span>
+                </p>
+                <p className="tabular text-body-sm text-muted-foreground">
+                  {money(fact?.ingreso_anual_estimado)} / año
+                </p>
+                <p className="mt-2 text-body-sm text-muted-foreground">
+                  {fact?.ayuntamientos_facturables} ayuntamientos facturables · cuota por defecto{" "}
+                  {money(fact?.cuota_mensual_por_defecto)}/mes
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <h2 className="mb-2 text-caption uppercase text-muted-foreground">
+                  Evolución de altas (acumulado)
+                </h2>
+                <EvolucionChart data={stats.evolucion_altas} />
+              </CardContent>
+            </Card>
+          </section>
+
+          <section aria-labelledby="uso-titulo">
+            <h2 id="uso-titulo" className="mb-2 text-caption uppercase text-muted-foreground">
+              Uso por ayuntamiento
+            </h2>
+
+            {cuotaError ? <Alert tone="error">{cuotaError}</Alert> : null}
+
+            <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border)]">
+              <table
+                className="w-full border-collapse [&_td]:p-3 [&_td]:align-top [&_th]:p-3 [&_tbody_tr]:border-t [&_tbody_tr]:border-[var(--border)]"
+                style={{ minWidth: 860 }}
+              >
+                <caption className="sr-only">
+                  Ayuntamientos dados de alta, su uso, su cuota y las acciones disponibles.
+                </caption>
                 <thead>
-                  <tr style={{ textAlign: "left", color: "#64748b" }}>
-                    <th style={{ padding: "8px 10px" }}>Ayuntamiento</th>
-                    <th style={{ padding: "8px 10px" }}>Estado</th>
-                    <th style={{ padding: "8px 10px" }}>Usuarios</th>
-                    <th style={{ padding: "8px 10px" }}>Productos</th>
-                    <th style={{ padding: "8px 10px" }}>Pedidos</th>
-                    <th style={{ padding: "8px 10px" }}>Movimientos</th>
-                    <th style={{ padding: "8px 10px" }}>Cuota</th>
-                    <th style={{ padding: "8px 10px" }}></th>
+                  <tr className="bg-[var(--muted)]">
+                    <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Ayuntamiento</th>
+                    <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Estado</th>
+                    <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Usuarios</th>
+                    <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Productos</th>
+                    <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Pedidos</th>
+                    <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Movimientos</th>
+                    <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Cuota</th>
+                    <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {stats.por_cliente.map((c) => (
-                    <tr key={c.id} style={{ borderTop: "1px solid #eef2f7" }}>
-                      <td style={{ padding: "8px 10px", fontWeight: 700, color: "#0f172a" }}>{c.nombre}<div style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>{c.slug} · id {c.id}</div></td>
-                      <td style={{ padding: "8px 10px" }}>
-                        <span style={{ padding: "2px 8px", borderRadius: 999, fontSize: 12, fontWeight: 700, background: c.activo ? "#dcfce7" : "#fee2e2", color: c.activo ? "#166534" : "#991b1b" }}>
-                          {c.activo ? "activo" : "inactivo"}
-                        </span>
-                      </td>
-                      <td style={{ padding: "8px 10px" }}>{c.usuarios}</td>
-                      <td style={{ padding: "8px 10px" }}>{c.productos}</td>
-                      <td style={{ padding: "8px 10px" }}>{c.pedidos}</td>
-                      <td style={{ padding: "8px 10px" }}>{c.movimientos}</td>
-                      <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
-                        {editCuota && editCuota.id === c.id ? (
-                          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                            <input
-                              type="number" min="0" step="1" autoFocus
-                              value={editCuota.value}
-                              onChange={(e) => setEditCuota({ id: c.id, value: e.target.value })}
-                              placeholder="por defecto"
-                              style={{ width: 90, padding: "5px 8px", borderRadius: 8, border: "1px solid #cbd5e1" }}
-                            />
-                            <button onClick={() => guardarCuota(c.id, editCuota.value)} disabled={cuotaBusy}
-                              style={{ padding: "5px 10px", borderRadius: 8, border: "none", background: "#059669", color: "#fff", fontWeight: 700, cursor: "pointer" }}>✓</button>
-                            <button onClick={() => setEditCuota(null)} disabled={cuotaBusy}
-                              style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer" }}>✕</button>
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => setEditCuota({ id: c.id, value: c.cuota_personalizada ? c.cuota_mensual : "" })}
-                            title="Editar cuota (vacío = cuota por defecto)"
-                            style={{ padding: "5px 10px", borderRadius: 8, border: "1px dashed #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 700, color: "#0f172a" }}
-                          >
-                            {money(c.cuota_mensual)}{c.cuota_personalizada && <span style={{ color: "#059669", fontSize: 11, marginLeft: 4 }} title="Cuota personalizada">●</span>}
-                          </button>
-                        )}
-                      </td>
-                      <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
-                        <button onClick={() => entrarComo(c.id)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#f8fafc", fontWeight: 700, cursor: "pointer", color: "#0f172a", marginRight: 6 }}>
-                          Entrar
-                        </button>
-                        <label
-                          title="Importar copia de seguridad del vivero a este ayuntamiento"
-                          style={{ padding: "6px 12px", borderRadius: 8, border: "1px dashed #94a3b8", background: "#fff", fontWeight: 700, cursor: importBusyId === c.id ? "default" : "pointer", color: "#334155", display: "inline-block" }}
-                        >
-                          {importBusyId === c.id ? "Importando…" : "Importar"}
-                          <input
-                            type="file"
-                            accept="application/json,.json"
-                            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; importarDatos(c.id, f); }}
-                            disabled={importBusyId === c.id}
-                            style={{ display: "none" }}
+                  {stats.por_cliente.map((c) => {
+                    const editando = editCuota && editCuota.id === c.id;
+                    const cuotaInputId = `cuota-${c.id}`;
+                    const importInputId = `importar-${c.id}`;
+                    return (
+                      <tr key={c.id}>
+                        <td className="break-words [overflow-wrap:anywhere]">
+                          <div className="font-[var(--font-weight-medium)]">{c.nombre}</div>
+                          <div className="text-caption text-muted-foreground">
+                            {c.slug} · id {c.id}
+                          </div>
+                        </td>
+                        <td>
+                          <StatusBadge
+                            status={c.activo ? "active" : "inactive"}
+                            label={c.activo ? "Activo" : "Inactivo"}
                           />
-                        </label>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="tabular">{c.usuarios}</td>
+                        <td className="tabular">{c.productos}</td>
+                        <td className="tabular">{c.pedidos}</td>
+                        <td className="tabular">{c.movimientos}</td>
+                        <td>
+                          {editando ? (
+                            <div className="flex flex-wrap items-end gap-2">
+                              <div className="flex min-w-0 flex-col gap-1">
+                                <label htmlFor={cuotaInputId} className="text-caption text-muted-foreground">
+                                  Cuota mensual (€)
+                                </label>
+                                <input
+                                  id={cuotaInputId}
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  autoFocus
+                                  value={editCuota.value}
+                                  onChange={(e) => setEditCuota({ id: c.id, value: e.target.value })}
+                                  placeholder="por defecto"
+                                  className={`${CLASE_CONTROL} w-28`}
+                                />
+                              </div>
+                              {/* Antes eran «✓» y «✕» sin nombre accesible. */}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="primary"
+                                onClick={() => guardarCuota(c.id, editCuota.value)}
+                                disabled={cuotaBusy}
+                              >
+                                Guardar
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  setEditCuota(null);
+                                  setCuotaError("");
+                                }}
+                                disabled={cuotaBusy}
+                              >
+                                Cancelar
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                aria-label={`Editar cuota de ${c.nombre}`}
+                                onClick={() =>
+                                  setEditCuota({
+                                    id: c.id,
+                                    value: c.cuota_personalizada ? c.cuota_mensual : "",
+                                  })
+                                }
+                              >
+                                {money(c.cuota_mensual)}
+                              </Button>
+                              {c.cuota_personalizada ? <Badge tone="info">Personalizada</Badge> : null}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <div className="flex flex-wrap gap-2">
+                            <Button type="button" size="sm" variant="secondary" onClick={() => entrarComo(c.id)}>
+                              Entrar
+                            </Button>
+
+                            {/*
+                             * El input va etiquetado y visible al foco en vez de
+                             * escondido dentro de un `label` sin `htmlFor`: así
+                             * se alcanza con el teclado y tiene nombre.
+                             */}
+                            <div className="flex min-w-0 flex-col gap-1">
+                              <label htmlFor={importInputId} className="text-caption text-muted-foreground">
+                                {importBusyId === c.id ? "Importando…" : "Importar copia"}
+                              </label>
+                              <input
+                                id={importInputId}
+                                type="file"
+                                accept="application/json,.json"
+                                onChange={(e) => {
+                                  // El fichero se captura ANTES de vaciar el input.
+                                  const f = e.target.files?.[0];
+                                  e.target.value = "";
+                                  importarDatos(c, f);
+                                }}
+                                disabled={importBusyId === c.id}
+                                className="max-w-[190px] text-body-sm"
+                              />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
 
-          {/* Enrollment */}
-          <div style={card}>
-            <div style={{ ...label, marginBottom: 10 }}>Dar de alta un ayuntamiento (enrollment)</div>
-            <form onSubmit={submitEnroll} style={{ display: "grid", gap: 12 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
-                <Field label="Nombre del ayuntamiento *" value={form.nombre} onChange={onNombre} placeholder="Ayuntamiento de La Laguna" />
-                <Field label="Slug (identificador) *" value={form.slug} onChange={(v) => setForm((f) => ({ ...f, slug: v }))} placeholder="la-laguna" />
-                <Field label="CIF" value={form.cif} onChange={(v) => setForm((f) => ({ ...f, cif: v }))} />
-                <Field label="Teléfono" value={form.telefono} onChange={(v) => setForm((f) => ({ ...f, telefono: v }))} />
-                <Field label="Email de contacto" value={form.email_contacto} onChange={(v) => setForm((f) => ({ ...f, email_contacto: v }))} />
-                <Field label="Dirección" value={form.direccion} onChange={(v) => setForm((f) => ({ ...f, direccion: v }))} />
-              </div>
-              <div style={{ ...label, marginTop: 4 }}>Administrador inicial de ese ayuntamiento</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
-                <Field label="Usuario admin *" value={form.admin_username} onChange={(v) => setForm((f) => ({ ...f, admin_username: v }))} placeholder="admin_laguna" />
-                <Field label="Email del admin *" value={form.admin_email} onChange={(v) => setForm((f) => ({ ...f, admin_email: v }))} placeholder="admin@laguna.es" />
-                <div>
-                  <div style={{ ...label, marginBottom: 4 }}>Rol</div>
-                  <select value={form.admin_rol} onChange={(e) => setForm((f) => ({ ...f, admin_rol: e.target.value }))}
-                    style={{ width: "100%", padding: "9px 10px", borderRadius: 8, border: "1px solid #cbd5e1" }}>
-                    <option value="admin">admin (administrador del ayuntamiento)</option>
-                    <option value="admin_vivero">admin_vivero (admin del vivero)</option>
-                  </select>
-                </div>
-              </div>
-              {enrollMsg && (
-                <div style={{ padding: "10px 12px", borderRadius: 10, fontWeight: 600, background: enrollMsg.ok ? "#ecfdf5" : "#fef2f2", color: enrollMsg.ok ? "#065f46" : "#b91c1c", border: `1px solid ${enrollMsg.ok ? "#a7f3d0" : "#fecaca"}` }}>
-                  {enrollMsg.text}
-                </div>
-              )}
-              <div>
-                <button type="submit" disabled={enrollBusy}
-                  style={{ padding: "11px 20px", borderRadius: 10, border: "none", background: "#059669", color: "#fff", fontWeight: 800, cursor: enrollBusy ? "default" : "pointer", opacity: enrollBusy ? 0.7 : 1 }}>
-                  {enrollBusy ? "Creando…" : "Dar de alta ayuntamiento"}
-                </button>
-              </div>
-            </form>
-          </div>
+          <section aria-labelledby="alta-titulo">
+            <Card>
+              <CardContent className="p-4">
+                <h2 id="alta-titulo" className="mb-3 text-caption uppercase text-muted-foreground">
+                  Dar de alta un ayuntamiento
+                </h2>
+
+                <form onSubmit={submitEnroll} className="flex flex-col gap-3">
+                  <div
+                    className="grid gap-3"
+                    style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))" }}
+                  >
+                    <Campo
+                      id="alta-nombre"
+                      label="Nombre del ayuntamiento"
+                      requerido
+                      value={form.nombre}
+                      onChange={(v) => setForm((f) => aplicarNombre(f, v))}
+                      placeholder="Ayuntamiento de La Laguna"
+                    />
+                    <Campo
+                      id="alta-slug"
+                      label="Slug (identificador)"
+                      requerido
+                      value={form.slug}
+                      onChange={(v) => setForm((f) => ({ ...f, slug: v }))}
+                      placeholder="la-laguna"
+                    />
+                    <Campo id="alta-cif" label="CIF" value={form.cif} onChange={(v) => setForm((f) => ({ ...f, cif: v }))} />
+                    <Campo
+                      id="alta-telefono"
+                      label="Teléfono"
+                      value={form.telefono}
+                      onChange={(v) => setForm((f) => ({ ...f, telefono: v }))}
+                    />
+                    <Campo
+                      id="alta-email"
+                      label="Email de contacto"
+                      value={form.email_contacto}
+                      onChange={(v) => setForm((f) => ({ ...f, email_contacto: v }))}
+                    />
+                    <Campo
+                      id="alta-direccion"
+                      label="Dirección"
+                      value={form.direccion}
+                      onChange={(v) => setForm((f) => ({ ...f, direccion: v }))}
+                    />
+                  </div>
+
+                  <h3 className="mt-1 text-caption uppercase text-muted-foreground">
+                    Administrador inicial de ese ayuntamiento
+                  </h3>
+
+                  <div
+                    className="grid gap-3"
+                    style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))" }}
+                  >
+                    <Campo
+                      id="alta-admin-usuario"
+                      label="Usuario admin"
+                      requerido
+                      value={form.admin_username}
+                      onChange={(v) => setForm((f) => ({ ...f, admin_username: v }))}
+                      placeholder="admin_laguna"
+                    />
+                    <Campo
+                      id="alta-admin-email"
+                      label="Email del admin"
+                      requerido
+                      value={form.admin_email}
+                      onChange={(v) => setForm((f) => ({ ...f, admin_email: v }))}
+                      placeholder="admin@laguna.es"
+                    />
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <label htmlFor="alta-admin-rol" className="text-caption uppercase text-muted-foreground">
+                        Rol
+                      </label>
+                      <select
+                        id="alta-admin-rol"
+                        value={form.admin_rol}
+                        onChange={(e) => setForm((f) => ({ ...f, admin_rol: e.target.value }))}
+                        className={CLASE_CONTROL}
+                      >
+                        <option value="admin">admin (administrador del ayuntamiento)</option>
+                        <option value="admin_vivero">admin_vivero (admin del vivero)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {enrollMsg ? (
+                    <Alert tone={enrollMsg.ok ? "success" : "error"}>{enrollMsg.text}</Alert>
+                  ) : null}
+
+                  <div>
+                    <Button type="submit" variant="primary" disabled={enrollBusy}>
+                      {enrollBusy ? "Creando…" : "Dar de alta ayuntamiento"}
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </section>
         </>
-      )}
-    </div>
-  );
-}
+      ) : null}
 
-function Field({ label: lb, value, onChange, placeholder }) {
-  return (
-    <label style={{ display: "grid", gap: 4 }}>
-      <span style={{ fontSize: 12, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4 }}>{lb}</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14 }}
-      />
-    </label>
+      {dialogoConfirmacion}
+    </div>
   );
 }

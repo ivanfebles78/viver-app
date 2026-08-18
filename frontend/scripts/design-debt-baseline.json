@@ -75,13 +75,7 @@
       "estilo-en-linea": 115
     },
     "pages/Plataforma.jsx": {
-      "hex": 58,
-      "rgb": 1,
-      "peso-tipografico": 6,
-      "radio": 2,
-      "estilo-en-linea": 62,
-      "gradiente": 1,
-      "dialogo-nativo": 5
+      "estilo-en-linea": 5
     },
     "pages/Productos.jsx": {
       "estilo-en-linea": 150
