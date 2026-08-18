@@ -182,3 +182,54 @@ reponer» no es una tendencia, es un estado.
 ViverApp lo compone al lado en `src/components/ui/KpiRow.jsx` en lugar de
 modificar el paquete. Una prop opcional `status?: Status` sería suficiente, con
 la regla de que solo se muestre cuando el valor signifique algo.
+
+---
+
+## UF-6 · El botón de cierre de `DialogContent` no llega al objetivo táctil mínimo
+
+**Componente:** `packages/ui/src/components/overlays.tsx`
+**Severidad:** media — incumple la SC 2.5.8 (AA) en móvil, justo donde más importa
+**Encontrado en:** Fase 5, al corregir el solape de Productos
+
+### Defecto
+
+El «×» de `DialogContent` mide **18-20 px de ancho** cuando el diálogo se pinta
+en un viewport estrecho. La **SC 2.5.8 «Target Size (Minimum)»** de WCAG 2.2
+exige 24×24 px, y no se cumple ninguna de las excepciones: no está en línea
+dentro de un texto, no hay un control equivalente en otro sitio —Escape no
+cuenta, porque en un móvil táctil no hay teclado— y el tamaño no viene impuesto
+por el agente de usuario.
+
+Es el control que más se pulsa de un modal, y el que menos margen de error
+tiene: está en la esquina, pegado al borde de la pantalla.
+
+### Reproducción
+
+Medido en navegador real sobre ViverApp, con el diálogo «Gestionar productos»:
+
+| Viewport | Ancho del «×» | Alto |
+|---:|---:|---:|
+| 320 px | **18 px** | 28 px |
+| 375 px | **20 px** | 28 px |
+| 768 px y más | ≥ 24 px | 28 px |
+
+El alto se mantiene en 28 px en todos los casos: es el **ancho** el que se
+comprime al estrecharse el diálogo.
+
+### Corrección propuesta
+
+Fijar el área mínima del disparador de cierre en vez de dejar que la herede del
+contenido:
+
+```tsx
+className="... size-[max(24px,var(--control-height-sm))] shrink-0 ..."
+```
+
+Basta con `min-width`/`min-height` de 24 px y `shrink-0`, para que el botón no
+se comprima cuando el encabezado del diálogo se estrecha. El icono puede seguir
+midiendo lo mismo; lo que tiene que crecer es el área pulsable.
+
+### Rodeo en ViverApp
+
+**Ninguno.** `src/ui/` es copia byte a byte de aguas arriba y no se parchea en
+local. Queda anotado aquí para la auditoría final de la migración.
