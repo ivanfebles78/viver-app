@@ -11,7 +11,16 @@ import {
 } from "../api/api";
 import { formatCantidad, formatCantidadConUnidad, formatEnteroConUnidad } from "../utils/numero";
 import { rolEfectivo } from "../utils/roles";
-import { Button, Dialog, DialogContent, StatusBadge } from "../ui";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  StatusBadge,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "../ui";
 import { Alert } from "../components/ui/feedback";
 import { useConfirm } from "../components/ui/ConfirmDialog";
 import {
@@ -290,10 +299,20 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
             </div>
           ) : null}
           <div style={formatoConfig.kind === "formato_fijo" ? { gridColumn: "span 2" } : undefined}>
-            <div style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", marginBottom: 6, textTransform: "uppercase" }}>
+            {/*
+             * DEFECTO CORREGIDO: «CANTIDAD» era un `div` suelto, no una
+             * etiqueta. El campo llegaba al lector de pantalla sin nombre —y es
+             * el único dato que el usuario teclea en este modal—, así que se
+             * anunciaba solo como «editar número».
+             */}
+            <label
+              htmlFor="pedir-mas-cantidad"
+              style={{ display: "block", fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", marginBottom: 6, textTransform: "uppercase" }}
+            >
               {cantidadLabel}
-            </div>
+            </label>
             <input
+              id="pedir-mas-cantidad"
               type="number"
               min={formatoConfig.allowDecimals ? "0.001" : 1}
               step={formatoConfig.allowDecimals ? "0.001" : "1"}
@@ -892,15 +911,14 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
     fontWeight: "var(--font-weight-medium)",
     boxSizing: "border-box",
   };
-  const tabBtnS = (active) => ({
-    padding: "10px 16px",
-    borderRadius: "var(--radius-md)",
-    border: active ? "1px solid var(--border)" : "1px solid var(--border)",
-    background: active ? "var(--muted)" : "white",
-    color: active ? "var(--primary-foreground)" : "var(--foreground)",
-    fontWeight: "var(--font-weight-semibold)",
-    cursor: "pointer",
-  });
+  /*
+   * Se elimina `tabBtnS`. La pestaña activa se pintaba con
+   * `background: var(--muted)` y `color: var(--primary-foreground)`, es decir,
+   * gris muy claro con texto casi blanco: la pestaña seleccionada era la MENOS
+   * legible de las tres. Es la misma confusión de tokens que dejó cuatro
+   * botones en claro sobre claro, y aquí afectaba al indicador de posición.
+   * `TabsTrigger` ya resuelve estado activo, foco y navegación por teclado.
+   */
 
   return (
     /*
@@ -917,67 +935,41 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
         size="lg"
         className="max-w-[min(1100px,96vw)]"
       >
-      <div className="flex flex-col">
-        <div
-          style={{
-            padding: "18px 22px",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "start",
-            gap: 16,
-            position: "sticky",
-            top: 0,
-            background: "var(--card)",
-            zIndex: 2,
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 24, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Gestionar productos</div>
-            <div style={{ marginTop: 4, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)", fontSize: 14 }}>
-              Alta, baja, edición e importación masiva.
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              padding: "8px 14px",
-              borderRadius: "var(--radius-md)",
-              fontWeight: "var(--font-weight-semibold)",
-              cursor: "pointer",
-              background: "var(--warning-subtle-foreground)",
-              color: "var(--foreground)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            Cerrar
-          </button>
-        </div>
+      {/*
+       * DEFECTO CORREGIDO — cabecera duplicada.
+       *
+       * Aquí vivía una segunda cabecera propia («Gestionar productos» + bajada
+       * + un botón «Cerrar») DENTRO de un `DialogContent` que ya pinta título,
+       * descripción y botón de cierre. Se veían dos títulos iguales y dos
+       * controles de cierre distintos, y el botón heredado usaba
+       * `--warning-subtle-foreground` (un marrón pensado para TEXTO) como
+       * FONDO, así que quedaba marrón sobre marrón.
+       *
+       * Además, esa cabecera y la fila de pestañas llevaban su propio
+       * `padding: "18px 22px"` DENTRO del relleno de 24 px del diálogo: a
+       * 375 px el contenido medía 330 px dentro de una caja de 278 px y se
+       * salía por los lados, que es lo que se veía como controles encimados.
+       */}
+      <Tabs value={tab} onValueChange={setTab} className="flex min-w-0 flex-col gap-4">
+        {/* `TabsList` ya reparte con `gap` y se ajusta; sin `flex-wrap` la
+            tercera pestaña quedaba cortada por el borde del diálogo. */}
+        <TabsList className="flex flex-wrap gap-2">
+          <TabsTrigger value="listado">Listado</TabsTrigger>
+          <TabsTrigger value="nuevo">Nuevo producto</TabsTrigger>
+          <TabsTrigger value="importar">Importar CSV/Excel</TabsTrigger>
+        </TabsList>
 
-        <div style={{ padding: "14px 22px", display: "flex", gap: 8, borderBottom: "1px solid var(--border)" }}>
-          <button onClick={() => setTab("listado")} style={tabBtnS(tab === "listado")}>Listado</button>
-          <button onClick={() => setTab("nuevo")} style={tabBtnS(tab === "nuevo")}>Nuevo producto</button>
-          <button onClick={() => setTab("importar")} style={tabBtnS(tab === "importar")}>Importar CSV/Excel</button>
-        </div>
+        {/* `Alert` lleva el rol ARIA: estos avisos solo se pintaban. */}
+        {msg ? <Alert tone="success">{msg}</Alert> : null}
+        {err ? <Alert tone="error">{err}</Alert> : null}
 
-        {msg ? (
-          <div style={{ margin: "12px 22px 0", padding: "10px 14px", borderRadius: "var(--radius-md)", background: "var(--success-subtle)", border: "1px solid var(--border)", color: "var(--success-subtle-foreground)", fontWeight: "var(--font-weight-semibold)" }}>
-            {msg}
-          </div>
-        ) : null}
-        {err ? (
-          <div style={{ margin: "12px 22px 0", padding: "10px 14px", borderRadius: "var(--radius-md)", background: "var(--danger-subtle)", border: "1px solid var(--border)", color: "var(--danger-subtle-foreground)", fontWeight: "var(--font-weight-semibold)" }}>
-            {err}
-          </div>
-        ) : null}
-
-        <div style={{ padding: 22 }}>
-          {tab === "listado" && (
+        <TabsContent value="listado">
             <div>
               <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
                 <input
+                  // El marcador de posición desaparece al teclear: no sirve como
+                  // nombre accesible del campo.
+                  aria-label="Buscar en el catálogo de productos"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Buscar producto..."
@@ -1007,30 +999,48 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                   ))}
                 </select>
                 {(search || filtroCategoria || filtroSubcategoria) && (
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
                     onClick={() => { setSearch(""); setFiltroCategoria(""); setFiltroSubcategoria(""); }}
-                    style={{ padding: "10px 14px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: "var(--card)", color: "var(--muted-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer", whiteSpace: "nowrap" }}
                   >
                     Limpiar
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
+                  className="ms-auto"
                   onClick={exportarProductosExcel}
                   disabled={!productos.length}
                   title="Exportar todos los productos a Excel"
-                  style={{ marginLeft: "auto", padding: "10px 14px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: productos.length ? "var(--success-subtle)" : "var(--muted)", color: "var(--success-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: productos.length ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}
                 >
-                  ⬇ Exportar a Excel
-                </button>
+                  Exportar a Excel
+                </Button>
               </div>
               <div style={{ marginBottom: 10, fontSize: 13, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
                 {productosFiltrados.length} {productosFiltrados.length === 1 ? "producto" : "productos"}
               </div>
 
+              {/*
+               * CAUSA RAÍZ DEL DEFECTO DE SOLAPE.
+               *
+               * La tabla era `width: 100%` + `table-layout: fixed` con anchos
+               * en PORCENTAJE, así que nunca superaba el ancho del contenedor
+               * y este `overflow-x: auto` no llegaba a activarse jamás. A 375 px
+               * las columnas se comprimían a 16-24 px, pero los botones
+               * «Editar»/«Eliminar» tienen un ancho mínimo intrínseco mayor y
+               * `overflow: visible`: se salían de su celda y se pintaban ENCIMA
+               * de la contigua.
+               *
+               * Con un `min-width` la tabla sí puede exceder al contenedor y el
+               * scroll horizontal entra en funcionamiento, que es el
+               * comportamiento correcto para una tabla densa en móvil. No es un
+               * número por pantalla: es el ancho mínimo con el que las ocho
+               * columnas siguen siendo legibles, y vale para todos los anchos.
+               */}
               <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-md)" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", wordBreak: "break-word" }}>
+                <table style={{ width: "100%", minWidth: 760, borderCollapse: "collapse", tableLayout: "fixed", wordBreak: "break-word" }}>
                   <colgroup>
                     <col style={{ width: "18%" }} />
                     <col style={{ width: "15%" }} />
@@ -1125,8 +1135,8 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                                 </td>
                                 <td style={{ padding: 6, textAlign: "center" }}>
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
-                                    <button onClick={saveEdit} disabled={saving} style={{ padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--success-subtle)", color: "var(--success-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer" }}>Guardar</button>
-                                    <button onClick={cancelEdit} disabled={saving} style={{ padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--card)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer" }}>Cancelar</button>
+                                    <Button type="button" size="sm" variant="primary" onClick={saveEdit} disabled={saving}>Guardar</Button>
+                                    <Button type="button" size="sm" variant="secondary" onClick={cancelEdit} disabled={saving}>Cancelar</Button>
                                   </div>
                                 </td>
                               </>
@@ -1147,8 +1157,8 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                                 </td>
                                 <td style={{ padding: 10, textAlign: "center" }}>
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
-                                    <button onClick={() => startEdit(p)} disabled={saving} style={{ padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--info-subtle)", color: "var(--info-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer" }}>Editar</button>
-                                    <button onClick={() => removeProduct(p)} disabled={saving} style={{ padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--danger-subtle)", color: "var(--danger-subtle-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer" }}>Eliminar</button>
+                                    <Button type="button" size="sm" variant="secondary" onClick={() => startEdit(p)} disabled={saving}>Editar</Button>
+                                    <Button type="button" size="sm" variant="destructive" onClick={() => removeProduct(p)} disabled={saving}>Eliminar</Button>
                                   </div>
                                 </td>
                               </>
@@ -1161,9 +1171,10 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                 </table>
               </div>
             </div>
-          )}
+        </TabsContent>
 
-          {tab === "nuevo" && (() => {
+        <TabsContent value="nuevo">
+          {(() => {
             const categoriasExistentes = [
               ...new Set(
                 (Array.isArray(productos) ? productos : [])
@@ -1269,15 +1280,16 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
               </label>
 
               <div style={{ gridColumn: "span 2", display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
-                <button onClick={submitNuevo} disabled={saving} style={{ padding: "12px 18px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: "var(--primary)", color: "var(--primary-foreground)", fontWeight: "var(--font-weight-semibold)", cursor: "pointer", opacity: saving ? 0.75 : 1 }}>
+                <Button type="button" variant="primary" onClick={submitNuevo} disabled={saving}>
                   {saving ? "Creando..." : "Crear producto"}
-                </button>
+                </Button>
               </div>
             </div>
             );
           })()}
+        </TabsContent>
 
-          {tab === "importar" && (
+        <TabsContent value="importar">
             <div>
               <div style={{ padding: 14, borderRadius: "var(--radius-md)", background: "var(--muted)", border: "1px solid var(--border)", marginBottom: 14 }}>
                 <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", marginBottom: 6 }}>Formato del archivo</div>
@@ -1338,11 +1350,10 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                 </div>
               ) : null}
             </div>
-          )}
-        </div>
+        </TabsContent>
 
-      {dialogoConfirmacion}
-      </div>
+        {dialogoConfirmacion}
+      </Tabs>
       </DialogContent>
     </Dialog>
   );

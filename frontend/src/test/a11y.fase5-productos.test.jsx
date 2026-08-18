@@ -151,7 +151,7 @@ describe("a11y · Productos", () => {
     render(<Productos />);
     await screen.findByText("Dracaena draco");
     const dlg = await abrirGestion(user);
-    await user.click(within(dlg).getByRole("button", { name: /nuevo producto/i }));
+    await user.click(within(dlg).getByRole("tab", { name: /nuevo producto/i }));
     sinViolaciones(await analizar(document.body));
   });
 
@@ -160,7 +160,7 @@ describe("a11y · Productos", () => {
     render(<Productos />);
     await screen.findByText("Dracaena draco");
     const dlg = await abrirGestion(user);
-    await user.click(within(dlg).getByRole("button", { name: /importar/i }));
+    await user.click(within(dlg).getByRole("tab", { name: /importar/i }));
     sinViolaciones(await analizar(document.body));
   });
 
