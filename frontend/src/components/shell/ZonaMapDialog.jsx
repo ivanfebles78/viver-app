@@ -3,10 +3,13 @@ import React, { useEffect, useMemo, useState } from "react";
 import { getZonaItems, marcarZonaInterna } from "../../api/api";
 import { Button, Dialog, DialogContent, Skeleton } from "../../ui";
 import mapaVivero from "../../assets/mapa-vivero.png";
+import "../vivero/MapaVivero.css";
 import zonasDefault from "../vivero/zonasConfig";
 import ZoneEditor from "../vivero/ZoneEditor";
 import { loadZonasFromServer, saveZonasToServer } from "../vivero/zonesStorage";
 import { formatCantidad } from "../../utils/numero";
+import { Alert } from "../ui/feedback";
+import { MAP_HEIGHT, MAP_WIDTH, resolveZoneApiId } from "../vivero/zonas.logic";
 
 /**
  * MAPA DEL VIVERO — consulta de inventario por zona.
@@ -24,8 +27,6 @@ import { formatCantidad } from "../../utils/numero";
 
 // Flip to true to re-enable the in-app zone editor (button + drag UI).
 const ENABLE_ZONE_EDITOR = true;
-const MAP_WIDTH = 2048;
-const MAP_HEIGHT = 1365;
 
 /*
  * NOTA: aquí vivía getZoneAliases(), que en main estaba definida y no se
@@ -111,7 +112,9 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
       setEditMode(false);
     } catch (err) {
       console.error("Error guardando zonas en servidor:", err);
-      window.alert(
+      // Antes era un `window.alert`: bloqueaba el hilo y no dejaba rastro, así
+      // que al aceptarlo el usuario no sabía si sus cambios seguían ahí.
+      setZonaError(
         "No se pudo guardar la configuración de zonas en el servidor. " +
           "Revisa la conexión y vuelve a intentarlo."
       );
@@ -124,54 +127,11 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
     zonePolygons.find((z) => String(z.id) === String(selectedZone))?.nombre ||
     (selectedZone ? `Zona ${String(selectedZone).toUpperCase()}` : "Selecciona una zona");
 
-  // Resuelve el identificador a consultar contra el backend. La config de zonas
-  // del servidor puede tener ids/apiIds corruptos (p. ej. "zona-3" para la celda
-  // 3b), así que mapeamos la zona contra la config canónica (zonasConfig) y
-  // usamos su apiId real. Así "Zona 3 B" consulta "3b".
-  //
-  // Estrategia, de más fiable a menos:
-  //  1) Por GEOMETRÍA: los puntos del polígono dibujado sobre la celda son
-  //     idénticos a los de la config canónica (la celda está en su sitio),
-  //     así que casan aunque el id/nombre estén corruptos.
-  //  2) Por nombre canónico.
-  //  3) Por id / apiId (tolerante al prefijo "zona", como hace el backend).
-  //  4) Fallback: quitamos el prefijo "zona-" del apiId o del id.
-  const resolveZoneApiId = (zone) => {
-    // Normalización base (sin tildes, sin separadores).
-    const norm = (s) =>
-      String(s || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[̀-ͯ]/g, "")
-        .replace(/[^a-z0-9]/g, "");
-    // Igual que _normalize_zona_id del backend: quita el prefijo "zona".
-    const normZona = (s) => {
-      let r = norm(s);
-      if (r.startsWith("zonazona")) r = r.slice(8);
-      if (r.startsWith("zona")) r = r.slice(4);
-      return r;
-    };
-    const normPuntos = (s) => String(s || "").replace(/\s+/g, " ").trim();
-
-    // 1) Por geometría.
-    if (zone?.puntos) {
-      const porPuntos = zonasDefault.find((c) => normPuntos(c.puntos) === normPuntos(zone.puntos));
-      if (porPuntos?.apiId) return porPuntos.apiId;
-    }
-    // 2) Por nombre canónico.
-    const porNombre = zonasDefault.find((c) => normZona(c.nombre) === normZona(zone?.nombre));
-    if (porNombre?.apiId) return porNombre.apiId;
-    // 3) Por id / apiId canónico.
-    const porId = zonasDefault.find(
-      (c) =>
-        normZona(c.id) === normZona(zone?.id) ||
-        (zone?.apiId && normZona(c.apiId) === normZona(zone?.apiId)) ||
-        normZona(c.apiId) === normZona(zone?.id)
-    );
-    if (porId?.apiId) return porId.apiId;
-    // 4) Fallback: quita el prefijo "zona-" del apiId o del id.
-    return String(zone?.apiId || zone?.id || "").replace(/^zona[-_]?/i, "");
-  };
+  /*
+   * La resolución del identificador de zona vive en `zonas.logic.js`, fijada
+   * por equivalencia contra esta misma implementación: cuatro vías, de más
+   * fiable a menos, empezando por la geometría. El ORDEN es el contrato.
+   */
 
   const loadZone = async (zone) => {
     setSelectedZone(zone?.id);
@@ -270,54 +230,67 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
               </div>
             )}
 
-          <div
-            style={{
-              position: "relative",
-              width: "100%",
-              aspectRatio: `${MAP_WIDTH} / ${MAP_HEIGHT}`,
-              borderRadius: 18,
-              overflow: "hidden",
-              border: "1px solid rgba(15,23,42,0.06)",
-              background: "#f8fafc",
-            }}
+          {/*
+            DEFECTOS CORREGIDOS EN EL PLANO:
+              · Los polígonos eran `<polygon onClick>` sin `tabIndex`, sin rol y
+                sin manejador de teclado: el mapa era inalcanzable sin ratón.
+              · No tenían `<title>` ni etiqueta, así que tampoco tenían nombre
+                accesible: un lector de pantalla no podía nombrar ninguna zona.
+              · El relleno era transparente salvo la seleccionada, y la
+                selección se comunicaba SÓLO con color.
+
+            Ahora cada zona lleva su color de datos —igual que en el mapa de la
+            página del vivero, para que los dos planos se lean igual—, es
+            enfocable, tiene nombre, y la selección va además por `aria-pressed`
+            y por un trazo notablemente más grueso.
+          */}
+          <div className="relative overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--muted)]"
+            style={{ aspectRatio: `${MAP_WIDTH} / ${MAP_HEIGHT}` }}
           >
+            {/*
+              `alt=""` deliberado: el nombre lo da el `role="group"` del SVG que
+              va justo encima («Plano del vivero: elige una zona…»), y cada zona
+              es un botón con su propia etiqueta. Poner también un alt aquí haría
+              que el lector anunciara el plano dos veces seguidas.
+            */}
             <img
               src={mapaVivero}
-              alt="Mapa del vivero"
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                objectFit: "contain",
-              }}
+              alt=""
+              className="absolute inset-0 h-full w-full object-contain"
             />
 
             <svg
               viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
               preserveAspectRatio="xMidYMid meet"
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-              }}
+              className="absolute inset-0 h-full w-full"
+              role="group"
+              aria-label="Plano del vivero: elige una zona para ver su inventario"
             >
-              {zonePolygons.map((z) => (
-                <g key={z.id}>
+              {zonePolygons.map((z) => {
+                const activa = selectedZone === z.id;
+                const nombre = z.nombre || `Zona ${z.apiId || z.id}`;
+                return (
                   <polygon
+                    key={z.id}
                     points={z.puntos}
+                    className={`zona-clickable${activa ? " zona-editing" : ""}`}
+                    style={{ "--zona-color": z.color }}
+                    tabIndex={0}
+                    role="button"
+                    aria-pressed={activa}
+                    aria-label={`Consultar inventario de ${nombre}`}
                     onClick={() => loadZone(z)}
-                    style={{
-                      fill: selectedZone === z.id ? "rgba(6,182,212,0.25)" : "rgba(0,0,0,0)",
-                      stroke: selectedZone === z.id ? "#06b6d4" : "rgba(255,255,255,0)",
-                      strokeWidth: 4,
-                      cursor: "pointer",
-                      transition: "all 0.2s",
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        loadZone(z);
+                      }
                     }}
-                  />
-                </g>
-              ))}
+                  >
+                    <title>{nombre}</title>
+                  </polygon>
+                );
+              })}
             </svg>
           </div>
         </div>
