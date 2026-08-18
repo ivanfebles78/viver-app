@@ -1,30 +1,40 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { getPedidos, aprobarPedido, denegarPedido, decidirPedido, descargarPedidoPdf } from "../api/api";
-import { rolEfectivo } from "../utils/roles";
-import { formatUsername } from "../utils/format";
-import { formatCantidad } from "../utils/numero";
 
-// Per-item state pill colour map.  Mirrors the global `badge()` helper
-// but tuned for the smaller inline pills inside the items table.
-const itemBadge = (estadoItem) => {
-  const e = String(estadoItem || "RESERVA").toUpperCase();
-  const base = {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "3px 8px",
-    borderRadius: 999,
-    fontWeight: 900,
-    fontSize: 11,
-    letterSpacing: ".02em",
-    border: "1px solid rgba(15,23,42,0.08)",
-  };
-  if (e === "APROBADO") return { ...base, background: "rgba(16,185,129,0.14)", color: "#065f46", borderColor: "rgba(16,185,129,0.30)" };
-  if (e === "DENEGADO") return { ...base, background: "rgba(239,68,68,0.12)",  color: "#991b1b", borderColor: "rgba(239,68,68,0.30)" };
-  // RESERVA — neutral amber
-  return { ...base, background: "rgba(245,158,11,0.12)", color: "#92400e", borderColor: "rgba(245,158,11,0.30)" };
-};
-const itemEstado = (it) => String(it?.estado_item || "RESERVA").toUpperCase();
+import { aprobarPedido, decidirPedido, denegarPedido, descargarPedidoPdf, getPedidos } from "../api/api";
+import { formatCantidad } from "../utils/numero";
+import { Button, Dialog, DialogContent, StatusBadge } from "../ui";
+import { Alert } from "../components/ui/feedback";
+import { useConfirm } from "../components/ui/ConfirmDialog";
+import { estadoPedido } from "../app/estado";
+import {
+  agruparPorDestino,
+  construirPayloadDecisiones,
+  destinoDePedido,
+  estadoLabel,
+  filtrarPedidos,
+  fmtFechaES,
+  itemEstado,
+  mensajeConAvisos,
+  progresoDecision,
+  puedeAtajoDeFila,
+  puedeDecidir,
+  puedeVerPdf,
+  resumenDecisiones,
+  safeArray,
+  solicitanteFromPedido,
+  tieneVariosDestinos,
+} from "./aprobaciones.logic";
+
+/*
+ * Aprobaciones — decisión sobre los pedidos del vivero.
+ *
+ * Toda la lógica de negocio vive en `aprobaciones.logic.js` y está fijada por
+ * `aprobaciones.equivalence.test.js` contra una copia literal de main. Este
+ * fichero es SOLO presentación.
+ *
+ * Comportamiento documentado en `docs/aprobaciones-behaviour.md`.
+ */
 
 const ESTADO_FILTERS = [
   { value: "TODOS", label: "Todos" },
@@ -38,173 +48,52 @@ const ESTADO_FILTERS = [
   { value: "CADUCADO", label: "Caducado" },
 ];
 
-// States where a manager can still take row/item-level actions because at
-// least one item is still in RESERVA.  Mirrors backend DECIDABLE_STATES.
-const DECIDABLE_FRONTEND = new Set(["RESERVA", "APROBADO_PARCIAL"]);
-
-const safeArray = (x) => (Array.isArray(x) ? x : []);
-
-const fmtFechaES = (value) => {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("es-ES", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(d);
+/*
+ * El estado de LÍNEA solo admite tres valores; se traduce al vocabulario del
+ * sistema de diseño para no inventar una segunda paleta. `pending` es el ámbar
+ * de «falta decidir», que es exactamente lo que significa RESERVA en una línea.
+ */
+const ESTADO_ITEM_STATUS = {
+  APROBADO: "approved",
+  SERVIDO: "completed",
+  DENEGADO: "rejected",
+  RESERVA: "pending",
 };
 
-const dateInputValue = (value) => {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+const ESTADO_ITEM_LABEL = {
+  APROBADO: "Aprobado",
+  SERVIDO: "Servido",
+  DENEGADO: "Denegado",
+  RESERVA: "Pendiente",
 };
 
-const estadoNormalizado = (estado) => String(estado || "").trim().toUpperCase();
-
-const badge = (estado) => {
-  const e = estadoNormalizado(estado);
-  const base = {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "6px 10px",
-    borderRadius: 999,
-    fontWeight: 900,
-    fontSize: 12,
-    border: "1px solid rgba(15,23,42,0.08)",
-    minWidth: 108,
-  };
-
-  if (e === "APROBADO") return { ...base, background: "rgba(16,185,129,0.12)", color: "#065f46" };
-  if (e === "APROBADO_PARCIAL") return { ...base, background: "rgba(20,184,166,0.14)", color: "#115e59", borderColor: "rgba(20,184,166,0.28)" };
-  if (e === "DENEGADO") return { ...base, background: "rgba(239,68,68,0.10)", color: "#991b1b" };
-  if (e === "SERVIDO") return { ...base, background: "rgba(59,130,246,0.10)", color: "#1e3a8a" };
-  if (e === "CANCELADO") return { ...base, background: "rgba(148,163,184,0.20)", color: "#334155" };
-  if (e === "CADUCADO") return { ...base, background: "rgba(100,116,139,0.18)", color: "#475569" };
-  return { ...base, background: "rgba(245,158,11,0.12)", color: "#92400e" };
-};
-
-// Pretty label for the badge — APROBADO_PARCIAL is otherwise unreadable.
-const estadoLabel = (estado) => {
-  const e = estadoNormalizado(estado);
-  if (e === "APROBADO_PARCIAL") return "APROBADO PARCIAL";
-  return e || "—";
-};
-
-function thStyle() {
-  return {
-    textAlign: "left",
-    padding: "12px 12px",
-    color: "#334155",
-    fontWeight: 900,
-    fontSize: 13,
-    borderBottom: "1px solid rgba(15,23,42,0.10)",
-  };
+/** Reposición y salida son TIPOS, no estados: por eso van en un `Badge` neutro. */
+function TipoPedido({ tipo }) {
+  const esReposicion = tipo === "reposicion";
+  return (
+    <span className="inline-flex items-center rounded-[var(--radius-full)] border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-caption font-[var(--font-weight-medium)] text-muted-foreground">
+      {esReposicion ? "Reposición" : "Salida"}
+    </span>
+  );
 }
 
-function tdStyle() {
-  return {
-    padding: "14px 12px",
-    verticalAlign: "top",
-    color: "#0f172a",
-    fontWeight: 700,
-  };
+function EstadoPedidoBadge({ estado }) {
+  const def = estadoPedido(estado);
+  return <StatusBadge status={def.status} label={estadoLabel(estado)} />;
 }
 
-function filterControlStyle() {
-  return {
-    width: "100%",
-    height: 48,
-    minHeight: 48,
-    maxHeight: 48,
-    padding: "0 14px",
-    borderRadius: 14,
-    border: "2px solid #334155",
-    background: "#f8fafc",
-    fontWeight: 700,
-    fontSize: 14,
-    lineHeight: "48px",
-    color: "#0f172a",
-    boxSizing: "border-box",
-    outline: "none",
-    margin: 0,
-    display: "block",
-  };
-}
-
-function filterSelectStyle() {
-  return {
-    ...filterControlStyle(),
-    appearance: "none",
-    WebkitAppearance: "none",
-    MozAppearance: "none",
-    lineHeight: "normal",
-    backgroundImage:
-      "linear-gradient(45deg, transparent 50%, #334155 50%), linear-gradient(135deg, #334155 50%, transparent 50%)",
-    backgroundPosition:
-      "calc(100% - 18px) calc(50% - 3px), calc(100% - 12px) calc(50% - 3px)",
-    backgroundSize: "6px 6px, 6px 6px",
-    backgroundRepeat: "no-repeat",
-    paddingRight: 34,
-  };
-}
-
-function filterFieldStyle() {
-  return {
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "flex-start",
-    alignSelf: "start",
-    minWidth: 0,
-  };
-}
-
-function filterLabelStyle() {
-  return {
-    fontSize: 12,
-    fontWeight: 900,
-    color: "#64748b",
-    marginBottom: 6,
-    lineHeight: "16px",
-    minHeight: 16,
-    textTransform: "uppercase",
-    letterSpacing: 0.2,
-  };
-}
-
-// Colores intensos y distintos por destino, para diferenciarlos bien.
-const DESTINO_COLORS = [
-  { bg: "#1e3a8a", fg: "#ffffff" }, // azul
-  { bg: "#065f46", fg: "#ffffff" }, // verde
-  { bg: "#9a3412", fg: "#ffffff" }, // naranja oscuro
-  { bg: "#6b21a8", fg: "#ffffff" }, // morado
-  { bg: "#155e75", fg: "#ffffff" }, // cyan oscuro
-  { bg: "#9f1239", fg: "#ffffff" }, // rojo/rosa
-  { bg: "#3f6212", fg: "#ffffff" }, // oliva
-  { bg: "#854d0e", fg: "#ffffff" }, // ámbar oscuro
-  { bg: "#5b21b6", fg: "#ffffff" }, // violeta
-  { bg: "#0f766e", fg: "#ffffff" }, // teal
-];
-const destinoColorAt = (i) => DESTINO_COLORS[((i % DESTINO_COLORS.length) + DESTINO_COLORS.length) % DESTINO_COLORS.length];
+/* ── Modal de detalle ──────────────────────────────────────────────────── */
 
 function DetallePedidoModal({ pedido, onClose, canApprove = false, onPedidoUpdated, onMessage }) {
-  // Pending decisions: { [item.id]: "aprobar" | "denegar" }.  Lives only
-  // in the modal — nothing hits the DB until the manager presses
-  // "Confirmar decisiones".  Closing the modal discards them.
+  // Las decisiones viven SOLO aquí: nada llega al backend hasta «Confirmar».
+  // Cerrar el modal las descarta, que es el comportamiento de main.
   const [pendingDecisions, setPendingDecisions] = useState({});
   const [motivo, setMotivo] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  // Destinos colapsados (por texto de destino) para poder plegar/desplegar.
   const [colapsados, setColapsados] = useState({});
+
   const toggleColapsado = (dst) => setColapsados((p) => ({ ...p, [dst]: !p[dst] }));
 
-  // Reset local state whenever a different pedido is opened.
   useEffect(() => {
     setPendingDecisions({});
     setMotivo("");
@@ -212,7 +101,7 @@ function DetallePedidoModal({ pedido, onClose, canApprove = false, onPedidoUpdat
 
   if (!pedido) return null;
 
-  const fmtFecha = (v) => {
+  const fmtFechaHora = (v) => {
     if (!v) return "—";
     const d = new Date(v);
     if (Number.isNaN(d.getTime())) return "—";
@@ -220,65 +109,29 @@ function DetallePedidoModal({ pedido, onClose, canApprove = false, onPedidoUpdat
   };
 
   const items = safeArray(pedido.items);
-  const hasApproved = items.some((it) => {
-    const st = itemEstado(it);
-    return st === "APROBADO" || st === "SERVIDO";
-  });
-  // Show the PDF button in any decided state — APROBADO, APROBADO_PARCIAL,
-  // SERVIDO and DENEGADO.  Even fully-denied pedidos have audit value
-  // (motivo de denegación + line detail).  Blocked only for pristine
-  // RESERVA / pedidos with no decision recorded yet.
-  const estadoNormPedido = String(pedido.estado || "RESERVA").toUpperCase();
-  const canShowPdf =
-    estadoNormPedido === "APROBADO" ||
-    estadoNormPedido === "APROBADO_PARCIAL" ||
-    estadoNormPedido === "SERVIDO" ||
-    estadoNormPedido === "DENEGADO" ||
-    hasApproved;
+  const { pendingCount, decidedLocalCount, allDecided, anyDenied } = progresoDecision(pedido, pendingDecisions);
+  const canShowPdf = puedeVerPdf(pedido);
+  const variosDestinos = tieneVariosDestinos(pedido);
+  const gruposDestino = agruparPorDestino(pedido);
+  const destino = destinoDePedido(pedido);
+  const destinosUnicos = gruposDestino.length;
+  const solicitante = solicitanteFromPedido(pedido);
 
-  // Items still in RESERVA — these are the ones the manager must decide on.
-  const reservaItems     = items.filter((it) => itemEstado(it) === "RESERVA");
-  const pendingCount     = reservaItems.length;
-  const decidedLocalCount = reservaItems.filter((it) => pendingDecisions[it.id]).length;
-  const allDecided       = pendingCount > 0 && decidedLocalCount === pendingCount;
-  const anyDenied        = reservaItems.some((it) => pendingDecisions[it.id] === "denegar");
-
-  const setDecision = (itemId, decision) => {
+  const setDecision = (itemId, decision) =>
     setPendingDecisions((prev) => ({ ...prev, [itemId]: decision }));
-  };
 
   const submitDecisions = async () => {
     if (!allDecided || submitting) return;
-    const approved_item_ids = [];
-    const denied_item_ids   = [];
-    for (const it of reservaItems) {
-      if (pendingDecisions[it.id] === "aprobar") approved_item_ids.push(it.id);
-      else if (pendingDecisions[it.id] === "denegar") denied_item_ids.push(it.id);
-    }
+    const payload = construirPayloadDecisiones(pedido, pendingDecisions, motivo);
     setSubmitting(true);
     try {
-      const updated = await decidirPedido(pedido.id, {
-        approved_item_ids,
-        denied_item_ids,
-        motivo_denegacion: denied_item_ids.length ? (motivo.trim() || null) : null,
-      });
+      const updated = await decidirPedido(pedido.id, payload);
       if (onPedidoUpdated) onPedidoUpdated(updated);
-      if (onMessage) {
-        const parts = [];
-        if (approved_item_ids.length) parts.push(`${approved_item_ids.length} aprobado(s)`);
-        if (denied_item_ids.length)   parts.push(`${denied_item_ids.length} denegado(s)`);
-        // Surface any email-delivery warnings returned by the backend
-        // (e.g. solicitante / técnico / proveedor without email).
-        const warns = Array.isArray(updated?.email_warnings) ? updated.email_warnings : [];
-        const base = `Pedido #${pedido.id}: ${parts.join(" · ")}.`;
-        onMessage(warns.length ? `${base} Aviso: ${warns.join(" · ")}` : base);
-      }
+      if (onMessage) onMessage(mensajeConAvisos(resumenDecisiones(pedido.id, payload), updated));
       setPendingDecisions({});
       setMotivo("");
     } catch (e) {
-      if (onMessage) {
-        onMessage(e?.response?.data?.detail || e?.message || "Error aplicando las decisiones");
-      }
+      if (onMessage) onMessage(e?.response?.data?.detail || e?.message || "Error aplicando las decisiones");
     } finally {
       setSubmitting(false);
     }
@@ -288,470 +141,265 @@ function DetallePedidoModal({ pedido, onClose, canApprove = false, onPedidoUpdat
     try {
       await descargarPedidoPdf(pedido.id);
     } catch (e) {
-      if (onMessage) {
-        onMessage(e?.response?.data?.detail || e?.message || "Error descargando el PDF");
-      }
+      if (onMessage) onMessage(e?.response?.data?.detail || e?.message || "Error descargando el PDF");
     }
   };
-  const solicitante =
-    formatUsername(
-      pedido?.solicitante_username || pedido?.solicitante || pedido?.created_by || pedido?.usuario || ""
-    ) || "—";
 
-  const destinoDeItem = (it) =>
-    [it?.distrito_destino, it?.barrio_destino, it?.direccion_destino].filter(Boolean).join(" · ");
-
-  const destino =
-    pedido?.tipo === "reposicion"
-      ? "Vivero"
-      : [pedido?.distrito_destino, pedido?.barrio_destino, pedido?.direccion_destino]
-          .filter(Boolean)
-          .join(" · ") || "—";
-
-  // ¿El pedido reparte material en varios destinos distintos?
-  const destinosUnicos = Array.from(
-    new Set(items.map(destinoDeItem).filter(Boolean))
-  );
-  const variosDestinos = pedido?.tipo !== "reposicion" && destinosUnicos.length > 1;
-
-  // Agrupa las líneas por destino (en orden de aparición) para mostrarlas
-  // agrupadas visualmente, manteniendo la decisión por línea.
-  const gruposDestino = (() => {
-    const order = [];
-    const map = new Map();
-    for (const it of items) {
-      const dst = destinoDeItem(it) || destino;
-      if (!map.has(dst)) {
-        map.set(dst, []);
-        order.push(dst);
-      }
-      map.get(dst).push(it);
-    }
-    return order.map((dst) => ({ destino: dst, items: map.get(dst) }));
-  })();
+  const motivoId = "aprobaciones-motivo-denegacion";
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(2,6,23,0.55)",
-        zIndex: 1400,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-      }}
-    >
-      <div
-        style={{
-          width: "min(880px, 96vw)",
-          maxHeight: "90vh",
-          overflow: "hidden",
-          background: "white",
-          borderRadius: 24,
-          boxShadow: "0 30px 80px rgba(2,6,23,0.35)",
-          display: "grid",
-          gridTemplateRows: "auto 1fr auto",
-        }}
+    <Dialog open onOpenChange={(abierto) => !abierto && onClose()}>
+      <DialogContent
+        title={`Detalle del pedido #${pedido.id}`}
+        description="Líneas del pedido y decisión de aprobación."
+        closeLabel="Cerrar"
+        size="lg"
+        className="max-w-[min(1100px,96vw)]"
       >
-        <div style={{ padding: "20px 22px", borderBottom: "1px solid rgba(15,23,42,0.08)", display: "flex", justifyContent: "space-between", alignItems: "start", gap: 14 }}>
-          <div>
-            <div style={{ fontSize: 26, fontWeight: 900, color: "#0f172a" }}>
-              Detalle del pedido #{pedido.id}
-            </div>
-            <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
-              <span
-                style={{
-                  display: "inline-flex",
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  fontSize: 12,
-                  fontWeight: 900,
-                  background: pedido.tipo === "reposicion" ? "rgba(245,158,11,0.12)" : "rgba(59,130,246,0.10)",
-                  color: pedido.tipo === "reposicion" ? "#92400e" : "#1e3a8a",
-                  border: "1px solid rgba(15,23,42,0.08)",
-                  marginRight: 8,
-                }}
-              >
-                {pedido.tipo === "reposicion" ? "Reposición" : "Salida"}
-              </span>
-              <span style={badge(pedido.estado)}>{estadoLabel(pedido.estado)}</span>
-            </div>
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <TipoPedido tipo={pedido.tipo} />
+            <EstadoPedidoBadge estado={pedido.estado} />
           </div>
 
-          <button
-            onClick={onClose}
-            style={{
-              padding: "10px 16px",
-              borderRadius: 14,
-              fontWeight: 900,
-              cursor: "pointer",
-              background: "#f59e0b",
-              color: "#111827",
-              border: "2px solid #000",
-              boxShadow: "0 8px 18px rgba(0,0,0,0.18)",
-            }}
+          {/* Ficha de cabecera. `auto-fit` para que a 320 px se apile sola. */}
+          <dl
+            className="grid gap-3"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))" }}
           >
-            Cerrar
-          </button>
-        </div>
+            <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--muted)] p-3">
+              <dt className="text-caption uppercase text-muted-foreground">Fecha creación</dt>
+              <dd className="mt-1 break-words [overflow-wrap:anywhere] font-[var(--font-weight-medium)]">{fmtFechaHora(pedido.created_at)}</dd>
+            </div>
+            <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--muted)] p-3">
+              <dt className="text-caption uppercase text-muted-foreground">Solicitante</dt>
+              <dd className="mt-1 break-words [overflow-wrap:anywhere] font-[var(--font-weight-medium)]">{solicitante}</dd>
+            </div>
+            <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--muted)] p-3 sm:col-span-full">
+              <dt className="text-caption uppercase text-muted-foreground">Destino</dt>
+              <dd className="mt-1 break-words [overflow-wrap:anywhere] font-[var(--font-weight-medium)]">
+                {variosDestinos ? `${destinosUnicos} destinos (productos agrupados abajo)` : destino}
+              </dd>
+            </div>
+          </dl>
 
-        <div style={{ padding: "16px 22px", overflow: "auto" }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, 1fr)",
-              gap: 12,
-              marginBottom: 16,
-            }}
-          >
-            <div style={{ padding: 12, borderRadius: 12, background: "#f8fafc", border: "1px solid rgba(15,23,42,0.06)" }}>
-              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>Fecha creación</div>
-              <div style={{ marginTop: 4, fontWeight: 900, color: "#0f172a" }}>{fmtFecha(pedido.created_at)}</div>
-            </div>
-            <div style={{ padding: 12, borderRadius: 12, background: "#f8fafc", border: "1px solid rgba(15,23,42,0.06)" }}>
-              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>Solicitante</div>
-              <div style={{ marginTop: 4, fontWeight: 900, color: "#0f172a" }}>{solicitante}</div>
-            </div>
-            <div style={{ gridColumn: "span 2", padding: 12, borderRadius: 12, background: "#f8fafc", border: "1px solid rgba(15,23,42,0.06)" }}>
-              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, textTransform: "uppercase" }}>Destino</div>
-              <div style={{ marginTop: 4, fontWeight: 900, color: "#0f172a" }}>
-                {variosDestinos ? `${destinosUnicos.length} destinos (productos agrupados abajo)` : destino}
-              </div>
-            </div>
-            {pedido.nota ? (
-              <div style={{ gridColumn: "span 2", padding: 12, borderRadius: 12, background: "#fffbeb", border: "1px solid rgba(245,158,11,0.25)" }}>
-                <div style={{ fontSize: 12, color: "#92400e", fontWeight: 900, textTransform: "uppercase" }}>Nota</div>
-                <div style={{ marginTop: 4, fontWeight: 700, color: "#0f172a" }}>{pedido.nota}</div>
-              </div>
-            ) : null}
-          </div>
+          {pedido.nota ? <Alert tone="info">{pedido.nota}</Alert> : null}
 
-          <div style={{ fontSize: 16, fontWeight: 900, color: "#0f172a", marginBottom: 8 }}>
+          <h3 className="text-body font-[var(--font-weight-semibold)]">
             Productos del pedido ({items.length})
-          </div>
+          </h3>
 
           {items.length === 0 ? (
-            <div style={{ color: "#64748b", fontWeight: 700 }}>Este pedido no tiene líneas.</div>
+            <p className="text-muted-foreground">Este pedido no tiene líneas.</p>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            /*
+             * `min-width` para que la tabla pueda EXCEDER al contenedor y el
+             * scroll horizontal se active de verdad. Sin él, las celdas se
+             * comprimen y los botones de decisión se salen de su columna: es
+             * exactamente el defecto que se corrigió en Productos.
+             */
+            <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border)]">
+              <table className="w-full border-collapse" style={{ minWidth: canApprove ? 780 : 620 }}>
+                <caption className="sr-only">
+                  Líneas del pedido, agrupadas por destino, con su estado y la decisión pendiente.
+                </caption>
                 <thead>
-                  <tr style={{ background: "#f8fafc" }}>
-                    <th style={thStyle()}>Producto</th>
-                    <th style={thStyle()}>Tamaño</th>
-                    <th style={thStyle()}>Cantidad</th>
-                    <th style={thStyle()}>Servido</th>
-                    <th style={thStyle()}>Pendiente</th>
-                    <th style={thStyle()}>Estado</th>
-                    {canApprove ? <th style={thStyle()}>Acción</th> : null}
+                  <tr className="bg-[var(--muted)]">
+                    <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Producto</th>
+                    <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Tamaño</th>
+                    <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Cantidad</th>
+                    <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Servido</th>
+                    <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Pendiente</th>
+                    <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Estado</th>
+                    {canApprove ? (
+                      <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Decisión</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
-                  {gruposDestino.map((grupo, gIdx) => {
-                  const col = destinoColorAt(gIdx);
-                  const colapsado = !!colapsados[grupo.destino];
-                  return (
-                  <React.Fragment key={grupo.destino}>
-                    <tr>
-                      <td
-                        colSpan={canApprove ? 7 : 6}
-                        onClick={() => toggleColapsado(grupo.destino)}
-                        style={{ background: col.bg, color: col.fg, padding: "10px 12px", fontWeight: 900, fontSize: 13, cursor: "pointer", borderTop: "3px solid rgba(0,0,0,0.12)" }}
-                      >
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 11 }}>{colapsado ? "▶" : "▼"}</span>
-                          📍 {grupo.destino}
-                          <span style={{ opacity: 0.85, fontWeight: 700 }}>({grupo.items.length})</span>
-                        </span>
-                      </td>
-                    </tr>
-                    {!colapsado && grupo.items.map((it, idx) => {
-                    const cantidad = Number(it.cantidad || 0);
-                    const servida = Number(it.cantidad_servida || 0);
-                    const pendiente = Math.max(cantidad - servida, 0);
-                    const estIt = itemEstado(it);
-                    const isReserva = estIt === "RESERVA";
-                    const rowMuted = !isReserva
-                      ? { background: estIt === "DENEGADO" ? "rgba(239,68,68,0.04)" : "rgba(16,185,129,0.04)", opacity: estIt === "DENEGADO" ? 0.7 : 1 }
-                      : null;
-                    const productoLabel =
-                      it.producto_nombre_cientifico ||
-                      it.producto_nombre ||
-                      it.producto_nombre_natural ||
-                      `Producto #${it.producto_id}`;
+                  {gruposDestino.map((grupo) => {
+                    const colapsado = !!colapsados[grupo.destino];
+                    const panelId = `destino-${grupo.destino.replace(/\W+/g, "-")}`;
                     return (
-                      <tr key={it.id || `${grupo.destino}-${idx}`} style={{ borderTop: "1px solid rgba(15,23,42,0.06)", ...rowMuted }}>
-                        <td style={{ ...tdStyle(), textDecoration: estIt === "DENEGADO" ? "line-through" : "none" }}>
-                          {productoLabel}
-                        </td>
-                        <td style={tdStyle()}>{it.tamano || "—"}</td>
-                        <td style={{ ...tdStyle(), fontWeight: 900 }}>{formatCantidad(cantidad) || "0"}</td>
-                        <td style={{ ...tdStyle(), color: "#065f46", fontWeight: 900 }}>{formatCantidad(servida) || "0"}</td>
-                        <td style={{ ...tdStyle(), color: pendiente > 0 ? "#92400e" : "#64748b", fontWeight: 900 }}>
-                          {formatCantidad(pendiente) || "0"}
-                        </td>
-                        <td style={tdStyle()}>
-                          <span style={itemBadge(estIt)}>
-                            {estIt === "APROBADO" ? "✓ Aprobado" : estIt === "DENEGADO" ? "✗ Denegado" : "⏳ Pendiente"}
-                          </span>
-                        </td>
-                        {canApprove ? (
-                          <td style={tdStyle()}>
-                            {isReserva ? (
-                              (() => {
-                                // Toggle pair: clicking a button marks the
-                                // pending decision locally; no API call yet.
-                                // The selected option is highlighted.
-                                const decision = pendingDecisions[it.id]; // undefined | "aprobar" | "denegar"
-                                const baseBtn = {
-                                  padding: "6px 10px",
-                                  borderRadius: 8,
-                                  fontWeight: 900,
-                                  fontSize: 12,
-                                  cursor: submitting ? "wait" : "pointer",
-                                  transition: "background .15s, border-color .15s, box-shadow .15s",
-                                };
-                                const aprobarStyle = {
-                                  ...baseBtn,
-                                  border: decision === "aprobar"
-                                    ? "1px solid #10b981"
-                                    : "1px solid rgba(16,185,129,0.30)",
-                                  background: decision === "aprobar"
-                                    ? "rgba(16,185,129,0.25)"
-                                    : "rgba(16,185,129,0.08)",
-                                  color: "#065f46",
-                                  boxShadow: decision === "aprobar"
-                                    ? "0 0 0 2px rgba(16,185,129,0.18)"
-                                    : "none",
-                                };
-                                const denegarStyle = {
-                                  ...baseBtn,
-                                  border: decision === "denegar"
-                                    ? "1px solid #ef4444"
-                                    : "1px solid rgba(239,68,68,0.25)",
-                                  background: decision === "denegar"
-                                    ? "rgba(239,68,68,0.20)"
-                                    : "rgba(239,68,68,0.06)",
-                                  color: "#991b1b",
-                                  boxShadow: decision === "denegar"
-                                    ? "0 0 0 2px rgba(239,68,68,0.18)"
-                                    : "none",
-                                };
-                                return (
-                                  <div style={{ display: "flex", gap: 6 }}>
-                                    <button
-                                      type="button"
-                                      disabled={submitting}
-                                      onClick={() => setDecision(it.id, "aprobar")}
-                                      style={aprobarStyle}
-                                      title="Marcar este item como aprobado (no se aplica hasta confirmar)"
-                                    >
-                                      {decision === "aprobar" ? "✓ Aprobar" : "Aprobar"}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={submitting}
-                                      onClick={() => setDecision(it.id, "denegar")}
-                                      style={denegarStyle}
-                                      title="Marcar este item como denegado (no se aplica hasta confirmar)"
-                                    >
-                                      {decision === "denegar" ? "✗ Denegar" : "Denegar"}
-                                    </button>
-                                  </div>
-                                );
-                              })()
-                            ) : (
-                              <span style={{ color: "#64748b", fontSize: 12, fontStyle: "italic" }}>—</span>
-                            )}
-                          </td>
-                        ) : null}
-                      </tr>
+                      <React.Fragment key={grupo.destino}>
+                        <tr>
+                          <th
+                            scope="colgroup"
+                            colSpan={canApprove ? 7 : 6}
+                            className="border-t border-[var(--border)] bg-[var(--muted)] p-0 text-left"
+                          >
+                            {/*
+                             * Antes era un `td` con `onClick`: no se podía
+                             * alcanzar con el teclado y no anunciaba si el
+                             * grupo estaba plegado. Ahora es un botón real con
+                             * `aria-expanded`.
+                             *
+                             * Cada destino se distinguía además con uno de diez
+                             * colores intensos codificados a mano. El nombre del
+                             * destino ya está escrito al lado: el color no
+                             * añadía información y era el único canal para quien
+                             * no lo percibe (SC 1.4.1).
+                             */}
+                            <button
+                              type="button"
+                              onClick={() => toggleColapsado(grupo.destino)}
+                              aria-expanded={!colapsado}
+                              aria-controls={panelId}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left font-[var(--font-weight-semibold)] outline-none focus-visible:outline-[length:var(--focus-ring-width)] focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-[-2px]"
+                            >
+                              <span aria-hidden="true">{colapsado ? "▶" : "▼"}</span>
+                              <span className="min-w-0 break-words">{grupo.destino}</span>
+                              <span className="text-muted-foreground">({grupo.items.length})</span>
+                            </button>
+                          </th>
+                        </tr>
+                        {!colapsado &&
+                          grupo.items.map((it, idx) => {
+                            const cantidad = Number(it.cantidad || 0);
+                            const servida = Number(it.cantidad_servida || 0);
+                            const pendiente = Math.max(cantidad - servida, 0);
+                            const estIt = itemEstado(it);
+                            const isReserva = estIt === "RESERVA";
+                            const decision = pendingDecisions[it.id];
+                            const productoLabel =
+                              it.producto_nombre_cientifico ||
+                              it.producto_nombre ||
+                              it.producto_nombre_natural ||
+                              `Producto #${it.producto_id}`;
+                            return (
+                              <tr
+                                key={it.id || `${grupo.destino}-${idx}`}
+                                id={panelId}
+                                className="border-t border-[var(--border)]"
+                              >
+                                <td className="p-3 align-top">
+                                  <span className={estIt === "DENEGADO" ? "line-through" : undefined}>
+                                    {productoLabel}
+                                  </span>
+                                </td>
+                                <td className="p-3 align-top">{it.tamano || "—"}</td>
+                                <td className="tabular p-3 align-top font-[var(--font-weight-medium)]">
+                                  {formatCantidad(cantidad) || "0"}
+                                </td>
+                                <td className="tabular p-3 align-top">{formatCantidad(servida) || "0"}</td>
+                                <td className="tabular p-3 align-top">{formatCantidad(pendiente) || "0"}</td>
+                                <td className="p-3 align-top">
+                                  <StatusBadge
+                                    status={ESTADO_ITEM_STATUS[estIt] || "draft"}
+                                    label={ESTADO_ITEM_LABEL[estIt] || estIt}
+                                  />
+                                </td>
+                                {canApprove ? (
+                                  <td className="p-3 align-top">
+                                    {isReserva ? (
+                                      /*
+                                       * `aria-pressed` es lo que faltaba: la
+                                       * decisión elegida se señalaba SOLO con
+                                       * color y sombra, así que con un lector de
+                                       * pantalla no había manera de saber qué se
+                                       * había marcado antes de confirmar.
+                                       */
+                                      <div className="flex flex-wrap gap-2">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant={decision === "aprobar" ? "primary" : "secondary"}
+                                          aria-pressed={decision === "aprobar"}
+                                          disabled={submitting}
+                                          onClick={() => setDecision(it.id, "aprobar")}
+                                          title="Marcar esta línea como aprobada (no se aplica hasta confirmar)"
+                                        >
+                                          Aprobar
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant={decision === "denegar" ? "destructive" : "secondary"}
+                                          aria-pressed={decision === "denegar"}
+                                          disabled={submitting}
+                                          onClick={() => setDecision(it.id, "denegar")}
+                                          title="Marcar esta línea como denegada (no se aplica hasta confirmar)"
+                                        >
+                                          Denegar
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <span className="text-muted-foreground">—</span>
+                                    )}
+                                  </td>
+                                ) : null}
+                              </tr>
+                            );
+                          })}
+                      </React.Fragment>
                     );
-                    })}
-                  </React.Fragment>
-                  );
                   })}
                 </tbody>
               </table>
             </div>
           )}
-        </div>
 
-        {/* Footer: two distinct modes.
-            (a) There are still RESERVA items AND the user can approve →
-                show the batch-decision UI: motivo input + Confirmar.
-            (b) Otherwise → show the PDF download (when applicable). */}
-        {canApprove && pendingCount > 0 ? (
-          <div
-            style={{
-              padding: "14px 22px",
-              borderTop: "1px solid rgba(15,23,42,0.08)",
-              background: "#f8fafc",
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 13,
-                color: allDecided ? "#065f46" : "#92400e",
-                fontWeight: 800,
-              }}
-            >
-              {allDecided
-                ? `Listo: ${decidedLocalCount} de ${pendingCount} items decididos. Pulsa "Confirmar decisiones" para aplicar.`
-                : `Decide TODOS los items antes de confirmar (${decidedLocalCount}/${pendingCount} hechos). No se puede dejar nada pendiente.`}
+          {/* Pie: o se decide, o se descarga el PDF. */}
+          {canApprove && pendingCount > 0 ? (
+            <div className="flex flex-col gap-3 border-t border-[var(--border)] pt-4">
+              {/* `role=status` para que el progreso se anuncie al ir decidiendo. */}
+              <p role="status" className="text-body-sm text-muted-foreground">
+                {allDecided
+                  ? `Listo: ${decidedLocalCount} de ${pendingCount} líneas decididas. Pulsa «Confirmar decisiones» para aplicar.`
+                  : `Decide TODAS las líneas antes de confirmar (${decidedLocalCount}/${pendingCount} hechas).`}
+              </p>
+
+              <div className="flex flex-wrap items-end gap-3">
+                {anyDenied ? (
+                  <div className="flex min-w-0 flex-1 flex-col gap-1" style={{ flexBasis: "min(260px, 100%)" }}>
+                    <label htmlFor={motivoId} className="text-caption text-muted-foreground">
+                      Motivo de denegación (opcional)
+                    </label>
+                    <input
+                      id={motivoId}
+                      type="text"
+                      value={motivo}
+                      onChange={(e) => setMotivo(e.target.value)}
+                      disabled={submitting}
+                      className="h-[var(--control-height-md)] w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] px-3 outline-none focus-visible:outline-[length:var(--focus-ring-width)] focus-visible:outline-solid focus-visible:outline-ring"
+                    />
+                  </div>
+                ) : null}
+
+                <Button type="button" variant="primary" disabled={!allDecided || submitting} onClick={submitDecisions}>
+                  {submitting ? "Aplicando…" : "Confirmar decisiones"}
+                </Button>
+
+                {canShowPdf ? (
+                  <Button type="button" variant="secondary" onClick={downloadPdf}>
+                    Descargar PDF
+                  </Button>
+                ) : null}
+              </div>
             </div>
-
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              {anyDenied ? (
-                <input
-                  type="text"
-                  value={motivo}
-                  onChange={(e) => setMotivo(e.target.value)}
-                  disabled={submitting}
-                  placeholder="Motivo de denegación (opcional)"
-                  style={{
-                    flex: 1,
-                    minWidth: 220,
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "1px solid rgba(15,23,42,0.12)",
-                    background: "white",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "#0f172a",
-                  }}
-                />
-              ) : (
-                <span style={{ flex: 1 }} />
-              )}
-
-              <button
-                type="button"
-                disabled={!allDecided || submitting}
-                onClick={submitDecisions}
-                style={{
-                  padding: "10px 18px",
-                  borderRadius: 12,
-                  border: "1px solid " + (allDecided ? "#0f766e" : "rgba(15,23,42,0.12)"),
-                  background: allDecided ? "#0f766e" : "rgba(148,163,184,0.30)",
-                  color: allDecided ? "white" : "#64748b",
-                  fontWeight: 900,
-                  cursor: !allDecided || submitting ? "not-allowed" : "pointer",
-                  fontSize: 13,
-                  letterSpacing: ".02em",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {submitting ? "Aplicando…" : "Confirmar decisiones"}
-              </button>
-
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+              <p className="text-body-sm text-muted-foreground">
+                {String(pedido.estado || "").toUpperCase() === "DENEGADO"
+                  ? "Pedido denegado. El PDF contiene el detalle y el motivo de denegación."
+                  : canShowPdf
+                    ? "Hay líneas aprobadas disponibles en el PDF."
+                    : "Sin decisión registrada todavía."}
+              </p>
               {canShowPdf ? (
-                <button
-                  type="button"
-                  onClick={downloadPdf}
-                  style={{
-                    padding: "10px 16px",
-                    borderRadius: 12,
-                    border: "1px solid rgba(59,130,246,0.30)",
-                    background: "rgba(59,130,246,0.08)",
-                    color: "#1d4ed8",
-                    fontWeight: 900,
-                    cursor: "pointer",
-                  }}
-                >
-                  PDF
-                </button>
+                <Button type="button" variant="secondary" onClick={downloadPdf}>
+                  Descargar PDF
+                </Button>
               ) : null}
             </div>
-          </div>
-        ) : (
-          <div
-            style={{
-              padding: "14px 22px",
-              borderTop: "1px solid rgba(15,23,42,0.08)",
-              background: "#f8fafc",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 12,
-            }}
-          >
-            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 700 }}>
-              {estadoNormPedido === "DENEGADO"
-                ? "Pedido denegado. El PDF contiene el detalle y motivo de denegación."
-                : hasApproved
-                ? "Hay items aprobados disponibles en el PDF."
-                : "Sin decisión registrada todavía."}
-            </div>
-            {canShowPdf ? (
-              <button
-                type="button"
-                onClick={downloadPdf}
-                style={{
-                  padding: "10px 16px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(59,130,246,0.30)",
-                  background: "rgba(59,130,246,0.08)",
-                  color: "#1d4ed8",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                }}
-              >
-                Descargar PDF
-              </button>
-            ) : null}
-          </div>
-        )}
-      </div>
-    </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function MessageBanner({ msg, onClose }) {
-  if (!msg) return null;
-
-  return (
-    <div
-      style={{
-        marginTop: 12,
-        padding: "12px 14px",
-        borderRadius: 14,
-        border: "1px solid rgba(16,185,129,0.25)",
-        background: "rgba(16,185,129,0.08)",
-        color: "#065f46",
-        fontWeight: 800,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-      }}
-    >
-      <span>{msg}</span>
-
-      <button
-        onClick={onClose}
-        style={{
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          fontSize: 18,
-          fontWeight: 900,
-          color: "#065f46",
-          lineHeight: 1,
-        }}
-        aria-label="Cerrar mensaje"
-        title="Cerrar"
-      >
-        ×
-      </button>
-    </div>
-  );
-}
+/* ── Pantalla ──────────────────────────────────────────────────────────── */
 
 export default function Aprobaciones() {
   const { me } = useOutletContext();
@@ -759,14 +407,14 @@ export default function Aprobaciones() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
-  // Por defecto se muestran TODOS los pedidos, para que tras aprobar/denegar el
-  // pedido decidido siga visible en la lista (no desaparezca del filtro).
   const [estadoFiltro, setEstadoFiltro] = useState("TODOS");
   const [idFiltro, setIdFiltro] = useState("");
   const [fechaFiltro, setFechaFiltro] = useState("");
   const [solicitanteFiltro, setSolicitanteFiltro] = useState("");
   const [textoFiltro, setTextoFiltro] = useState("");
   const [detallePedido, setDetallePedido] = useState(null);
+
+  const { confirmar, dialogo: dialogoConfirmacion } = useConfirm();
 
   const msgTimerRef = useRef(null);
 
@@ -785,7 +433,6 @@ export default function Aprobaciones() {
   const showTimedMessage = (text) => {
     clearMsgTimer();
     setMsg(text);
-
     msgTimerRef.current = setTimeout(() => {
       setMsg("");
       msgTimerRef.current = null;
@@ -806,135 +453,109 @@ export default function Aprobaciones() {
 
   useEffect(() => {
     load();
-
-    return () => {
-      clearMsgTimer();
-    };
+    return () => clearMsgTimer();
   }, []);
 
-  const solicitanteFromPedido = (p) =>
-    formatUsername(
-      p?.solicitante_username || p?.solicitante || p?.created_by || p?.usuario || p?.username || ""
-    ) || "—";
+  const pedidosFiltrados = useMemo(
+    () => filtrarPedidos(pedidos, { estadoFiltro, idFiltro, fechaFiltro, solicitanteFiltro, textoFiltro }),
+    [pedidos, estadoFiltro, idFiltro, fechaFiltro, solicitanteFiltro, textoFiltro]
+  );
 
-  const pedidosFiltrados = useMemo(() => {
-    const texto = textoFiltro.trim().toLowerCase();
+  /*
+   * DEFECTO CORREGIDO: «Aprobar» y «Denegar» disparaban la decisión de
+   * inmediato, sin confirmación de ninguna clase. Aprobar o denegar un pedido
+   * es irreversible desde la interfaz.
+   *
+   * La confirmación se ESPERA antes de llamar al backend: `useConfirm`
+   * devuelve una promesa, así que no hay inversión de control como la que
+   * provoca `window.confirm`. Si el usuario cancela, no se llama a nada.
+   */
+  const decidirPedidoCompleto = async (pedido, accion) => {
+    const esAprobar = accion === "aprobar";
+    const ok = await confirmar({
+      title: esAprobar ? `¿Aprobar el pedido #${pedido.id}?` : `¿Denegar el pedido #${pedido.id}?`,
+      description: `Se ${esAprobar ? "aprobará" : "denegará"} el pedido completo de ${solicitanteFromPedido(pedido)}. La decisión no se puede deshacer desde la aplicación.`,
+      confirmLabel: esAprobar ? "Aprobar" : "Denegar",
+      destructive: !esAprobar,
+    });
+    if (!ok) return;
 
-    return pedidos
-      .slice()
-      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
-      .filter((p) => {
-        const idOk = !idFiltro || String(p.id).includes(String(idFiltro).trim());
-        const estadoNorm = estadoNormalizado(p?.estado);
-        const estadoOk =
-          estadoFiltro === "TODOS"
-            ? true
-            : estadoFiltro === "PENDIENTES"
-            ? DECIDABLE_FRONTEND.has(estadoNorm)
-            : estadoNorm === estadoFiltro;
-        const fechaOk = !fechaFiltro || dateInputValue(p?.created_at) === fechaFiltro;
-
-        const solicitante = solicitanteFromPedido(p).toLowerCase();
-        const solicitanteOk =
-          !solicitanteFiltro || solicitante.includes(solicitanteFiltro.trim().toLowerCase());
-
-        const detalle = safeArray(p.items)
-          .map((it) => `${it.producto_id} ${it.tamano || ""} ${it.cantidad || ""}`.toLowerCase())
-          .join(" ");
-
-        const textoOk =
-          !texto ||
-          String(p.id).toLowerCase().includes(texto) ||
-          solicitante.includes(texto) ||
-          estadoNormalizado(p?.estado).toLowerCase().includes(texto) ||
-          detalle.includes(texto);
-
-        return idOk && estadoOk && fechaOk && solicitanteOk && textoOk;
-      });
-  }, [pedidos, estadoFiltro, idFiltro, fechaFiltro, solicitanteFiltro, textoFiltro]);
-
-  // Helper to format the post-action message with optional email warnings
-  // returned by the backend (e.g. solicitante without email registered).
-  const messageWithWarnings = (base, updated) => {
-    const warns = Array.isArray(updated?.email_warnings) ? updated.email_warnings : [];
-    return warns.length ? `${base} Aviso: ${warns.join(" · ")}` : base;
-  };
-
-  const aprobar = async (id) => {
     try {
-      const updated = await aprobarPedido(id, {});
+      const updated = esAprobar ? await aprobarPedido(pedido.id, {}) : await denegarPedido(pedido.id, {});
       await load();
-      showTimedMessage(messageWithWarnings(`Pedido #${id} aprobado.`, updated));
+      showTimedMessage(
+        mensajeConAvisos(`Pedido #${pedido.id} ${esAprobar ? "aprobado" : "denegado"}.`, updated)
+      );
     } catch (e) {
-      showTimedMessage(e?.response?.data?.detail || e?.message || "Error aprobando pedido");
+      showTimedMessage(
+        e?.response?.data?.detail || e?.message || `Error ${esAprobar ? "aprobando" : "denegando"} pedido`
+      );
     }
   };
 
-  const denegar = async (id) => {
-    try {
-      const updated = await denegarPedido(id, {});
-      await load();
-      showTimedMessage(messageWithWarnings(`Pedido #${id} denegado.`, updated));
-    } catch (e) {
-      showTimedMessage(e?.response?.data?.detail || e?.message || "Error denegando pedido");
-    }
-  };
+  const canApprove = puedeDecidir(me);
 
-  const role = rolEfectivo(me);  // superadmin/admin_vivero cuentan como admin
-  const canApprove = role === "admin" || role === "manager";
+  const campoFiltro = (id, label, control) => (
+    <div className="flex min-w-0 flex-col gap-1">
+      <label htmlFor={id} className="text-caption uppercase text-muted-foreground">
+        {label}
+      </label>
+      {control}
+    </div>
+  );
+
+  const claseControl =
+    "h-[var(--control-height-md)] w-full min-w-0 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] px-3 outline-none focus-visible:outline-[length:var(--focus-ring-width)] focus-visible:outline-solid focus-visible:outline-ring";
 
   return (
-    <div style={{ width: "100%" }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <h1 style={{ fontSize: 44, margin: 0, fontWeight: 900, color: "#0f172a" }}>Aprobaciones</h1>
-        <div style={{ fontWeight: 800, color: "#64748b" }}>
-          Usuario: <span style={{ color: "#0f172a" }}>{me?.username || "—"}</span> · Rol:{" "}
-          <span style={{ color: "#0f172a" }}>{role || "—"}</span>
+    <div>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h1 className="text-h2 font-[var(--font-weight-semibold)]">Aprobaciones</h1>
+          <p className="text-body-sm text-muted-foreground">
+            Decisión sobre los pedidos pendientes del vivero.
+          </p>
         </div>
       </div>
 
-      <MessageBanner msg={msg} onClose={closeMessage} />
+      {/* `Alert` lleva el rol ARIA; el aviso anterior solo se pintaba. */}
+      {msg ? (
+        <Alert tone="success" onDismiss={closeMessage}>
+          {msg}
+        </Alert>
+      ) : null}
 
-      <div
-        style={{
-          marginTop: 16,
-          background: "white",
-          border: "1px solid rgba(15,23,42,0.06)",
-          borderRadius: 18,
-          boxShadow: "0 10px 30px rgba(2,6,23,0.06)",
-          padding: 16,
-        }}
-      >
-        <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginBottom: 14 }}>
-          Lista de aprobaciones
-        </div>
+      <section className="mt-4">
+        <h2 className="sr-only">Lista de aprobaciones</h2>
 
+        {/*
+         * Antes: cinco columnas con anchos fijos en `minmax(...)` que sumaban
+         * más de 900 px. Por debajo de esa anchura los campos se comprimían
+         * hasta cortarse. `auto-fit` los reparte y los apila cuando no caben.
+         */}
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "minmax(140px, 160px) minmax(190px, 220px) minmax(170px, 190px) minmax(180px, 220px) minmax(260px, 1fr)",
-            gap: 14,
-            marginBottom: 18,
-            alignItems: "start",
-          }}
+          className="mb-4 grid gap-3"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))" }}
         >
-          <div style={filterFieldStyle()}>
-            <div style={filterLabelStyle()}>ID</div>
+          {campoFiltro(
+            "filtro-id",
+            "ID",
             <input
+              id="filtro-id"
               placeholder="Filtrar por ID"
               value={idFiltro}
               onChange={(e) => setIdFiltro(e.target.value)}
-              style={filterControlStyle()}
+              className={claseControl}
             />
-          </div>
-
-          <div style={filterFieldStyle()}>
-            <div style={filterLabelStyle()}>Tipo de reserva</div>
+          )}
+          {campoFiltro(
+            "filtro-estado",
+            "Tipo de reserva",
             <select
+              id="filtro-estado"
               value={estadoFiltro}
               onChange={(e) => setEstadoFiltro(e.target.value)}
-              style={filterSelectStyle()}
+              className={claseControl}
             >
               {ESTADO_FILTERS.map((f) => (
                 <option key={f.value} value={f.value}>
@@ -942,182 +563,107 @@ export default function Aprobaciones() {
                 </option>
               ))}
             </select>
-          </div>
-
-          <div style={filterFieldStyle()}>
-            <div style={filterLabelStyle()}>Fecha</div>
+          )}
+          {campoFiltro(
+            "filtro-fecha",
+            "Fecha",
             <input
+              id="filtro-fecha"
               type="date"
               value={fechaFiltro}
               onChange={(e) => setFechaFiltro(e.target.value)}
-              style={filterControlStyle()}
+              className={claseControl}
             />
-          </div>
-
-          <div style={filterFieldStyle()}>
-            <div style={filterLabelStyle()}>Solicitante</div>
+          )}
+          {campoFiltro(
+            "filtro-solicitante",
+            "Solicitante",
             <input
+              id="filtro-solicitante"
               placeholder="Solicitante"
               value={solicitanteFiltro}
               onChange={(e) => setSolicitanteFiltro(e.target.value)}
-              style={filterControlStyle()}
+              className={claseControl}
             />
-          </div>
-
-          <div style={filterFieldStyle()}>
-            <div style={filterLabelStyle()}>Texto</div>
+          )}
+          {campoFiltro(
+            "filtro-texto",
+            "Texto",
             <input
-              placeholder="Buscar texto en detalle, estado, ID..."
+              id="filtro-texto"
+              placeholder="Buscar en detalle, estado, ID…"
               value={textoFiltro}
               onChange={(e) => setTextoFiltro(e.target.value)}
-              style={filterControlStyle()}
+              className={claseControl}
             />
-          </div>
+          )}
         </div>
 
         {loading ? (
-          <div style={{ color: "#64748b", fontWeight: 800 }}>Cargando…</div>
+          <p className="text-muted-foreground">Cargando…</p>
         ) : pedidosFiltrados.length === 0 ? (
-          <div style={{ color: "#64748b", fontWeight: 800 }}>No hay pedidos para los filtros seleccionados.</div>
+          <p className="text-muted-foreground">No hay pedidos para los filtros seleccionados.</p>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 10px", minWidth: 980 }}>
+          <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border)]">
+            <table className="w-full border-collapse" style={{ minWidth: 820 }}>
+              <caption className="sr-only">
+                Pedidos filtrados, con su estado y las acciones disponibles.
+              </caption>
               <thead>
-                <tr style={{ background: "#f8fafc" }}>
-                  <th style={thStyle()}>ID</th>
-                  <th style={thStyle()}>Tipo</th>
-                  <th style={thStyle()}>Fecha</th>
-                  <th style={thStyle()}>Solicitante</th>
-                  <th style={thStyle()}>Estado</th>
-                  <th style={thStyle()}>Acciones</th>
+                <tr className="bg-[var(--muted)]">
+                  <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">ID</th>
+                  <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Tipo</th>
+                  <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Fecha</th>
+                  <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Solicitante</th>
+                  <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Estado</th>
+                  <th scope="col" className="p-3 text-left text-caption font-[var(--font-weight-semibold)]">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {pedidosFiltrados.map((p) => {
-                  const estado = p.estado || "RESERVA";
-                  // Row-level Aprobar / Denegar shortcuts only show when:
-                  //   1) pedido is in RESERVA (no decision taken yet — once
-                  //      ANY decision exists, state is final), AND
-                  //   2) the pedido has exactly ONE item.  Multi-item pedidos
-                  //      must be decided through the detail modal so the
-                  //      manager can pick per-item which lines to approve and
-                  //      which to deny.  Otherwise the row-level shortcut
-                  //      would force "approve all" or "deny all" and the
-                  //      partial-approval workflow becomes inaccessible.
-                  const itemCount = safeArray(p?.items).length;
-                  const editable =
-                    estadoNormalizado(estado) === "RESERVA" && itemCount === 1;
-
+                  const atajo = puedeAtajoDeFila(p, me);
                   return (
-                    <tr
-                      key={p.id}
-                      style={{
-                        background: "white",
-                        boxShadow: "0 6px 18px rgba(2,6,23,0.05)",
-                      }}
-                    >
-                      <td
-                        style={{
-                          ...tdStyle(),
-                          borderTop: "1px solid rgba(15,23,42,0.10)",
-                          borderBottom: "1px solid rgba(15,23,42,0.10)",
-                          borderLeft: "1px solid rgba(15,23,42,0.10)",
-                          borderTopLeftRadius: 14,
-                          borderBottomLeftRadius: 14,
-                        }}
-                      >
-                        #{p.id}
+                    <tr key={p.id} className="border-t border-[var(--border)]">
+                      <td className="tabular p-3 align-top font-[var(--font-weight-medium)]">#{p.id}</td>
+                      <td className="p-3 align-top">
+                        <TipoPedido tipo={p.tipo} />
                       </td>
-
-                      <td style={{ ...tdStyle(), borderTop: "1px solid rgba(15,23,42,0.10)", borderBottom: "1px solid rgba(15,23,42,0.10)" }}>
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            padding: "4px 10px",
-                            borderRadius: 999,
-                            fontSize: 12,
-                            fontWeight: 900,
-                            background: (p.tipo === "reposicion") ? "rgba(245,158,11,0.12)" : "rgba(59,130,246,0.10)",
-                            color: (p.tipo === "reposicion") ? "#92400e" : "#1e3a8a",
-                            border: "1px solid rgba(15,23,42,0.08)",
-                          }}
-                        >
-                          {p.tipo === "reposicion" ? "Reposición" : "Salida"}
-                        </span>
+                      <td className="p-3 align-top">{fmtFechaES(p.created_at)}</td>
+                      <td className="p-3 align-top break-words [overflow-wrap:anywhere]">{solicitanteFromPedido(p)}</td>
+                      <td className="p-3 align-top">
+                        <EstadoPedidoBadge estado={p.estado || "RESERVA"} />
                       </td>
-
-                      <td style={{ ...tdStyle(), borderTop: "1px solid rgba(15,23,42,0.10)", borderBottom: "1px solid rgba(15,23,42,0.10)" }}>
-                        {fmtFechaES(p.created_at)}
-                      </td>
-
-                      <td style={{ ...tdStyle(), borderTop: "1px solid rgba(15,23,42,0.10)", borderBottom: "1px solid rgba(15,23,42,0.10)" }}>
-                        {solicitanteFromPedido(p)}
-                      </td>
-
-                      <td style={{ ...tdStyle(), borderTop: "1px solid rgba(15,23,42,0.10)", borderBottom: "1px solid rgba(15,23,42,0.10)" }}>
-                        <span style={badge(estado)}>{estadoLabel(estado)}</span>
-                      </td>
-
-                      <td
-                        style={{
-                          ...tdStyle(),
-                          borderTop: "1px solid rgba(15,23,42,0.10)",
-                          borderBottom: "1px solid rgba(15,23,42,0.10)",
-                          borderRight: "1px solid rgba(15,23,42,0.10)",
-                          borderTopRightRadius: 14,
-                          borderBottomRightRadius: 14,
-                        }}
-                      >
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          {canApprove && editable ? (
+                      <td className="p-3 align-top">
+                        <div className="flex flex-wrap gap-2">
+                          {atajo ? (
                             <>
-                              <button
-                                onClick={() => aprobar(p.id)}
-                                style={{
-                                  padding: "8px 10px",
-                                  borderRadius: 10,
-                                  border: "1px solid rgba(16,185,129,0.35)",
-                                  background: "rgba(16,185,129,0.10)",
-                                  color: "#065f46",
-                                  fontWeight: 900,
-                                  cursor: "pointer",
-                                }}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="primary"
+                                onClick={() => decidirPedidoCompleto(p, "aprobar")}
                               >
                                 Aprobar
-                              </button>
-
-                              <button
-                                onClick={() => denegar(p.id)}
-                                style={{
-                                  padding: "8px 10px",
-                                  borderRadius: 10,
-                                  border: "1px solid rgba(239,68,68,0.25)",
-                                  background: "rgba(239,68,68,0.08)",
-                                  color: "#991b1b",
-                                  fontWeight: 900,
-                                  cursor: "pointer",
-                                }}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => decidirPedidoCompleto(p, "denegar")}
                               >
                                 Denegar
-                              </button>
+                              </Button>
                             </>
                           ) : null}
-
-                          <button
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
                             onClick={() => setDetallePedido(p)}
-                            style={{
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid rgba(59,130,246,0.30)",
-                              background: "rgba(59,130,246,0.08)",
-                              color: "#1d4ed8",
-                              fontWeight: 900,
-                              cursor: "pointer",
-                            }}
                             title="Ver detalle del pedido"
                           >
-                            Detalle pedido
-                          </button>
+                            Detalle
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -1127,20 +673,23 @@ export default function Aprobaciones() {
             </table>
           </div>
         )}
-      </div>
+      </section>
 
-      <DetallePedidoModal
-        pedido={detallePedido}
-        onClose={() => setDetallePedido(null)}
-        canApprove={canApprove}
-        onPedidoUpdated={(updated) => {
-          // Keep the modal in sync with the freshly-returned pedido and
-          // refresh the parent list so the table reflects the new state.
-          setDetallePedido(updated);
-          load();
-        }}
-        onMessage={(text) => showTimedMessage(text)}
-      />
+      {detallePedido ? (
+        <DetallePedidoModal
+          pedido={detallePedido}
+          canApprove={canApprove}
+          onClose={() => setDetallePedido(null)}
+          onPedidoUpdated={async () => {
+            await load();
+            setDetallePedido(null);
+          }}
+          onMessage={showTimedMessage}
+        />
+      ) : null}
+
+      {dialogoConfirmacion}
     </div>
   );
 }
+

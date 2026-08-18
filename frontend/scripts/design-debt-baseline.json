@@ -66,12 +66,7 @@
       "gradiente": 2
     },
     "pages/Aprobaciones.jsx": {
-      "hex": 94,
-      "rgb": 77,
-      "peso-tipografico": 35,
-      "radio": 8,
-      "estilo-en-linea": 75,
-      "gradiente": 2
+      "estilo-en-linea": 5
     },
     "pages/Informes.jsx": {
       "estilo-en-linea": 183
