@@ -35,6 +35,7 @@ export const Status = {
   ACTIVE: 'active',
   INACTIVE: 'inactive',
   COMPLETED: 'completed',
+  DELIVERED: 'delivered',
   CANCELLED: 'cancelled',
   ARCHIVED: 'archived'
 } as const;
@@ -57,6 +58,13 @@ export const STATUS_TONES: Record<Status, StatusTone> = {
   [Status.ACTIVE]: StatusTone.SUCCESS,
   [Status.INACTIVE]: StatusTone.NEUTRAL,
   [Status.COMPLETED]: StatusTone.SUCCESS,
+  /*
+   * Handed over, not judged. DELIVERED is INFO and not SUCCESS on purpose: a
+   * workflow usually has exactly one green — the decision that went the user's
+   * way — and if fulfilment is green too, the two read as the same thing at a
+   * glance. Green answers "was it approved?"; blue answers "where is it now?".
+   */
+  [Status.DELIVERED]: StatusTone.INFO,
   [Status.CANCELLED]: StatusTone.DANGER,
   [Status.ARCHIVED]: StatusTone.NEUTRAL
 };

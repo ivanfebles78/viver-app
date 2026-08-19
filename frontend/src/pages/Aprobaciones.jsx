@@ -6,7 +6,7 @@ import { formatCantidad } from "../utils/numero";
 import { Button, Dialog, DialogContent, StatusBadge } from "../ui";
 import { Alert } from "../components/ui/feedback";
 import { useConfirm } from "../components/ui/ConfirmDialog";
-import { estadoPedido } from "../app/estado";
+import { estadoLinea, estadoPedido } from "../app/estado";
 import {
   agruparPorDestino,
   construirPayloadDecisiones,
@@ -48,25 +48,6 @@ const ESTADO_FILTERS = [
   { value: "CADUCADO", label: "Caducado" },
 ];
 
-/*
- * El estado de LÍNEA solo admite tres valores; se traduce al vocabulario del
- * sistema de diseño para no inventar una segunda paleta. `pending` es el ámbar
- * de «falta decidir», que es exactamente lo que significa RESERVA en una línea.
- */
-const ESTADO_ITEM_STATUS = {
-  APROBADO: "approved",
-  SERVIDO: "completed",
-  DENEGADO: "rejected",
-  RESERVA: "pending",
-};
-
-const ESTADO_ITEM_LABEL = {
-  APROBADO: "Aprobado",
-  SERVIDO: "Servido",
-  DENEGADO: "Denegado",
-  RESERVA: "Pendiente",
-};
-
 /** Reposición y salida son TIPOS, no estados: por eso van en un `Badge` neutro. */
 function TipoPedido({ tipo }) {
   const esReposicion = tipo === "reposicion";
@@ -80,6 +61,12 @@ function TipoPedido({ tipo }) {
 function EstadoPedidoBadge({ estado }) {
   const def = estadoPedido(estado);
   return <StatusBadge status={def.status} label={estadoLabel(estado)} />;
+}
+
+/** Estado de una LÍNEA del pedido. Mismo vocabulario compartido, otra escala. */
+function EstadoLineaBadge({ estado }) {
+  const def = estadoLinea(estado);
+  return <StatusBadge status={def.status} label={def.label} />;
 }
 
 /* ── Modal de detalle ──────────────────────────────────────────────────── */
@@ -284,10 +271,10 @@ function DetallePedidoModal({ pedido, onClose, canApprove = false, onPedidoUpdat
                                 <td className="tabular p-3 align-top">{formatCantidad(servida) || "0"}</td>
                                 <td className="tabular p-3 align-top">{formatCantidad(pendiente) || "0"}</td>
                                 <td className="p-3 align-top">
-                                  <StatusBadge
-                                    status={ESTADO_ITEM_STATUS[estIt] || "draft"}
-                                    label={ESTADO_ITEM_LABEL[estIt] || estIt}
-                                  />
+                                  {/* Del vocabulario compartido: esta pantalla no
+                                      elige colores. Tenía su propia tabla y fue
+                                      así como SERVIDO se quedó en verde. */}
+                                  <EstadoLineaBadge estado={estIt} />
                                 </td>
                                 {canApprove ? (
                                   <td className="p-3 align-top">

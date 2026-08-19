@@ -239,8 +239,19 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
         className="max-w-[var(--modal-width-xl)]"
       >
         {/* Una sola columna por debajo de lg: en un portátil pequeño o una
-            tablet, dos columnas dejaban el panel de inventario en 200px. */}
-        <div className="grid max-h-[75dvh] min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[1.45fr_0.8fr] lg:overflow-hidden">
+            tablet, dos columnas dejaban el panel de inventario en 200px.
+
+            `lg:grid-rows-[minmax(0,1fr)]` NO es decorativo. Sin él la fila se
+            dimensiona por su contenido, las columnas se estiran hasta esa
+            altura, y su `overflow-y: auto` no llega a activarse nunca porque su
+            altura ya es la de su contenido. Con `overflow-hidden` en la rejilla,
+            todo lo que sobrepasaba el alto máximo quedaba RECORTADO y fuera del
+            alcance: con 60 productos, el panel medía 1572px dentro de una caja
+            de 600px y el botón «Mostrar más» caía a 1649px, fuera de la
+            ventana. `minmax(0, …)` es lo que permite que la fila baje del
+            tamaño de su contenido; `1fr` sola tiene un mínimo automático de
+            `auto` y no encogería. */}
+        <div className="grid max-h-[75dvh] min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[1.45fr_0.8fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
           <div className="min-h-0 overflow-y-auto border-b border-border p-4 lg:border-b-0 lg:border-r">
             {canEdit && (
               <div className="mb-3 flex justify-end">
@@ -315,17 +326,26 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
           </div>
         </div>
 
-        <div className="min-h-0 overflow-y-auto p-4">
-          <h3 className="text-h3 font-[var(--font-weight-semibold)]">
-            {selectedZone ? selectedZoneLabel : "Selecciona una zona"}
-          </h3>
+        {/*
+          Tres franjas: cabecera, lista y acciones. La lista es lo único que se
+          desplaza. Antes se desplazaba el panel ENTERO, de modo que el nombre
+          de la zona y el botón «Mostrar más» se iban con él; con una zona
+          grande había que recorrer todo el inventario para volver a leer de qué
+          zona era, y las acciones quedaban al final de un recorrido largo.
+        */}
+        <div className="flex min-h-0 flex-col p-4">
+          <div className="shrink-0">
+            <h3 className="text-h3 font-[var(--font-weight-semibold)]">
+              {selectedZone ? selectedZoneLabel : "Selecciona una zona"}
+            </h3>
 
-          {selectedZone && !loading && !zonaError && zonaData?.items?.length ? (
-            <p className="text-body-sm text-muted-foreground">
-              {zonaData.items.length}{" "}
-              {zonaData.items.length === 1 ? "producto" : "productos"} en esta zona
-            </p>
-          ) : null}
+            {selectedZone && !loading && !zonaError && zonaData?.items?.length ? (
+              <p className="text-body-sm text-muted-foreground">
+                {zonaData.items.length}{" "}
+                {zonaData.items.length === 1 ? "producto" : "productos"} en esta zona
+              </p>
+            ) : null}
+          </div>
 
           {/*
             MARCAR ZONA COMO INTERNA — acción de PERMISOS.
@@ -380,8 +400,12 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
               </Alert>
             </div>
           ) : (
-            <div className="mt-3 flex flex-col gap-3">
-              <ul className="flex list-none flex-col gap-3 p-0">
+            /* `min-h-0` en los dos: sin él, el mínimo automático de un
+               elemento flexible es el tamaño de su contenido, y ni el contenedor
+               ni la lista bajarían del alto del inventario — que es la misma
+               trampa que tenía la rejilla. */
+            <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
+              <ul className="m-0 flex min-h-0 flex-1 list-none flex-col gap-3 overflow-y-auto p-0">
                 {zonaData.items.slice(0, visibleCount).map((item, idx) => (
                   <li
                     key={`${item.producto_id || item.nombre_cientifico || "item"}-${idx}`}
@@ -418,19 +442,26 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
                 ))}
               </ul>
 
-              {zonaData.items.length > visibleCount ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setVisibleCount((c) => c + ZONA_ITEMS_STEP)}
-                >
-                  Mostrar más ({zonaData.items.length - visibleCount} restantes)
-                </Button>
-              ) : null}
-              {visibleCount > ZONA_ITEMS_STEP ? (
-                <Button type="button" variant="ghost" onClick={() => setVisibleCount(ZONA_ITEMS_STEP)}>
-                  Mostrar menos
-                </Button>
+              {/* Las acciones quedan ancladas debajo de la lista: son la forma
+                  de traer el resto del inventario, así que tenerlas al final de
+                  un desplazamiento largo era justo lo contrario de lo útil. */}
+              {zonaData.items.length > visibleCount || visibleCount > ZONA_ITEMS_STEP ? (
+                <div className="flex shrink-0 flex-col gap-3">
+                  {zonaData.items.length > visibleCount ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setVisibleCount((c) => c + ZONA_ITEMS_STEP)}
+                    >
+                      Mostrar más ({zonaData.items.length - visibleCount} restantes)
+                    </Button>
+                  ) : null}
+                  {visibleCount > ZONA_ITEMS_STEP ? (
+                    <Button type="button" variant="ghost" onClick={() => setVisibleCount(ZONA_ITEMS_STEP)}>
+                      Mostrar menos
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           )}

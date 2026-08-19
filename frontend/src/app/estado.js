@@ -28,9 +28,13 @@ import { Status } from "../ui";
  *   - APROBADO_PARCIAL no es un fallo ni un éxito: el gestor aprobó unas
  *     líneas y denegó otras, y el pedido sigue vivo → `in_progress` (teal),
  *     que es justo el color que tenía antes.
- *   - SERVIDO pasa de azul a verde. Es el único cambio de significado
- *     deliberado: servido es el final CORRECTO del flujo, y el azul lo
- *     presentaba como mera información.
+ *   - SERVIDO es azul (`DELIVERED`, tono de información), no verde. Una fase
+ *     anterior lo pasó a verde razonando que servir es el final correcto del
+ *     flujo; el razonamiento tenía un fallo. APROBADO también es verde, así que
+ *     los dos estados quedaban del mismo color y en una tabla de veinte pedidos
+ *     había que LEER cada fila para saber cuáles seguían pendientes de servir —
+ *     que es justo el trabajo que el tono venía a ahorrar. El verde responde a
+ *     «¿se aprobó?»; el azul, a «¿dónde está ahora?». Son preguntas distintas.
  *
  * DIVERGENCIA CONSCIENTE CON EL PAQUETE: `Status.CANCELLED` tiene tono
  * `danger` aguas arriba. Aquí NO se usa para CANCELADO ni CADUCADO, porque en
@@ -48,10 +52,30 @@ const PEDIDO = {
   PENDIENTE: { status: Status.PENDING, label: "Pendiente" },
   APROBADO: { status: Status.APPROVED, label: "Aprobado" },
   APROBADO_PARCIAL: { status: Status.IN_PROGRESS, label: "Aprobado parcial" },
-  SERVIDO: { status: Status.COMPLETED, label: "Servido" },
+  SERVIDO: { status: Status.DELIVERED, label: "Servido" },
   DENEGADO: { status: Status.REJECTED, label: "Denegado" },
   CANCELADO: { status: Status.INACTIVE, label: "Cancelado" },
   CADUCADO: { status: Status.ARCHIVED, label: "Caducado" },
+};
+
+/**
+ * Estados de LÍNEA de pedido (la decisión por destino, en Aprobaciones).
+ *
+ * Vive aquí y no en la pantalla. Estaba duplicado en `Aprobaciones.jsx` como
+ * `ESTADO_ITEM_STATUS`, y esa segunda tabla es exactamente cómo SERVIDO acabó
+ * en verde: al corregir el vocabulario de pedido, la copia de la pantalla se
+ * quedó atrás y nadie lo vio, porque las dos seguían compilando.
+ *
+ * El vocabulario de línea es más corto que el de pedido —una línea sólo se
+ * aprueba, se deniega, se sirve o espera— pero los tonos tienen que ser LOS
+ * MISMOS: una línea servida y un pedido servido son el mismo hecho visto a dos
+ * escalas, y pintarlos distinto sugeriría una diferencia que no existe.
+ */
+const LINEA = {
+  RESERVA: { status: Status.PENDING, label: "Pendiente" },
+  APROBADO: { status: Status.APPROVED, label: "Aprobado" },
+  SERVIDO: { status: Status.DELIVERED, label: "Servido" },
+  DENEGADO: { status: Status.REJECTED, label: "Denegado" },
 };
 
 /** Estados de CUENTA DE USUARIO (pantalla de administración). */
@@ -135,6 +159,7 @@ function resolver(vocabulario, valor) {
 }
 
 export const estadoPedido = (valor) => resolver(PEDIDO, valor);
+export const estadoLinea = (valor) => resolver(LINEA, valor);
 export const estadoUsuario = (valor) => resolver(USUARIO, valor);
 export const estadoCaducidad = (valor) => resolver(CADUCIDAD, valor);
 export const estadoStock = (valor) => resolver(STOCK, valor);
@@ -143,6 +168,7 @@ export const estadoStock = (valor) => resolver(STOCK, valor);
 export const VOCABULARIOS = Object.freeze({
   STOCK,
   pedido: PEDIDO,
+  linea: LINEA,
   usuario: USUARIO,
   caducidad: CADUCIDAD,
 });
