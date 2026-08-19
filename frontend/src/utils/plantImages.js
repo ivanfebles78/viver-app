@@ -47,7 +47,6 @@ export function resolvePlantImage(nombreCientifico) {
   const p = (async () => {
     for (const ext of EXTS) {
       const url = `${BASE}${slug}.${ext}`;
-      // eslint-disable-next-line no-await-in-loop
       if (await probe(url)) return url;
     }
     return null;
@@ -59,12 +58,21 @@ export function resolvePlantImage(nombreCientifico) {
 // Hook: devuelve la URL de la imagen si está disponible, o null (mientras
 // carga o si no existe). Usar para decidir si se muestra el botón "Ver".
 export function usePlantImage(nombreCientifico) {
-  const [url, setUrl] = useState(null);
+  /*
+   * Se guarda el NOMBRE junto a la URL, y la URL efectiva se deriva al pintar.
+   *
+   * Antes el efecto hacía `setUrl(null)` antes de pedir la imagen, para que al
+   * cambiar de planta no se viera un instante la foto de la anterior. Eso es un
+   * `setState` en cascada en cada cambio; guardando a qué planta pertenece lo
+   * resuelto, la foto vieja se descarta al comparar, sin repintar de más.
+   */
+  const [resuelto, setResuelto] = useState({ nombre: null, url: null });
+  const url = resuelto.nombre === nombreCientifico ? resuelto.url : null;
+
   useEffect(() => {
     let active = true;
-    setUrl(null);
     resolvePlantImage(nombreCientifico).then((u) => {
-      if (active) setUrl(u);
+      if (active) setResuelto({ nombre: nombreCientifico, url: u });
     });
     return () => {
       active = false;
@@ -78,7 +86,12 @@ export function usePlantImage(nombreCientifico) {
 // va rellenando a medida que cada probe resuelve, así el filtro reacciona en
 // cuanto hay resultados sin esperar a sondear todo el catálogo.
 export function usePlantsWithImage(productos) {
-  const lista = Array.isArray(productos) ? productos : [];
+  /*
+   * `lista` se memoiza: sin esto, el `[]` del caso «no es un array» se crea
+   * nuevo en cada render y arrastra consigo a `sig` y al efecto que depende de
+   * él, que acabaría sondeando el catálogo entero una y otra vez.
+   */
+  const lista = useMemo(() => (Array.isArray(productos) ? productos : []), [productos]);
   const sig = useMemo(
     () => lista.map((p) => `${p.id}:${p.nombre_cientifico || ""}`).join("|"),
     [lista]

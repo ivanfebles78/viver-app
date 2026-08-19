@@ -198,4 +198,55 @@ if (regresiones.length > 0) {
   process.exit(1);
 }
 
-console.log("\nSin deuda visual nueva.");
+/* ── Toda la deuda restante tiene que estar CLASIFICADA ────────────────── */
+
+/*
+ * El objetivo de la migración nunca fue deuda cero: hay valores que dependen de
+ * los datos y colores que SON datos del dominio. Lo que no puede quedar es
+ * deuda sin explicar, así que cada fichero con deuda debe aparecer en
+ * `design-debt-classification.json` con su categoría y su motivo.
+ *
+ * Esto convierte «lo miramos y era legítimo» en algo que CI comprueba.
+ */
+const CLASIF = new URL("./design-debt-classification.json", import.meta.url);
+const clasificados = JSON.parse(readFileSync(CLASIF, "utf8")).ficheros || {};
+
+const sinClasificar = [];
+const descuadres = [];
+for (const [rel, conteos] of Object.entries(base)) {
+  const total = Object.values(conteos).reduce((a, c) => a + c, 0);
+  if (total === 0) continue;
+  const entrada = clasificados[rel];
+  if (!entrada) {
+    sinClasificar.push(`  ${rel}: ${total} punto(s) sin clasificar`);
+    continue;
+  }
+  const declarado = Object.values(entrada.desglose || {}).reduce((a, c) => a + c, 0);
+  if (declarado !== total) {
+    descuadres.push(`  ${rel}: la clasificación suma ${declarado} y la deuda real es ${total}`);
+  }
+}
+
+if (sinClasificar.length > 0 || descuadres.length > 0) {
+  console.error("\nDEUDA VISUAL SIN EXPLICAR:\n");
+  if (sinClasificar.length > 0) console.error(sinClasificar.join("\n"));
+  if (descuadres.length > 0) console.error(descuadres.join("\n"));
+  console.error(
+    "\nCada fichero con deuda debe estar en scripts/design-debt-classification.json\n" +
+      "con su categoría y el motivo por el que ese valor no puede ser un token.\n"
+  );
+  process.exit(1);
+}
+
+const porCategoria = {};
+for (const entrada of Object.values(clasificados)) {
+  for (const [cat, n] of Object.entries(entrada.desglose || {})) {
+    porCategoria[cat] = (porCategoria[cat] || 0) + n;
+  }
+}
+console.log("\nDeuda clasificada:");
+for (const [cat, n] of Object.entries(porCategoria).sort((a, b) => b[1] - a[1])) {
+  console.log(`  ${String(n).padStart(4)}  ${cat}`);
+}
+
+console.log("\nSin deuda visual nueva. Toda la deuda restante está clasificada.");

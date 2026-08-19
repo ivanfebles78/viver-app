@@ -36,7 +36,8 @@ export default function ClienteSelector({ visible }) {
         // NO auto-seleccionamos ninguno: el superadmin no está asociado a ningún
         // ayuntamiento. Arranca en "Todos" (vista global) y entra en uno solo si
         // lo elige aquí o pulsa "Entrar" en el panel de plataforma.
-      } catch (e) {
+      } catch {
+        // El motivo concreto no aporta nada al usuario: el aviso es el mismo.
         if (!cancelled) setError("No se pudieron cargar los ayuntamientos");
       }
     })();

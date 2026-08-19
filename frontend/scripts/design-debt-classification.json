@@ -1,0 +1,73 @@
+{
+  "generado": "manual",
+  "nota": "Clasificación de TODA la deuda visual restante. El guardarraíl falla si un fichero tiene deuda y no aparece aquí: el objetivo no es deuda cero, es que no quede deuda sin explicar. Recuentos verificados en la Fase 9 con un analizador que casa llaves, no con expresiones regulares por línea.",
+  "categorias": {
+    "LEGITIMATE_RUNTIME": "El valor se calcula al pintar a partir de datos o de la geometría. No se puede expresar como token porque no se conoce hasta que hay datos.",
+    "LEGITIMATE_DOMAIN_DATA": "El valor ES un dato del dominio que se persiste y que el usuario edita. Convertirlo en token rompería el significado.",
+    "UPSTREAM": "Vive en el paquete vendorizado. Se corrige aguas arriba y se sincroniza.",
+    "ACEPTADA_MAQUETACION": "Objeto de estilo estático que sólo declara maquetación (display, gap, márgenes, alineación). No introduce color, tipografía ni radio en crudo, así que no rompe el sistema de diseño; convertirlo a clases es una mejora de estilo de código, no de cumplimiento. Se difiere de forma explícita y se cuenta.",
+    "FIXED": "Resuelto: ya no aparece en la línea base."
+  },
+  "ficheros": {
+    "pages/Informes.jsx": {
+      "total": 183,
+      "desglose": { "LEGITIMATE_RUNTIME": 154, "ACEPTADA_MAQUETACION": 29 },
+      "motivo": "Es la pantalla de informes: barras, anchos porcentuales, alturas de gráfica, plantillas de rejilla derivadas del número de series y estilos de celda calculados por fila. Los 154 en tiempo de ejecución dependen de los datos del informe. Los 29 restantes son contenedores de maquetación (display/gap/margen)."
+    },
+    "pages/Productos.jsx": {
+      "total": 150,
+      "desglose": { "LEGITIMATE_RUNTIME": 89, "ACEPTADA_MAQUETACION": 61 },
+      "motivo": "Los 89 en tiempo de ejecución son anchos de columna del catálogo, estados por fila y la rejilla de filtros con `auto-fit`. Los 61 restantes son alineaciones de celda y contenedores de los modales."
+    },
+    "pages/Pedidos.jsx": {
+      "total": 115,
+      "desglose": { "LEGITIMATE_RUNTIME": 91, "ACEPTADA_MAQUETACION": 24 },
+      "motivo": "Los 91 en tiempo de ejecución son cantidades por grupo de destino, anchos de tabla y estados de línea calculados. Los 24 restantes son contenedores del modal de creación."
+    },
+    "components/vivero/zonasConfig.js": {
+      "total": 32,
+      "desglose": { "LEGITIMATE_DOMAIN_DATA": 32 },
+      "motivo": "Colores por defecto de las 19 zonas del plano más la paleta de zonas nuevas. Se persisten en el servidor y el administrador los cambia con un selector de color. Son lo que hace que el plano de pantalla se corresponda con el plano impreso que maneja el personal del vivero; convertirlos en tokens haría el mapa MENOS comprensible."
+    },
+    "pages/Aprobaciones.jsx": {
+      "total": 5,
+      "desglose": { "LEGITIMATE_RUNTIME": 5 },
+      "motivo": "Plantillas de rejilla con `auto-fit` y anchos mínimos de tabla: dependen del ancho disponible, no de un token."
+    },
+    "pages/Plataforma.jsx": {
+      "total": 5,
+      "desglose": { "LEGITIMATE_RUNTIME": 5 },
+      "motivo": "Plantillas de rejilla con `auto-fit`, la relación de aspecto del plano y la geometría de la gráfica SVG."
+    },
+    "components/vivero/MapaVivero.jsx": {
+      "total": 3,
+      "desglose": { "LEGITIMATE_DOMAIN_DATA": 3 },
+      "motivo": "Inyección de `--zona-color` en cada polígono: el color viene de los datos de la zona."
+    },
+    "components/vivero/ZoneEditor.jsx": {
+      "total": 3,
+      "desglose": { "LEGITIMATE_DOMAIN_DATA": 3 },
+      "motivo": "Inyección de `--zona-color` más el `#cccccc` por defecto que exige `input[type=color]`, que no admite cadena vacía."
+    },
+    "components/shell/ZonaMapDialog.jsx": {
+      "total": 2,
+      "desglose": { "LEGITIMATE_RUNTIME": 1, "LEGITIMATE_DOMAIN_DATA": 1 },
+      "motivo": "La relación de aspecto del plano y la inyección de `--zona-color`."
+    },
+    "components/ui/ProportionBar.jsx": {
+      "total": 2,
+      "desglose": { "LEGITIMATE_RUNTIME": 2 },
+      "motivo": "Anchura de la barra en porcentaje y color de serie por índice: es el dato lo que dibuja la barra."
+    },
+    "components/ui/layout.jsx": {
+      "total": 1,
+      "desglose": { "LEGITIMATE_RUNTIME": 1 },
+      "motivo": "Plantilla de rejilla calculada a partir del número de columnas que recibe."
+    },
+    "components/vivero/zonesStorage.js": {
+      "total": 1,
+      "desglose": { "LEGITIMATE_DOMAIN_DATA": 1 },
+      "motivo": "`#cccccc` como color de zona por defecto al normalizar el payload que se envía al servidor."
+    }
+  }
+}

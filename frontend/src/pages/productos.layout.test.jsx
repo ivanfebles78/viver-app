@@ -26,7 +26,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -246,5 +246,52 @@ describe("Productos · la tabla principal tiene relleno real en las celdas", () 
     const cabeceras = screen.getAllByRole("columnheader");
     expect(cabeceras.length).toBeGreaterThanOrEqual(5);
     for (const th of cabeceras) expect(th).toHaveAttribute("scope", "col");
+  });
+});
+
+describe("Productos · los modales de cesta usan el Dialog del sistema", () => {
+  /*
+   * HALLAZGO DE LA AUDITORÍA FINAL. La Fase 5 migró «Gestionar productos» a
+   * `Dialog` pero dejó dos superpuestos hechos a mano: «Pedir más» y la cesta.
+   * Eran `div` con `position: fixed`, sin `role="dialog"`, sin trampa de foco,
+   * sin cierre con Escape y sin devolver el foco al abrir y cerrar.
+   *
+   * Un usuario de teclado quedaba tabulando por detrás del modal sin saberlo, y
+   * la única salida era encontrar el botón de cerrar. axe no lo detecta: el
+   * atrapamiento del foco no se ve en una foto del DOM.
+   */
+
+  it("«Pedir más» abre un diálogo de verdad", async () => {
+    const user = userEvent.setup();
+    render(<Productos />);
+    await screen.findByText("Dracaena draco");
+    await user.click(screen.getAllByRole("button", { name: /pedir m[áa]s/i })[0]);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("«Pedir más» se cierra con Escape", async () => {
+    const user = userEvent.setup();
+    render(<Productos />);
+    await screen.findByText("Dracaena draco");
+    await user.click(screen.getAllByRole("button", { name: /pedir m[áa]s/i })[0]);
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("la cesta abre un diálogo de verdad y se cierra con Escape", async () => {
+    const user = userEvent.setup();
+    render(<Productos />);
+    await screen.findByText("Dracaena draco");
+    await user.click(screen.getByRole("button", { name: /cesta/i }));
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("no quedan superpuestos hechos a mano en la pantalla", () => {
+    // Guardarraíl sobre la fuente: un `position: fixed` a pantalla completa es
+    // la firma de un modal casero.
+    expect(FUENTE).not.toMatch(/position:\s*"fixed"/);
   });
 });

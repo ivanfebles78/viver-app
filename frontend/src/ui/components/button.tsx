@@ -72,9 +72,17 @@ const buttonVariants = cva(
         lg: 'h-[var(--control-height-lg)] px-[var(--control-padding-x-lg)]',
         // Icon-only buttons are square at the same control height, so they never
         // fall below the 24px minimum target size (WCAG 2.2 SC 2.5.8).
-        'icon-sm': 'h-[var(--control-height-sm)] w-[var(--control-height-sm)] p-0',
-        icon: 'h-[var(--control-height-md)] w-[var(--control-height-md)] p-0',
-        'icon-lg': 'h-[var(--control-height-lg)] w-[var(--control-height-lg)] p-0'
+        //
+        // `shrink-0` is what makes that true. The width above is the button's
+        // BASE size, not a floor: as a flex item beside growing content — a
+        // dialog header with a long title is the common case — the default
+        // `flex-shrink: 1` squashes it horizontally while the height stays put.
+        // Measured before this fix, a 28px close button rendered 18px wide at a
+        // 320px viewport, on the control that is hardest to hit anyway: the one
+        // in the corner, against the screen edge.
+        'icon-sm': 'h-[var(--control-height-sm)] w-[var(--control-height-sm)] shrink-0 p-0',
+        icon: 'h-[var(--control-height-md)] w-[var(--control-height-md)] shrink-0 p-0',
+        'icon-lg': 'h-[var(--control-height-lg)] w-[var(--control-height-lg)] shrink-0 p-0'
       },
       fullWidth: { true: 'w-full', false: '' }
     },

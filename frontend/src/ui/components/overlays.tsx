@@ -25,6 +25,63 @@ const overlayClasses = [
   'motion-reduce:animate-none'
 ].join(' ');
 
+/**
+ * Records what was focused at the instant the dialog opened.
+ *
+ * Rendered inside the portal, so it mounts exactly when the dialog does, and it
+ * uses a LAYOUT effect on purpose: Radix's focus scope moves focus into the
+ * dialog from a passive effect, and every layout effect in a commit runs before
+ * every passive one. A passive effect here would read `document.activeElement`
+ * after focus had already been taken, and record the dialog itself.
+ *
+ * It deliberately does not clear the ref on unmount: the focus scope fires its
+ * close handler from a `setTimeout`, by which point this cleanup has long run.
+ */
+function CaptureFocusOrigin({ target }: { target: React.MutableRefObject<HTMLElement | null> }) {
+  React.useLayoutEffect(() => {
+    const active = document.activeElement;
+    target.current = active instanceof HTMLElement && active !== document.body ? active : null;
+  }, [target]);
+  return null;
+}
+
+/**
+ * Returns focus to the control that opened the dialog.
+ *
+ * Radix's focus scope already restores focus correctly on its own, but Radix's
+ * Dialog overrides it: it cancels that restore and instead focuses the ref of
+ * its `DialogTrigger`. A dialog whose `open` is driven by application state —
+ * opened from a row action, a menu item, a toolbar button — has no trigger and
+ * no ref, so nothing is focused and the user lands on `<body>`: dropped at the
+ * top of the document, having to traverse the page to get back to the control
+ * they just used. That is WCAG 2.4.3.
+ *
+ * Restoring from our own capture covers both cases with one path: when there IS
+ * a trigger, the captured element is that trigger, because clicking it is what
+ * focused it.
+ *
+ * A consumer-supplied `onCloseAutoFocus` still wins: it runs first, and if it
+ * calls `preventDefault()` this handler stands down.
+ */
+function useRestoreFocusOnClose(
+  origin: React.MutableRefObject<HTMLElement | null>,
+  onCloseAutoFocus?: (event: Event) => void
+): (event: Event) => void {
+  return React.useCallback(
+    (event: Event) => {
+      onCloseAutoFocus?.(event);
+      if (event.defaultPrevented) return;
+      const target = origin.current;
+      // Nothing was focused, or it left the document while the dialog was open:
+      // leave Radix's behaviour alone rather than focusing a detached node.
+      if (!target || !target.isConnected) return;
+      event.preventDefault();
+      target.focus();
+    },
+    [origin, onCloseAutoFocus]
+  );
+}
+
 /* ── Dialog ─────────────────────────────────────────────────────────── */
 export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
@@ -40,11 +97,14 @@ export interface DialogContentProps extends React.ComponentPropsWithoutRef<typeo
 }
 
 export function DialogContent({
-  title, description, footer, size = 'md', closeLabel = 'Close', className, children, ...props
+  title, description, footer, size = 'md', closeLabel = 'Close', className, children, onCloseAutoFocus, ...props
 }: DialogContentProps) {
   const width = { sm: 'max-w-[420px]', md: 'max-w-[560px]', lg: 'max-w-[760px]' }[size];
+  const focusOrigin = React.useRef<HTMLElement | null>(null);
+  const restoreFocus = useRestoreFocusOnClose(focusOrigin, onCloseAutoFocus);
   return (
     <DialogPrimitive.Portal>
+      <CaptureFocusOrigin target={focusOrigin} />
       <DialogPrimitive.Overlay className={overlayClasses} />
       <DialogPrimitive.Content
         className={cn(
@@ -62,6 +122,7 @@ export function DialogContent({
           'outline-none',
           className
         )}
+        onCloseAutoFocus={restoreFocus}
         {...props}
       >
         <div className="flex items-start justify-between gap-4">

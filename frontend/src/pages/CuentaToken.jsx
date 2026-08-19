@@ -88,6 +88,17 @@ export default function CuentaToken({ purposeOverride }) {
 
   useEffect(() => {
     let cancelled = false;
+    /*
+     * Categoría D: SINCRONIZACIÓN con un sistema externo. Es el patrón normal
+     * de una carga — marcar «cargando», pedir, resolver — y el aviso salta por
+     * la asignación previa a la petición.
+     *
+     * Volver a «loading» hace falta cuando cambia el token: se llega a esta
+     * pantalla desde un enlace de invitación, y navegar de un enlace a otro no
+     * desmonta el componente. Sin esto, el segundo token se validaría mostrando
+     * todavía el resultado del primero.
+     */
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- vuelve a «cargando» al cambiar de token, que no desmonta esta pantalla
     setPhase("loading");
     setErrorMsg("");
     validateAccountToken(token)

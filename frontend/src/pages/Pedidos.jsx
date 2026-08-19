@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { formatUsername } from "../utils/format";
 import { formatFechaCanaria } from "../utils/fecha";
@@ -49,6 +49,7 @@ import {
   cancelarPedido,
   descargarPedidoPdf,
 } from "../api/api";
+import { CARD_CLS, INPUT_CLS, TD, TH } from "../components/ui/tableStyles";
 
 /** Fecha corta en formato canario, tal y como la mostraba main. */
 const fmtFechaES = (value) => formatFechaCanaria(value);
@@ -195,13 +196,6 @@ const getPedidoFechaCaducidad = (pedido) => {
  * La densidad se conserva a propósito: son datos operativos que se consultan a
  * diario y se imprimen. Una tabla con más aire se lee peor, no mejor.
  */
-const CARD_CLS = "rounded-[var(--radius-lg)] border border-border bg-card p-[var(--card-padding)]";
-const TH = "border-b border-border px-2.5 py-2 text-left text-caption font-[var(--font-weight-medium)] text-muted-foreground";
-const TD = "border-b border-border px-2.5 py-2 align-top text-body-sm";
-const INPUT_CLS =
-  "h-[var(--input-height)] w-full rounded-[var(--radius-md)] border border-input bg-background px-3 text-body-sm " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
-
 /*
  * El banner era un `div` con colores propios. `Alert` ya resuelve el rol ARIA
  * según el tono —`alert` para error, `status` para el resto—, que es lo que
@@ -334,26 +328,24 @@ function PedidoModal({
   // quien aprueba y quien sirve, y salen en el PDF impreso.
   const [nota, setNota] = useState("");
 
-  useEffect(() => {
-    if (!open) {
-      setSearch("");
-      setFiltroCategoria("");
-      setFiltroSubcategoria("");
-      setSelectedProductId("");
-      setQtyInput({});
-      setLocalError("");
-      const g = makeGrupo();
-      setGrupos([g]);
-      setActiveGrupoId(g._id);
-      setGruposColapsados({});
-      setNota("");
-    }
-  }, [open]);
+  /*
+   * Antes había aquí dos efectos que hacían `setState`: uno reiniciaba once
+   * campos al cerrarse el modal y otro limpiaba la subcategoría al cambiar la
+   * categoría.
+   *
+   * El primero lo sustituye el remontado: el padre pasa una `key` atada a la
+   * apertura, así que abrir el modal crea una instancia nueva y el estado
+   * arranca en el de la declaración — sin una lista que haya que ampliar cada
+   * vez que se añade un campo.
+   *
+   * El segundo pasa al manejador, que es donde ocurre la acción del usuario.
+   */
 
-  // Al cambiar de categoría se limpia la subcategoría (dependen entre sí).
-  useEffect(() => {
+  /** La subcategoría depende de la categoría: mantenerla daría una lista vacía. */
+  const cambiarCategoria = (valor) => {
+    setFiltroCategoria(valor);
     setFiltroSubcategoria("");
-  }, [filtroCategoria]);
+  };
 
   // Solo los productos que TIENEN stock disponible (en alguno de sus formatos).
   // Los desplegables de categoría/subcategoría se derivan EXCLUSIVAMENTE de
@@ -395,8 +387,15 @@ function PedidoModal({
 
   // Suma de un producto+tamaño reservado en TODOS los grupos (para no exceder
   // el stock disponible al repartir el mismo producto entre varios destinos).
-  const totalAsignado = (key) =>
-    grupos.reduce((s, g) => s + Number(g.cart?.[key] || 0), 0);
+  /*
+   * `useCallback` para que su identidad sólo cambie cuando cambian los grupos.
+   * Sin eso, el `useMemo` que la usa la recibe distinta en cada render y el
+   * compilador de React no puede conservar esa memoización.
+   */
+  const totalAsignado = useCallback(
+    (key) => grupos.reduce((s, g) => s + Number(g.cart?.[key] || 0), 0),
+    [grupos]
+  );
 
   // Líneas (producto, tamaño, cantidad) de un grupo.
   const grupoLines = (g) =>
@@ -527,7 +526,9 @@ function PedidoModal({
       const restante = Math.max(0, disponible - asignado);
       return { tamano, disponible, restante, enCesta: asignado };
     }).filter((x) => x.disponible > 0);
-  }, [selectedProduct, stockByProductSize, grupos]);
+    // `totalAsignado` ya depende de `grupos`: nombrarla aquí es lo que permite
+    // al compilador comprobar que la memoización es correcta.
+  }, [selectedProduct, stockByProductSize, totalAsignado]);
 
   const totalLineas = grupos.reduce((s, g) => s + grupoLines(g).length, 0);
   const totalItems = grupos.reduce(
@@ -702,7 +703,7 @@ function PedidoModal({
             <select
               aria-label="Filtrar productos por categoría"
               value={filtroCategoria}
-              onChange={(e) => setFiltroCategoria(e.target.value)}
+              onChange={(e) => cambiarCategoria(e.target.value)}
               className={INPUT_CLS}
             >
               <option value="">Todas las categorías</option>
@@ -743,7 +744,6 @@ function PedidoModal({
               </div>
             ) : (
               productosDisponibles.map((p) => {
-                const active = String(selectedProductId) === String(p.id);
                 const formatoOptionsP = getFormatoOptions(getProductFormatoConfig(p));
                 const total = formatoOptionsP.reduce(
                   (acc, t) => acc + Math.max(0, Number(stockByProductSize.get(lineKey(p.id, t)) || 0)),
@@ -1865,7 +1865,9 @@ export default function Pedidos() {
   const { me } = useOutletContext();
 
   const [productos, setProductos] = useState([]);
-  const [movimientos, setMovimientos] = useState([]);
+  // Sólo se escribe: los movimientos se cargan para que un 403 de ese
+  // endpoint no aborte la carga de pedidos, pero esta pantalla no los lista.
+  const [, setMovimientos] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingNewPedido, setSavingNewPedido] = useState(false);
@@ -1894,7 +1896,6 @@ export default function Pedidos() {
   // Proveedor es estrictamente de lectura: no edita ni cancela ni crea.
   const isProveedor = role === "proveedor";
   const isReadOnly = role === "tecnico" || role === "gestor_vivero" || isProveedor;
-  const isAdmin = role === "admin";
 
   const clearMsgTimer = () => {
     if (msgTimerRef.current) {
@@ -1912,9 +1913,19 @@ export default function Pedidos() {
     }, 3000);
   };
 
+  /*
+   * Carga ÚNICA al montar. `refrescar` se redefine en cada render, así que nombrarla
+   * como dependencia volvería a pedir los datos en bucle. Envolverla en
+   * `useCallback` sólo trasladaría el problema: sus propias dependencias cambian
+   * con el estado que la propia carga escribe.
+   *
+   * El refresco posterior no depende de este efecto: lo disparan las acciones
+   * del usuario y el evento `vivero:data-changed`.
+   */
   useEffect(() => {
     refrescar();
     return () => clearMsgTimer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- carga única al montar; incluirla provocaría un bucle de peticiones
   }, []);
 
   /*
@@ -2525,7 +2536,10 @@ export default function Pedidos() {
         )}
       </div>
 
+      {/* `key`: abrir el modal monta una instancia nueva y su estado arranca
+          limpio, sin un efecto que reinicie campo por campo. */}
       <PedidoModal
+        key={modalOpen ? "pedido-abierto" : "pedido-cerrado"}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         productos={productos}

@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Button, Dialog, DialogContent } from "../../ui";
+import { leerPreferencia, recordarPreferencia } from "./welcomeStorage";
 
 // Recursos enlazados desde el modal. Reemplaza estas rutas cuando subas
 // los archivos definitivos:
@@ -10,52 +11,17 @@ import { Button, Dialog, DialogContent } from "../../ui";
 const PDF_URL = "/guia-viverapp.pdf";
 const VIDEO_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"; // placeholder
 
-// Keys de localStorage para recordar la preferencia del usuario.
-export const WELCOME_SEEN_KEY = "viverapp_welcome_seen";
-export const WELCOME_SHOW_ON_START_KEY = "viverapp_welcome_show_on_start";
-
-/**
- * Lee de localStorage si el usuario quiere que el modal aparezca al iniciar.
- * Por defecto (sin valor en storage) devuelve false: solo se muestra la
- * primera vez y luego queda silenciado.
- */
-export function shouldShowWelcomeOnStart() {
-  try {
-    if (window.localStorage.getItem(WELCOME_SEEN_KEY) !== "true") return true; // primera vez
-    return window.localStorage.getItem(WELCOME_SHOW_ON_START_KEY) === "true";
-  } catch {
-    return true;
-  }
-}
-
 export default function WelcomeModal({ open, onClose }) {
-  const [showOnStart, setShowOnStart] = useState(false);
-
-  // Sincroniza el checkbox con lo que hubiera guardado el usuario en una
-  // visita anterior (si reabre el modal desde el botón "?" esperamos ver
-  // su preferencia previa, no resetearla a false).
-  useEffect(() => {
-    if (!open) return;
-    try {
-      setShowOnStart(
-        window.localStorage.getItem(WELCOME_SHOW_ON_START_KEY) === "true"
-      );
-    } catch {
-      setShowOnStart(false);
-    }
-  }, [open]);
+  /*
+   * INICIALIZACIÓN, no sincronización: la preferencia ya existe cuando el
+   * componente se monta, así que se lee en el inicializador perezoso de
+   * `useState`. Antes se leía en un `useEffect` que hacía `setState` nada más
+   * montar, lo que provoca un segundo render en cascada por cada apertura.
+   */
+  const [showOnStart, setShowOnStart] = useState(leerPreferencia);
 
   const handleClose = () => {
-    try {
-      window.localStorage.setItem(WELCOME_SEEN_KEY, "true");
-      window.localStorage.setItem(
-        WELCOME_SHOW_ON_START_KEY,
-        showOnStart ? "true" : "false"
-      );
-    } catch {
-      // noop: en navegadores sin localStorage simplemente perdemos la
-      // preferencia, pero el modal se cierra igualmente.
-    }
+    recordarPreferencia(showOnStart);
     onClose?.();
   };
 
