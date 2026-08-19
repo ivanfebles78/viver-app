@@ -214,7 +214,17 @@ describe("Lotes · estados", () => {
     render(<Lotetracking />);
     await buscar(user, "x");
 
-    expect(screen.getByRole("button", { name: /buscar/i })).toBeDisabled();
+    /*
+     * Ocupado, no deshabilitado: el botón se anuncia ocupado y rechaza la
+     * activación por su cuenta, pero conserva el foco. Ver UF-8.
+     */
+    const boton = screen.getByRole("button", { name: /buscar/i });
+    expect(boton).toHaveAttribute("aria-busy", "true");
+    expect(boton).toHaveAttribute("aria-disabled", "true");
+    expect(boton).toBeEnabled();
+
+    await user.click(boton, undefined, { pointerEventsCheck: 0 });
+    expect(getLote).toHaveBeenCalledTimes(1);
   });
 });
 

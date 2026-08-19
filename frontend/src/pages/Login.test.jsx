@@ -137,7 +137,25 @@ describe("Login · comportamiento de autenticación", () => {
     const boton = screen.getByRole("button", { name: /^entrar$/i });
     await user.click(boton);
 
-    expect(await screen.findByRole("button", { name: /entrando/i })).toBeDisabled();
+    /*
+     * Lo que hay que garantizar es que NO se entra dos veces, no cómo se
+     * consigue. El botón ya no se deshabilita de forma nativa —eso le quitaba
+     * el foco y dejaba al usuario tirado al principio del documento cuando el
+     * control estaba dentro de un diálogo, que es UF-8— sino que se anuncia
+     * ocupado y rechaza la activación por su cuenta.
+     *
+     * Así que se comprueba insistiendo: tres pulsaciones más, por las tres
+     * vías, y una sola llamada.
+     */
+    const ocupado = await screen.findByRole("button", { name: /entrando/i });
+    expect(ocupado).toHaveAttribute("aria-busy", "true");
+    expect(ocupado).toHaveAttribute("aria-disabled", "true");
+    expect(ocupado).toBeEnabled();
+
+    await user.click(ocupado, undefined, { pointerEventsCheck: 0 });
+    ocupado.focus();
+    await user.keyboard("{Enter}[Space]");
+
     expect(login).toHaveBeenCalledTimes(1);
   });
 });

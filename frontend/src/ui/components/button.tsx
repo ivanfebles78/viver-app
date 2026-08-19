@@ -37,6 +37,13 @@ const buttonVariants = cva(
     // A disabled control must still be perceivable; it is dimmed by token, not opacity guesswork.
     'disabled:bg-[var(--btn-disabled-bg)] disabled:text-[var(--btn-disabled-fg)]',
     'disabled:border-[var(--btn-disabled-border)] disabled:cursor-not-allowed',
+    // A BUSY control is dimmed the same way, but it is not natively disabled —
+    // see the note on `loading` below — so the `disabled:` variant above, which
+    // keys off the native attribute, would never reach it.
+    'aria-disabled:bg-[var(--btn-disabled-bg)] aria-disabled:text-[var(--btn-disabled-fg)]',
+    'aria-disabled:border-[var(--btn-disabled-border)]',
+    // Waiting, not forbidden: the pointer says "in a moment", not "never".
+    'aria-disabled:cursor-not-allowed data-[loading=true]:cursor-wait',
     '[&_svg]:pointer-events-none [&_svg]:shrink-0'
   ].join(' '),
   {
@@ -94,7 +101,12 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
-  /** Shows a spinner and disables interaction. */
+  /**
+   * The action this button started is in flight.
+   *
+   * NOT the same thing as `disabled`, and deliberately implemented differently.
+   * See the note above the component for why.
+   */
   loading?: boolean;
   /**
    * Accessible name for icon-only buttons. REQUIRED whenever there is no
@@ -103,15 +115,90 @@ export interface ButtonProps
   label?: string;
 }
 
+/*
+ * BUSY IS NOT DISABLED.
+ *
+ * `disabled` means "this control is not available to you". Leaving the tab order
+ * is correct: there is nothing to do with it, and stopping on it would be a stop
+ * that leads nowhere.
+ *
+ * `loading` means "the thing you just asked for is happening". The user is
+ * mid-interaction with THIS control, and three things follow from that:
+ *
+ *   1. It must stay focusable. A native `disabled` button cannot hold focus, so
+ *      a dialog closing has nowhere to give focus back to and the user is
+ *      dropped at the top of the document — right after acting, which is the
+ *      worst possible moment. That is WCAG 2.4.3.
+ *   2. It must stay announced. `aria-busy` on an element that can never hold
+ *      focus is a message with no one to read it.
+ *   3. It must still refuse to run twice.
+ *
+ * Points 1 and 3 pull against each other, and that tension is the whole design.
+ * `aria-disabled` buys back focusability, but it buys back every activation path
+ * with it: pointer, Enter, Space, and implicit form submission all become live
+ * again. So the guard lives HERE, in the component, and not in a rule that every
+ * consumer has to remember. A design system that hands that problem downstream
+ * has not solved it — it has spread it out.
+ *
+ * The paths blocked below are the ones a button actually has:
+ *
+ *   - `click`   — pointer, Enter and Space all arrive here, and so does implicit
+ *                 form submission through a `type="submit"` button.
+ *   - `keydown` — stops Space from scrolling the page, and stops a consumer that
+ *                 binds keydown directly.
+ *   - `pointerdown` / `mousedown` — some triggers open on press rather than on
+ *                 click; a Radix menu trigger is the common case.
+ *
+ * `preventDefault` is used on click and keydown but NOT on the press events: on
+ * mousedown it would also cancel the browser's own focus handling, and a busy
+ * button that cannot be focused by clicking it would defeat point 1.
+ */
+
+/** Returns a handler that swallows the event while busy, and defers otherwise. */
+function bloquearSiOcupado<E extends React.SyntheticEvent>(
+  ocupado: boolean,
+  original: ((event: E) => void) | undefined,
+  { conPreventDefault }: { conPreventDefault: boolean }
+) {
+  return (event: E) => {
+    if (ocupado) {
+      if (conPreventDefault) event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    original?.(event);
+  };
+}
+
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { className, variant, size, fullWidth, asChild = false, loading = false, label,
-    children, disabled, type, ...props },
+    children, disabled, type, onClick, onKeyDown, onPointerDown, onMouseDown,
+    // Se sacan del resto para que el `{...props}` de abajo no pueda pisarlos: un
+    // `aria-disabled={false}` del consumidor no puede desarmar el guardarraíl.
+    'aria-disabled': ariaDisabled, 'aria-label': ariaLabel, ...props },
   ref
 ) {
   const Comp = asChild ? Slot : 'button';
   const isIconOnly = typeof size === 'string' && size.startsWith('icon');
 
-  if (process.env.NODE_ENV !== 'production' && isIconOnly && !label && !props['aria-label']) {
+  // Genuinely unavailable wins: there is nothing to be busy about.
+  const ocupado = loading && !disabled;
+
+  /*
+   * Sólo Enter y Espacio se interceptan. Las demás teclas tienen que seguir
+   * llegando: Escape cierra el diálogo que hay encima, y Tab tiene que poder
+   * sacar el foco de un botón ocupado o el usuario se quedaría encerrado en él.
+   */
+  const alPulsarTecla = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (ocupado && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    onKeyDown?.(event);
+  };
+
+  if (process.env.NODE_ENV !== 'production' && isIconOnly && !label && !ariaLabel) {
     // Loud in development, silent in production: a missing accessible name is a
     // defect, but it must never take down a running application.
     console.warn('[devcon8/ui] An icon-only Button needs a `label` for assistive technology.');
@@ -124,9 +211,15 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       // and causes accidental submissions. Be explicit unless told otherwise.
       type={asChild ? undefined : (type ?? 'button')}
       className={cn(buttonVariants({ variant, size, fullWidth }), className)}
-      disabled={disabled || loading}
-      aria-busy={loading || undefined}
-      aria-label={label ?? props['aria-label']}
+      disabled={disabled}
+      aria-disabled={ocupado || ariaDisabled}
+      aria-busy={ocupado || undefined}
+      data-loading={ocupado || undefined}
+      aria-label={label ?? ariaLabel}
+      onClick={bloquearSiOcupado(ocupado, onClick, { conPreventDefault: true })}
+      onKeyDown={alPulsarTecla}
+      onPointerDown={bloquearSiOcupado(ocupado, onPointerDown, { conPreventDefault: false })}
+      onMouseDown={bloquearSiOcupado(ocupado, onMouseDown, { conPreventDefault: false })}
       {...props}
     >
       {loading && <Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />}
