@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getClientes, getActiveClienteId, setActiveClienteId } from "../../api/api";
+import { Alert } from "../ui/feedback";
 
 // Nombre corto: quita el prefijo "Ayuntamiento de/del " (redundante, ya que el
 // selector lleva la etiqueta "Ayuntamiento" encima).
@@ -56,35 +57,16 @@ export default function ClienteSelector({ visible }) {
   };
 
   return (
-    <div
-      style={{
-        marginBottom: 14,
-        padding: "10px 12px",
-        borderRadius: 12,
-        background: "#ecfdf5",
-        border: "1px solid #a7f3d0",
-      }}
-    >
+    <div className="mb-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--muted)] p-3">
       {/*
-        Era un <div> suelto que solo PARECÍA una etiqueta. El <select> no tenía
-        nombre accesible: un lector de pantalla anunciaba "cuadro combinado" sin
-        decir de qué. Y este control cambia el AYUNTAMIENTO activo — el más
-        consecuente del shell para un super-admin.
-
-        Se convierte en un <label for> real. El aspecto no cambia; el resto de
-        la migración de esta pantalla pertenece a una fase posterior.
+        Era un `div` suelto que sólo PARECÍA una etiqueta: el `select` no tenía
+        nombre accesible y un lector anunciaba «cuadro combinado» sin decir de
+        qué — siendo el control más consecuente del shell para un super-admin.
+        Sigue siendo un `label for` real; lo que cambia aquí es el estilo.
       */}
       <label
         htmlFor="selector-ayuntamiento"
-        style={{
-          display: "block",
-          fontSize: 11,
-          fontWeight: 800,
-          color: "#047857",
-          textTransform: "uppercase",
-          letterSpacing: 0.4,
-          marginBottom: 6,
-        }}
+        className="mb-1 block text-caption uppercase text-muted-foreground"
       >
         Ayuntamiento
       </label>
@@ -92,17 +74,7 @@ export default function ClienteSelector({ visible }) {
         id="selector-ayuntamiento"
         value={activo || ""}
         onChange={onChange}
-        style={{
-          width: "100%",
-          padding: "8px 10px",
-          borderRadius: 8,
-          border: "1px solid #6ee7b7",
-          background: "#fff",
-          color: "#065f46",
-          fontWeight: 700,
-          fontSize: 14,
-          cursor: "pointer",
-        }}
+        className="h-[var(--control-height-md)] w-full min-w-0 cursor-pointer rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] px-3 outline-none focus-visible:outline-[length:var(--focus-ring-width)] focus-visible:outline-solid focus-visible:outline-ring"
       >
         <option value="">Todos los ayuntamientos</option>
         {clientes.map((c) => (
@@ -111,14 +83,13 @@ export default function ClienteSelector({ visible }) {
           </option>
         ))}
       </select>
-      {error && (
-        // role="alert": si falla la carga de ayuntamientos, un usuario de
-        // lector de pantalla debe enterarse, no quedarse con un desplegable
-        // vacío y sin explicación.
-        <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>
-          {error}
+      {error ? (
+        <div className="mt-2">
+          {/* `Alert` en tono error ya lleva `role="alert"`: si falla la carga,
+              el usuario de lector no puede quedarse con un desplegable vacío. */}
+          <Alert tone="error">{error}</Alert>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
