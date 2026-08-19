@@ -43,6 +43,7 @@ const PROPIOS = {
   "contract.test.js": "Pruebas de ViverApp CONTRA el paquete; no forman parte de él.",
   "theme-script.test.js": "Ídem: comprueba el script de tema desde el lado del consumidor.",
   "focus-restore.test.jsx": "Ídem: fija la devolución del foco (UF-7) contra el componente real.",
+  "boton-ocupado.test.jsx": "Ídem: fija que un botón ocupado (UF-8) conserva el foco sin poder reactivarse.",
 };
 
 /**

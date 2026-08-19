@@ -370,7 +370,7 @@ sincronización futura reintrodujera el defecto, falla aquí.
 
 ## UF-8 — un disparador que pasa a `loading` pierde el foco al cerrarse la superposición
 
-**Estado: reportado aguas arriba, NO corregido** ·
+**Estado: CERRADO** — corregido aguas arriba y sincronizado ·
 Componente: `Button` (`src/ui/components/button.tsx`) ·
 Gravedad: **baja** (transitorio, no bloquea ninguna tarea)
 
@@ -390,24 +390,54 @@ tanto y el foco se pierde.
 Verificado en navegador real y reproducido de forma determinista con la
 primitiva del sistema: `disabled === true`, `document.activeElement === body`.
 
-### Por qué NO se corrige aquí
+### Por qué no se corrigió sólo aquí
 
-El arreglo natural es que `loading` use `aria-disabled` con una guarda en el
-manejador en lugar de `disabled`. Eso mantiene el botón enfocable y anunciado
-como ocupado, pero cambia la semántica de `Button` para TODOS los consumidores:
-un botón con `aria-disabled` sí recibe el clic, así que cada manejador tendría
-que protegerse. Es una decisión de diseño del sistema, no una corrección obvia.
+El arreglo evidente —cambiar `disabled` por `aria-disabled`— habría dejado vivas
+todas las vías de activación: puntero, Enter, Espacio y el envío implícito de un
+formulario. Es decir, habría cambiado un defecto de accesibilidad por uno de
+duplicación, y habría trasladado la guarda a cada consumidor, que es el sitio
+donde es más fácil olvidarla.
 
-Corregirlo sólo en ViverApp sería peor: dejaría un botón de carga que se
-comporta distinto a los otros ~20 de la aplicación, y una divergencia local en
-`src/ui/` que la siguiente sincronización borraría.
+Y corregirlo sólo en ViverApp habría sido peor todavía: un botón que se comporta
+distinto a los otros veinte de la aplicación, y una divergencia local en
+`src/ui/` que la siguiente sincronización borraría en silencio.
 
-Se ha abierto [la incidencia #6](https://github.com/Devcon8SL/devcon8-platform/issues/6)
-con la reproducción y tres alternativas valoradas.
+### Cómo se corrigió
 
-### Alcance real en ViverApp
+| | |
+|---|---|
+| Repositorio | `devcon8-platform` |
+| Rama | `fix/button-loading-focus-restoration` |
+| PR | [#7](https://github.com/Devcon8SL/devcon8-platform/pull/7) |
+| Merge | `6b8adc9` |
+| Incidencia | [#6](https://github.com/Devcon8SL/devcon8-platform/issues/6), cerrada |
+| CI | 8/8 en verde |
 
-Afecta al patrón `loading` en un disparador de superposición. Hoy eso es **un
-solo sitio**: el botón «Exportar» de Informes. El resto de botones con `loading`
-son de envío dentro de un formulario o de un diálogo, donde no hay foco que
-devolver.
+`disabled` se queda **exactamente como estaba**: un control que no está a tu
+alcance no gana nada estando en el orden de tabulación.
+
+`loading` pasa a `aria-disabled` + `aria-busy`, enfocable, con el guardarraíl de
+activación DENTRO del componente —`click`, `keydown`, `pointerdown` y
+`mousedown`—, de modo que ningún consumidor puede quedarse sin protegerlo.
+
+Verificado por mutación aguas arriba, una guarda cada vez: quitar el `disabled`
+nativo rompe 10 pruebas; la de `click`, 7; la de `keydown`, 4; la de
+`pointerdown`, 4. Ninguna sobra.
+
+### Comprobado en ViverApp
+
+`src/ui/boton-ocupado.test.jsx` fija el contrato contra el componente real, y se
+comprobó que es rojo contra el componente anterior a la sincronización.
+
+En navegador real, sobre «Generar informe» de Informes con la red retrasada para
+que el estado sea observable: mientras trabaja el botón declara
+`aria-busy="true"` y `aria-disabled="true"`, **no** está deshabilitado de forma
+nativa, y **conserva el foco**.
+
+### Una observación que NO es este defecto
+
+El botón «Exportar» de Informes sigue perdiendo el foco al exportar un PDF, pero
+por otro motivo: `savePdfWithDialog` abre el diálogo de guardado del sistema
+operativo mediante `showSaveFilePicker`, y es ESE diálogo el que se lleva el
+foco. Es comportamiento del navegador ante una ventana nativa, no del sistema de
+diseño; durante esa exportación el botón nunca llega a marcarse como ocupado.

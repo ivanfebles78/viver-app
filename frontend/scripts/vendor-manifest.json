@@ -2,7 +2,7 @@
   "generado": "manual",
   "nota": "Hashes SHA-256 del código vendorizado, con el fin de línea normalizado a LF. Regenerar SÓLO tras copiar desde el paquete, nunca para tapar una edición local.",
   "ficheros": {
-    "components/button.tsx": "3f18f59afdb10c29c0afa8677d9ffc6807e79d5de36bc513aace67724213ba4b",
+    "components/button.tsx": "f53fa549684befafd9afc65686df0d7443cf02345027709da9f4e520bcb55e28",
     "components/data-table.tsx": "5c9785b5d7062352489711bdfbe5a05d820c02f10aa0aa29324b4f6570dbefac",
     "components/form.tsx": "81f2ee5763d777c38d655ea982af48bd2a9c770c33dbe12141dee0845f8269df",
     "components/overlays.tsx": "d3213cf3615a4e470687c03d586bd7d939f91268f8a0baa933f1b4a551189a01",
