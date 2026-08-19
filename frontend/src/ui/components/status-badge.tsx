@@ -3,7 +3,7 @@
 import * as React from 'react';
 import {
   CircleDashed, Send, Clock, Eye, CheckCircle2, XCircle, PauseCircle,
-  CircleDot, CircleSlash, CheckCheck, Ban, Archive, Loader
+  CircleDot, CircleSlash, CheckCheck, Ban, Archive, Loader, PackageCheck
 } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { Status, StatusTone, STATUS_TONES } from './status-model';
@@ -38,6 +38,7 @@ const STATUS_ICONS: Record<Status, React.ComponentType<{ className?: string }>> 
   [Status.ACTIVE]: CircleDot,
   [Status.INACTIVE]: CircleSlash,
   [Status.COMPLETED]: CheckCheck,
+  [Status.DELIVERED]: PackageCheck,
   [Status.CANCELLED]: Ban,
   [Status.ARCHIVED]: Archive
 };

@@ -111,8 +111,18 @@ describe("contrato de estados · semántica de negocio", () => {
     expect(estadoPedido("APROBADO_PARCIAL").label).not.toBe(estadoPedido("APROBADO").label);
   });
 
-  it("SERVIDO es un final CORRECTO, no un rechazo ni un aviso", () => {
-    expect(estadoPedido("SERVIDO").status).toBe(Status.COMPLETED);
+  it("SERVIDO es un final correcto, pero NO se confunde con APROBADO", () => {
+    /*
+     * La versión anterior de esta prueba exigía `COMPLETED`, y `COMPLETED` es
+     * verde igual que `APPROVED`: el contrato estaba fijando precisamente la
+     * colisión. Lo que hay que garantizar no es qué estado concreto usa, sino
+     * que un pedido servido no se lea igual que uno aprobado y sin servir.
+     */
+    expect(estadoPedido("SERVIDO").status).toBe(Status.DELIVERED);
+    expect(estadoPedido("SERVIDO").status).not.toBe(estadoPedido("APROBADO").status);
+    expect(STATUS_TONES[estadoPedido("SERVIDO").status]).not.toBe(
+      STATUS_TONES[estadoPedido("APROBADO").status]
+    );
   });
 
   it("«bajo stock» avisa; «agotado» rechaza", () => {

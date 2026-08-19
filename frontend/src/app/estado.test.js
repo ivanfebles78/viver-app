@@ -20,9 +20,17 @@ describe("estados de pedido", () => {
     expect(estadoPedido("DENEGADO").label).toBe("Denegado");
   });
 
-  it("aprobado, servido y activo son verdes (éxito)", () => {
+  it("aprobado es verde; servido NO", () => {
+    /*
+     * Los dos son finales correctos, pero responden a preguntas distintas. El
+     * verde responde a «¿se aprobó?»; el azul, a «¿dónde está ahora?». Con los
+     * dos en verde había que LEER cada fila de una tabla de veinte pedidos para
+     * saber cuáles seguían pendientes de servir, que es exactamente el trabajo
+     * que el tono venía a ahorrar.
+     */
     expect(tono(estadoPedido("APROBADO"))).toBe(StatusTone.SUCCESS);
-    expect(tono(estadoPedido("SERVIDO"))).toBe(StatusTone.SUCCESS);
+    expect(tono(estadoPedido("SERVIDO"))).toBe(StatusTone.INFO);
+    expect(tono(estadoPedido("SERVIDO"))).not.toBe(StatusTone.SUCCESS);
   });
 
   it("denegado es el ÚNICO estado de pedido en rojo", () => {
