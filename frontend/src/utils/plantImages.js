@@ -115,7 +115,14 @@ export function usePlantsWithImage(productos) {
     return () => {
       active = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    /*
+     * Se depende de `sig`, no de `lista`. Es deliberado: `sig` es la firma de
+     * id y nombre científico del catálogo, que es LO ÚNICO de lo que depende el
+     * sondeo. `lista` cambia de identidad en cada recarga aunque traiga los
+     * mismos productos, y volver a sondear el catálogo entero por eso sería
+     * visible: el filtro se vaciaría y se volvería a llenar.
+     */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- se depende de la firma del catálogo, no de la identidad de `lista`, que cambia en cada recarga
   }, [sig]);
   return ids;
 }
