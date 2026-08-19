@@ -56,6 +56,14 @@ jobs:
         # solo protesta si la deuda visual AUMENTA.
         run: npm run tokens:check
 
+      - name: Integridad del código vendorizado
+        # `src/ui/` es una copia del paquete de diseño y no se edita aquí. Sin
+        # esta comprobación la regla es sólo un comentario: un parche local
+        # sobrevive hasta la siguiente sincronización, que lo borra en silencio.
+        # En CI el paquete no está al lado, así que se verifica contra el
+        # manifiesto de hashes versionado.
+        run: npm run check:vendor
+
       - name: Comprobación de tipos
         # Cubre el paquete de UI vendorizado, que se mantiene en TypeScript.
         run: npm run typecheck

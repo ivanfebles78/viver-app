@@ -185,7 +185,7 @@ la regla de que solo se muestre cuando el valor signifique algo.
 
 ---
 
-## UF-6 · El botón de cierre de `DialogContent` no llega al objetivo táctil mínimo
+## UF-6 · El botón de cierre de `DialogContent` no llega al objetivo táctil mínimo — CERRADO
 
 **Componente:** `packages/ui/src/components/overlays.tsx`
 **Severidad:** media — incumple la SC 2.5.8 (AA) en móvil, justo donde más importa
@@ -246,15 +246,168 @@ consumidores, no sólo dentro de un diálogo.
 Verificado aplicando el cambio y volviendo a medir el mismo diálogo: **28×28 px
 a 320, 375 y 768 px**, por encima del mínimo de 24.
 
-### Estado
+### Estado: CERRADO
 
-Preparada aguas arriba en `devcon8-platform`, rama `fix/icon-button-shrink`,
-commit `ed740c3`. Sin publicar: queda a decisión de quien mantiene el paquete.
+| Paso | Referencia |
+|---|---|
+| PR aguas arriba | `Devcon8SL/devcon8-platform` **#4** |
+| Commit | `a69b221` |
+| Merge | `ff722c9` |
+| CI | 8/8 en verde, incluido el trabajo de accesibilidad en navegador real |
+| Sincronizado en ViverApp | Fase 9, copiando `button.tsx` del paquete |
+
+La corrección se extendió también a `icon-lg`: mismo defecto latente, sólo que
+necesita una ventana aún más estrecha para manifestarse.
+
+Medido de nuevo en navegador real sobre el mismo diálogo, ya con el paquete
+sincronizado:
+
+| Viewport | Ancho | Alto | `flex-shrink` | SC 2.5.8 |
+|---:|---:|---:|---:|:--|
+| 320 px | 28 px | 28 px | 0 | cumple |
+| 375 px | 28 px | 28 px | 0 | cumple |
+| 768 px | 28 px | 28 px | 0 | cumple |
+| 1024 px | 28 px | 28 px | 0 | cumple |
+| 1440 px | 28 px | 28 px | 0 | cumple |
 
 ### Rodeo en ViverApp
 
-**Ninguno, y a propósito.** `src/ui/` sigue siendo copia byte a byte del
-paquete: parchearlo sólo aquí crearía una divergencia que la próxima
-sincronización borraría en silencio, y dejaría a ViverApp con un sistema de
-diseño que ya no es el sistema de diseño. El defecto sigue presente en ViverApp
-hasta que se sincronice la corrección de aguas arriba.
+**Ninguno, y a propósito.** No se parcheó `src/ui/` en local en ningún momento:
+hacerlo habría creado una divergencia que la siguiente sincronización borraría
+en silencio, dejando a ViverApp con un sistema de diseño que ya no es el sistema
+de diseño. Se corrigió aguas arriba y se sincronizó, que es el camino que la
+regla de vendorizado exige.
+
+Desde la Fase 9 ese camino además se COMPRUEBA: `npm run check:vendor` contrasta
+cada fichero vendorizado con un manifiesto de hashes versionado —detecta
+ediciones locales y funciona en CI, donde el paquete no está al lado— y, cuando
+el paquete sí está disponible, compara además fichero a fichero para detectar
+copias desfasadas o componentes nuevos sin portar.
+
+---
+
+## UF-7 — el foco no vuelve al control que abrió un diálogo controlado
+
+**Estado: corregido aguas arriba, pendiente de sincronizar** ·
+Componente: `DialogContent` (`src/ui/components/overlays.tsx`) ·
+Gravedad: **alta** (WCAG 2.2 AA, criterio 2.4.3 · Orden del foco)
+
+### Qué pasa
+
+Al cerrar cualquier diálogo de ViverApp —con Escape o con su botón de cerrar—
+el foco no vuelve al control que lo abrió: cae a `<body>`. Quien navega con
+teclado aparece al principio del documento y tiene que recorrer la pantalla
+entera para volver a donde estaba. En el catálogo de Productos, con un botón
+«Pedir más» por fila, la diferencia entre cerrar el diálogo de la fila 9 y
+seguir trabajando es de una pulsación de Tab a varias decenas.
+
+Afecta a TODOS los diálogos de la aplicación, no a uno.
+
+### Causa
+
+Radix cancela la restauración de foco de su propio `FocusScope` —que la hace
+bien— y en su lugar enfoca la referencia de su `DialogTrigger`:
+
+```js
+onCloseAutoFocus: composeEventHandlers(props.onCloseAutoFocus, (event) => {
+  event.preventDefault();
+  context.triggerRef.current?.focus();
+}),
+```
+
+ViverApp no usa `DialogTrigger` en ninguna pantalla: abre los diálogos con
+estado propio, porque la apertura depende de qué fila, qué producto o qué
+permiso. Sin disparador esa referencia es `null`, no se enfoca nada, y el
+`preventDefault()` ya ha impedido que `FocusScope` haga lo correcto.
+
+### Por qué no lo vio nada
+
+- **axe no lo ve.** axe examina el marcado de un instante; esto es una
+  transición. Las 18 superficies de la auditoría dan cero violaciones y el
+  defecto está en todas.
+- **Aguas arriba tampoco lo veía.** El paquete SÍ tenía una prueba de
+  devolución del foco, pero pasaba por `DialogTrigger` —el camino que funciona—
+  y su escaparate no tenía ningún diálogo controlado por estado. El camino roto
+  no era observable.
+
+Se encontró recorriendo la aplicación con teclado en navegador real, que es lo
+único que lo enseña.
+
+### Corrección aguas arriba
+
+| | |
+|---|---|
+| Repositorio | `devcon8-platform` |
+| Rama | `fix/dialog-focus-restore` |
+| PR | [#5](https://github.com/Devcon8SL/devcon8-platform/pull/5) |
+| Commit | `3f4cb2d` |
+
+`DialogContent` registra qué estaba enfocado en el instante en que el diálogo se
+abre y le devuelve el foco al cerrarse. Un solo camino para los dos casos:
+cuando SÍ hay disparador, el elemento registrado ES ese disparador, porque
+pulsarlo es lo que lo enfocó. Un `onCloseAutoFocus` del consumidor sigue
+mandando.
+
+El registro se hace en un efecto de DISPOSICIÓN dentro del portal, no en uno
+pasivo. `FocusScope` mueve el foco al diálogo desde un efecto pasivo, y todos
+los de disposición de un commit se ejecutan antes que todos los pasivos; uno
+pasivo aquí leería `document.activeElement` cuando el foco ya se lo había
+llevado el diálogo, y registraría el propio diálogo. Fue exactamente el primer
+intento, y la prueba en navegador lo tumbó.
+
+Se añadió al escaparate el caso que faltaba —un diálogo controlado por estado—
+y dos pruebas de extremo a extremo sobre él, **verificadas por mutación**:
+quitando el registro fallan las dos y la de disparador sigue pasando.
+
+### Rodeo en ViverApp
+
+**Ninguno.** `src/ui/` no se toca en local; se sincroniza desde el paquete y
+`npm run check:vendor` lo comprueba. ViverApp conserva además su propia prueba
+de contrato (`src/ui/focus-restore.test.jsx`) contra el componente real: si una
+sincronización futura reintrodujera el defecto, falla aquí.
+
+---
+
+## UF-8 — un disparador que pasa a `loading` pierde el foco al cerrarse la superposición
+
+**Estado: reportado aguas arriba, NO corregido** ·
+Componente: `Button` (`src/ui/components/button.tsx`) ·
+Gravedad: **baja** (transitorio, no bloquea ninguna tarea)
+
+### Qué pasa
+
+`Button` con `loading` se renderiza `disabled`. Cuando ese botón es el que abrió
+un `Dialog` o un `DropdownMenu`, y la acción de cierre arranca un proceso que lo
+pone en `loading`, la devolución del foco que trae UF-7 no puede completarse: un
+elemento deshabilitado no admite foco, así que éste cae a `<body>`.
+
+En ViverApp se manifiesta al exportar un informe desde el menú «Exportar»:
+el menú se cierra, la exportación empieza, el botón se deshabilita mientras
+tanto y el foco se pierde.
+
+### Comprobado, no supuesto
+
+Verificado en navegador real y reproducido de forma determinista con la
+primitiva del sistema: `disabled === true`, `document.activeElement === body`.
+
+### Por qué NO se corrige aquí
+
+El arreglo natural es que `loading` use `aria-disabled` con una guarda en el
+manejador en lugar de `disabled`. Eso mantiene el botón enfocable y anunciado
+como ocupado, pero cambia la semántica de `Button` para TODOS los consumidores:
+un botón con `aria-disabled` sí recibe el clic, así que cada manejador tendría
+que protegerse. Es una decisión de diseño del sistema, no una corrección obvia.
+
+Corregirlo sólo en ViverApp sería peor: dejaría un botón de carga que se
+comporta distinto a los otros ~20 de la aplicación, y una divergencia local en
+`src/ui/` que la siguiente sincronización borraría.
+
+Se ha abierto [la incidencia #6](https://github.com/Devcon8SL/devcon8-platform/issues/6)
+con la reproducción y tres alternativas valoradas.
+
+### Alcance real en ViverApp
+
+Afecta al patrón `loading` en un disparador de superposición. Hoy eso es **un
+solo sitio**: el botón «Exportar» de Informes. El resto de botones con `loading`
+son de envío dentro de un formulario o de un diálogo, donde no hay foco que
+devolver.

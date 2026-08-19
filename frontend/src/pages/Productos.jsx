@@ -220,35 +220,23 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
     }
   };
 
+  /*
+   * DEFECTO CORREGIDO EN LA AUDITORÍA FINAL. Era un `div` con
+   * `position: fixed`: sin `role="dialog"`, sin trampa de foco, sin cierre con
+   * Escape y sin devolver el foco al cerrarse. Un usuario de teclado quedaba
+   * tabulando por detrás del modal sin saberlo. axe no lo detecta —el
+   * atrapamiento del foco no se ve en una foto del DOM—, así que sobrevivió a
+   * las revisiones anteriores.
+   */
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "var(--overlay)",
-        backdropFilter: "blur(4px)",
-        zIndex: 1000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-      }}
-    >
-      <div
-        style={{
-          width: "min(520px, 96vw)",
-          background: "var(--card)",
-          borderRadius: "var(--radius-lg)",
-          padding: 24,
-          boxShadow: "var(--shadow-md)",
-        }}
+    <Dialog open={open} onOpenChange={(abierto) => !abierto && onClose()}>
+      <DialogContent
+        title="Añadir a la cesta"
+        description="Selecciona formato y cantidad. Podrás añadir más productos antes de finalizar el pedido de reposición."
+        closeLabel="Cerrar"
+        size="md"
       >
-        <div style={{ fontSize: 24, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
-          Añadir a la cesta
-        </div>
-        <div style={{ marginTop: 6, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
-          Selecciona formato y cantidad. Podrás añadir más productos antes de finalizar el pedido de reposición.
-        </div>
+      <div className="flex min-w-0 flex-col">
 
         <div
           style={{
@@ -397,88 +385,52 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
               cursor: saving ? "not-allowed" : "pointer",
             }}
           >
-            {saving ? "Añadiendo..." : "🛒 Añadir a la cesta"}
+            {saving ? "Añadiendo..." : "Añadir a la cesta"}
           </button>
         </div>
       </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 
 function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAddMore, saving, errorMsg }) {
+  // La nota arranca vacía en cada apertura porque el padre remonta el modal con
+  // una `key`; antes era un efecto que hacía `setState` justo al abrirse.
   const [nota, setNota] = useState("");
-
-  useEffect(() => {
-    if (open) setNota("");
-  }, [open]);
 
   if (!open) return null;
 
   const total = cart.reduce((sum, it) => sum + Number(it.cantidad || 0), 0);
   const lineCount = cart.length;
 
+  /*
+   * Mismo defecto que en «Pedir más», corregido en la auditoría final: era un
+   * `div` con `position: fixed`, sin rol, sin trampa de foco, sin Escape y sin
+   * devolución del foco. Además su cierre al pulsar el fondo no distinguía un
+   * clic de soltar una selección de texto, así que arrastrar para seleccionar
+   * dentro de la cesta la cerraba y perdía el pedido a medio montar.
+   */
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "var(--overlay)",
-        backdropFilter: "blur(4px)",
-        zIndex: 1100,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        style={{
-          width: "min(720px, 96vw)",
-          maxHeight: "92vh",
-          background: "var(--card)",
-          borderRadius: "var(--radius-lg)",
-          padding: 24,
-          boxShadow: "var(--shadow-md)",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open={open} onOpenChange={(abierto) => !abierto && onClose()}>
+      <DialogContent
+        title="Cesta de reposición"
+        description={
+          lineCount === 0
+            ? "Aún no has añadido productos a la cesta."
+            : `${lineCount} ${lineCount === 1 ? "línea" : "líneas"} · ${formatCantidad(total)} unidades totales`
+        }
+        closeLabel="Cerrar"
+        size="lg"
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
-          <div>
-            <div style={{ fontSize: 24, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
-              🛒 Cesta de reposición
-            </div>
-            <div style={{ marginTop: 6, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
-              {lineCount === 0
-                ? "Aún no has añadido productos a la cesta."
-                : `${lineCount} ${lineCount === 1 ? "línea" : "líneas"} · ${formatCantidad(total)} unidades totales`}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            style={{
-              padding: "6px 12px",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--border)",
-              background: "var(--card)",
-              color: "var(--muted-foreground)",
-              fontWeight: "var(--font-weight-semibold)",
-              cursor: saving ? "not-allowed" : "pointer",
-              fontSize: 18,
-              lineHeight: 1,
-            }}
-            title="Cerrar"
-          >
-            ×
-          </button>
-        </div>
+      <div className="flex max-h-[75dvh] min-w-0 flex-col overflow-y-auto">
+        {/*
+          El título, la bajada y el botón de cierre los pinta ya `DialogContent`.
+          Aquí había una segunda cabecera con su propia «×»: dos controles de
+          cierre distintos para lo mismo, el mismo defecto que se corrigió en
+          «Gestionar productos» en la Fase 5.
+        */}
 
         {/* Lista de items */}
         <div style={{ overflowY: "auto", marginTop: 8, marginBottom: 12, flex: 1 }}>
@@ -653,12 +605,13 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
                 minWidth: 180,
               }}
             >
-              {saving ? "Enviando..." : "✓ Finalizar pedido"}
+              {saving ? "Enviando..." : "Finalizar pedido"}
             </button>
           </div>
         </div>
       </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1861,7 +1814,10 @@ export default function Productos() {
         saving={saving}
       />
 
+      {/* `key`: abrir la cesta monta una instancia nueva, así que la nota
+          empieza vacía sin necesidad de un efecto que la limpie. */}
       <CartModal
+        key={cartOpen ? "cesta-abierta" : "cesta-cerrada"}
         open={cartOpen}
         cart={cart}
         onClose={() => { setCartOpen(false); setCartError(""); }}

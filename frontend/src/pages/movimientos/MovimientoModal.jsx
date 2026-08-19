@@ -241,22 +241,32 @@ export default function MovimientoModal({
   const toggleDestinoColapsado = (dst) =>
     setDestinosColapsados((p) => ({ ...p, [dst]: !p[dst] }));
 
-  useEffect(() => {
-    if (!open) {
-      setStep(1);
-      setForm(FORM_VACIO);
-      setErrors([]);
-      setShowPedidoModal(false);
-      setShowPrestamoModal(false);
-      setDistribucion({});
-      setZonasSalida([]);
-      setPedidoLineAlloc({});
-      setBatchPayloads([]);
-      setProductoSearch("");
-      setFiltroCategoria("");
-      setFiltroSubcategoria("");
-    }
-  }, [open]);
+  /*
+   * PODA DE CAMPOS INVÁLIDOS.
+   *
+   * Los efectos que siguen comparten un patrón: cuando cambia algo de lo que un
+   * campo depende, ese campo deja de ser válido y hay que limpiarlo o
+   * rellenarlo. Son SINCRONIZACIÓN, no estado derivado, y por eso siguen siendo
+   * efectos:
+   *
+   *   1. Varias dependencias NO son acciones del usuario. Las zonas
+   *      disponibles, las existencias por zona y los productos con stock llegan
+   *      de peticiones asíncronas: un formulario válido puede volverse inválido
+   *      sin que nadie toque nada, y entonces no hay manejador donde poner la
+   *      poda.
+   *   2. Los propios efectos se disparan entre sí. Limpiar `producto_id` porque
+   *      se ha quedado sin existencias invalida a su vez el reparto por zonas.
+   *      Con manejadores habría que repetir la cascada en cada punto que toca un
+   *      campo, y basta olvidarse de uno para dejar el formulario enviando datos
+   *      incoherentes.
+   *
+   * Tampoco se calculan al pintar, que sería lo preferible en otro caso: el
+   * valor podado se ENVÍA al backend, y derivarlo sólo para mostrarlo dejaría el
+   * estado real distinto de lo que el usuario ve.
+   *
+   * El reinicio al cerrar el modal, que antes vivía aquí y tocaba once campos,
+   * lo hace ahora el remontado: el padre pasa una `key` atada a la apertura.
+   */
 
   // En un traslado interno el destino es siempre «Vivero»: no se recalcula.
   useEffect(() => {
@@ -359,6 +369,14 @@ export default function MovimientoModal({
       if (t_o === prev.tamano_origen && t_d === prev.tamano_destino) return prev;
       return { ...prev, tamano_origen: t_o, tamano_destino: t_d };
     });
+    /*
+     * Se depende del `id` del producto, no del objeto: la lista de productos se
+     * recarga entera al refrescar y el objeto cambia de identidad aunque sea el
+     * mismo producto, lo que reharía la poda y borraría el tamaño que el usuario
+     * acaba de elegir. `formatoConfig.options` se deriva de `kind` y `value`,
+     * que sí están listados.
+     */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- se depende del id, no de la identidad del objeto, que cambia en cada recarga
   }, [selectedProducto?.id, formatoConfig.kind, formatoConfig.value]);
 
   useEffect(() => {
@@ -891,7 +909,6 @@ export default function MovimientoModal({
     return out;
   };
 
-  const lineasPendientesPedido = pedidoLineas.filter((l) => !l._disabled).length;
 
   const addPedidoLinea = (linea) => {
     const esRepo = (selectedPedido?.tipo || "salida") === "reposicion";

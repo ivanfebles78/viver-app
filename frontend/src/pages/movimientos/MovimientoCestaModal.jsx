@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Trash2, Plus } from "lucide-react";
 
 import {
@@ -131,31 +131,22 @@ export default function MovimientoCestaModal({
     setLineTamanoDestino("");
   };
 
-  useEffect(() => {
-    if (!open) {
-      setTipo("salida");
-      setSearch("");
-      setFiltroCategoria("");
-      setFiltroSubcategoria("");
-      setSelectedProductId("");
-      setSourceZone("");
-      setSizeQty({});
-      setZonaQty({});
-      setLineZonaDestino("");
-      setLineTamanoDestino("");
-      setEntradaOrigen("");
-      setEntradaOtros("");
-      setDestinoTipo("");
-      setDistrito("");
-      setBarrio("");
-      setDireccion("");
-      setCart([]);
-      setLocalError("");
-    }
-  }, [open]);
+  /*
+   * REINICIOS — antes eran seis `useEffect` que llamaban a `setState` en
+   * cuanto cambiaba una dependencia. Cada uno provocaba un render en cascada:
+   * React pintaba con el valor viejo, el efecto corría, y volvía a pintar.
+   *
+   * Todos respondían a una ACCIÓN DEL USUARIO, así que su sitio es el
+   * manejador que la atiende, no un efecto. El reinicio al cerrar el modal se
+   * resuelve de otra forma: el padre le pasa una `key`, de modo que abrirlo
+   * monta una instancia nueva y el estado inicial es el de la declaración.
+   *
+   * Lo que se reinicia y cuándo está fijado en `MovimientoCestaModal.test.jsx`.
+   */
 
-  // Cambiar de tipo reinicia selección y cesta: las líneas son propias del tipo.
-  useEffect(() => {
+  /** Cambiar de tipo vacía la pantalla: las líneas son propias del tipo. */
+  const cambiarTipo = (nuevo) => {
+    setTipo(nuevo);
     setSearch("");
     setFiltroCategoria("");
     setFiltroSubcategoria("");
@@ -169,17 +160,34 @@ export default function MovimientoCestaModal({
     setDireccion("");
     setCart([]);
     setLocalError("");
-  }, [tipo]);
+  };
 
-  useEffect(() => setFiltroSubcategoria(""), [filtroCategoria]);
-  useEffect(() => setBarrio(""), [distrito]);
-  useEffect(() => {
+  /** La subcategoría depende de la categoría: mantenerla daría una lista vacía. */
+  const cambiarCategoria = (valor) => {
+    setFiltroCategoria(valor);
+    setFiltroSubcategoria("");
+  };
+
+  /** El barrio depende del distrito. */
+  const cambiarDistrito = (valor) => {
+    setDistrito(valor);
+    setBarrio("");
+  };
+
+  /** Otro producto son otras cantidades: no se arrastran las del anterior. */
+  const elegirProducto = (id) => {
+    setSelectedProductId(id);
     setSizeQty({});
     setZonaQty({});
     setLineZonaDestino("");
     setLineTamanoDestino("");
-  }, [selectedProductId]);
-  useEffect(() => resetSeleccion(), [sourceZone]);
+  };
+
+  /** Cambiar la zona de origen invalida lo seleccionado en la anterior. */
+  const cambiarSourceZone = (valor) => {
+    setSourceZone(valor);
+    resetSeleccion();
+  };
 
   const zonaIdByLower = useMemo(() => {
     const m = new Map();
@@ -275,13 +283,19 @@ export default function MovimientoCestaModal({
     [selectedProduct, zonas]
   );
 
-  // Con una sola zona posible, se fija sola: preguntar por algo sin alternativa
-  // es hacer trabajar al usuario para nada.
-  useEffect(() => {
-    if ((esEntrada || esTraslado) && selectedProduct && zonasDestinoPermitidas.length === 1) {
-      setLineZonaDestino(zonasDestinoPermitidas[0]);
-    }
-  }, [esEntrada, esTraslado, selectedProduct, zonasDestinoPermitidas]);
+  /*
+   * Con una sola zona posible, se fija sola: preguntar por algo sin alternativa
+   * es hacer trabajar al usuario para nada.
+   *
+   * Es estado DERIVADO, así que se calcula al pintar en vez de guardarse. Antes
+   * era un efecto que hacía `setState` justo después de pintar: el primer
+   * render mostraba el campo vacío y el segundo ya con la zona, y entre los dos
+   * había un instante en el que el formulario se creía incompleto.
+   */
+  const zonaDestinoEfectiva =
+    (esEntrada || esTraslado) && selectedProduct && zonasDestinoPermitidas.length === 1
+      ? zonasDestinoPermitidas[0]
+      : lineZonaDestino;
 
   /* ENTRADA: se ofrecen TODOS los formatos del producto. `tamanoDisponiblePlanta`
      limita lo que la UTE puede PEDIR, no los movimientos físicos: una planta
@@ -370,7 +384,7 @@ export default function MovimientoCestaModal({
     const nuevos = [];
 
     if (esEntrada) {
-      if (!lineZonaDestino) {
+      if (!zonaDestinoEfectiva) {
         setLocalError("Elige la zona destino de este producto.");
         return;
       }
@@ -384,7 +398,7 @@ export default function MovimientoCestaModal({
           producto_id: selectedProduct.id,
           nombre,
           tamano_destino: tam,
-          zona_destino: lineZonaDestino,
+          zona_destino: zonaDestinoEfectiva,
           cantidad: q,
         });
       }
@@ -393,7 +407,7 @@ export default function MovimientoCestaModal({
         return;
       }
     } else if (esTraslado) {
-      if (!lineZonaDestino) {
+      if (!zonaDestinoEfectiva) {
         setLocalError("Elige la zona destino del traslado.");
         return;
       }
@@ -412,7 +426,7 @@ export default function MovimientoCestaModal({
           nombre,
           zona_origen: sourceZone,
           tamano_origen: r.tamano,
-          zona_destino: lineZonaDestino,
+          zona_destino: zonaDestinoEfectiva,
           tamano_destino: lineTamanoDestino || r.tamano,
           cantidad: q,
         });
@@ -572,7 +586,7 @@ export default function MovimientoCestaModal({
             <SelectField
               label="Zona de origen"
               value={sourceZone}
-              onChange={setSourceZone}
+              onChange={cambiarSourceZone}
               allLabel={null}
               placeholder="Elige la zona de la que sale el material"
               options={zonasConStockGlobal.map((z) => ({ value: String(z), label: getZonaLabel(z) }))}
@@ -598,7 +612,7 @@ export default function MovimientoCestaModal({
                 <SelectField
                   label="Categoría"
                   value={filtroCategoria}
-                  onChange={setFiltroCategoria}
+                  onChange={cambiarCategoria}
                   options={categoriasDisponibles.map((c) => ({ value: c, label: c }))}
                 />
                 <SelectField
@@ -632,7 +646,7 @@ export default function MovimientoCestaModal({
                         type="button"
                         role="radio"
                         aria-checked={activo}
-                        onClick={() => setSelectedProductId(String(p.id))}
+                        onClick={() => elegirProducto(String(p.id))}
                         className={cn(
                           "flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-left last:border-b-0",
                           "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
@@ -676,7 +690,7 @@ export default function MovimientoCestaModal({
                   {(esEntrada || esTraslado) && (
                     <SelectField
                       label="Zona de destino"
-                      value={lineZonaDestino}
+                      value={zonaDestinoEfectiva}
                       onChange={setLineZonaDestino}
                       allLabel={null}
                       placeholder="Elige la zona"
@@ -856,7 +870,7 @@ export default function MovimientoCestaModal({
                       label="Distrito"
                       required
                       value={distrito}
-                      onChange={setDistrito}
+                      onChange={cambiarDistrito}
                       allLabel={null}
                       placeholder="Elige distrito"
                       options={DISTRITOS.map((d) => ({ value: d, label: d }))}
@@ -901,7 +915,7 @@ export default function MovimientoCestaModal({
       >
         {/* Tres vistas excluyentes: es lo que un grupo de pestañas comunica.
             Antes eran tres píldoras con un degradado distinto cada una. */}
-        <Tabs value={tipo} onValueChange={setTipo}>
+        <Tabs value={tipo} onValueChange={cambiarTipo}>
           <TabsList>
             {TIPOS.map((t) => (
               <TabsTrigger key={t.value} value={t.value}>

@@ -534,7 +534,15 @@ export default function Movimientos() {
         }
       />
 
+      {/*
+        `key`: igual que en la cesta, abrir el modal monta una instancia nueva y
+        el estado arranca en el de la declaración. Reemplaza a un `useEffect`
+        que reiniciaba once campos al cerrarse: un `setState` en cascada por
+        apertura, y una lista que había que ampliar cada vez que se añadía un
+        campo. El remontado no se olvida de ninguno.
+      */}
       <MovimientoModal
+        key={showModal ? "movimiento-abierto" : "movimiento-cerrado"}
         open={showModal}
         onClose={() => setShowModal(false)}
         productos={productos}
@@ -545,7 +553,15 @@ export default function Movimientos() {
         zonas={zonasDisponibles}
       />
 
+      {/*
+        `key`: abrir el modal monta una instancia NUEVA, así que su estado
+        arranca en el de la declaración. Antes esto lo hacía un `useEffect` que
+        reiniciaba trece campos al cerrarse — un `setState` en cascada por cada
+        apertura, y una lista que había que acordarse de ampliar cada vez que se
+        añadía un campo. El remontado no se puede olvidar de ninguno.
+      */}
       <MovimientoCestaModal
+        key={showSalidaModal ? "cesta-abierta" : "cesta-cerrada"}
         open={showSalidaModal}
         onClose={() => setShowSalidaModal(false)}
         productos={productos}

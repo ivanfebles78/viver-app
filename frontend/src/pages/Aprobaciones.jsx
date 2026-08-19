@@ -451,9 +451,19 @@ export default function Aprobaciones() {
     }
   };
 
+  /*
+   * Carga ÚNICA al montar. `load` se redefine en cada render, así que nombrarla
+   * como dependencia volvería a pedir los datos en bucle. Envolverla en
+   * `useCallback` sólo trasladaría el problema: sus propias dependencias cambian
+   * con el estado que la propia carga escribe.
+   *
+   * El refresco posterior no depende de este efecto: lo disparan las acciones
+   * del usuario y el evento `vivero:data-changed`.
+   */
   useEffect(() => {
     load();
     return () => clearMsgTimer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- carga única al montar; incluirla provocaría un bucle de peticiones
   }, []);
 
   const pedidosFiltrados = useMemo(

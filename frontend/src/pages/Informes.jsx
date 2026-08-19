@@ -4,6 +4,10 @@ import {
   Button,
   Card,
   DataTable,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   EmptyState as EmptyStateUI,
   Field,
   Input,
@@ -15,6 +19,7 @@ import { Alert } from "../components/ui/feedback";
 import { FilterBar } from "../components/ui/layout";
 import SearchField from "../components/ui/SearchField";
 import SelectField from "../components/ui/SelectField";
+import { CARD_CLS, INPUT_CLS, TD, TH } from "../components/ui/tableStyles";
 import { estadoCaducidad, estadoPedido, estadoStock } from "../app/estado";
 
 import { ChevronDown } from "lucide-react";
@@ -32,6 +37,15 @@ import {
   getMovimientos,
   getPedidos,
 } from "../api/api";
+
+/**
+ * Informes que además de PDF se pueden exportar a Excel.
+ *
+ * Estaba escrito como una cadena de comparaciones repetida dos veces —una para
+ * decidir si se pinta la opción y otra para elegir qué función llamar—, de modo
+ * que añadir un informe exigía acordarse de tocar las dos.
+ */
+const PUEDEN_EXCEL = new Set(["inventario", "externos", "distribucion", "stock", "estadisticas"]);
 
 const REPORTS = [
   { key: "trazabilidad", label: "Trazabilidad", desc: "Sigue el recorrido completo de un lote (por su UUID): entradas, traslados, salidas y devoluciones, con fechas, zonas y cantidades." },
@@ -147,14 +161,6 @@ const DISTRICT_BARRIOS = {
  * resultado visual y el marcado son los mismos, y la sustitución es mecánica y
  * verificable.
  */
-const CARD_CLS = "rounded-[var(--radius-lg)] border border-border bg-card p-[var(--card-padding)]";
-
-const TH = "border-b border-border px-2.5 py-2 text-left text-caption font-[var(--font-weight-medium)] text-muted-foreground";
-const TD = "border-b border-border px-2.5 py-2 align-top text-body-sm";
-const INPUT_CLS =
-  "h-[var(--input-height)] w-full rounded-[var(--radius-md)] border border-input bg-background px-3 text-body-sm " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
-
 function safeNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -336,7 +342,9 @@ function buildCaducidadItems(productos) {
   const items = [];
   const seen = new Set();
 
-  const pushItemFactory = (producto) => ({ source, id, zona, tamano, fechaCaducidad, cantidad, loteUuid }) => {
+  // `source` e `id` viajan en el objeto pero no se usan aquí: la clave de
+  // deduplicación se construye con producto, lote, zona y tamaño.
+  const pushItemFactory = (producto) => ({ zona, tamano, fechaCaducidad, cantidad, loteUuid }) => {
     const cad = getCaducidadEstado(fechaCaducidad);
     if (!cad) return;
 
@@ -859,6 +867,10 @@ export default function Informes() {
     let list = allowedReportKeys ? REPORTS.filter((r) => allowedReportKeys.includes(r.key)) : REPORTS;
     if (!isAdmin) list = list.filter((r) => r.key !== "estadisticas");
     return list;
+    // `isAdmin` y `allowedReportKeys` se calculan A PARTIR de `role` unas
+    // líneas más arriba, así que `[role]` ya cubre a las tres. Nombrarlas
+    // también no cambiaría cuándo se recalcula, sólo repetiría la dependencia.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ambas derivan de `role`, que ya está en la lista
   }, [role]);
 
   const [activeReport, setActiveReport] = useState(
@@ -997,9 +1009,19 @@ export default function Informes() {
     }
   };
 
+  /*
+   * Carga ÚNICA al montar. `loadProductos` se redefine en cada render, así que nombrarla
+   * como dependencia volvería a pedir los datos en bucle. Envolverla en
+   * `useCallback` sólo trasladaría el problema: sus propias dependencias cambian
+   * con el estado que la propia carga escribe.
+   *
+   * El refresco posterior no depende de este efecto: lo disparan las acciones
+   * del usuario y el evento `vivero:data-changed`.
+   */
   useEffect(() => {
     loadProductos(false);
     return () => clearMsgTimer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- carga única al montar; incluirla provocaría un bucle de peticiones
   }, []);
 
   useEffect(() => {
@@ -1927,6 +1949,16 @@ export default function Informes() {
 
   // Exporta el informe de Inventario vivero a CSV (matriz por zona con una
   // columna por tamaño; lo abre Excel).
+  /** Único punto que decide qué exportador de Excel corresponde a cada informe. */
+  const exportarExcelDelInforme = (informe) => {
+    if (informe === "inventario") return exportarInventarioExcel();
+    if (informe === "externos") return exportarExternosExcel();
+    if (informe === "distribucion") return exportarDistribucionExcel();
+    if (informe === "stock") return exportarStockExcel();
+    if (informe === "estadisticas") return exportarEstadisticasExcel();
+    return undefined;
+  };
+
   const exportarInventarioExcel = () => {
     const zonas = Array.isArray(inventarioFiltrado) ? inventarioFiltrado : [];
     if (zonas.length === 0) return;
@@ -2090,54 +2122,37 @@ export default function Informes() {
             })}
           </div>
 
-          <div style={{ position: "relative" }}>
-            {/*
-              `aria-expanded` y `aria-haspopup` no estaban: el botón abría un
-              menú y nada lo anunciaba. Y el «▾» pasa a icono decorativo — un
-              lector de pantalla leía «Exportar triángulo hacia abajo pequeño».
-            */}
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setExportMenuOpen((o) => !o)}
-              disabled={!canExportCurrentReport || exporting}
-              loading={exporting}
-              aria-haspopup="menu"
-              aria-expanded={exportMenuOpen}
-              title={canExportCurrentReport ? "Exportar informe" : "Genera primero un informe"}
-            >
-              {exporting ? "Exportando…" : "Exportar"}
-              <ChevronDown aria-hidden="true" className="size-4" />
-            </Button>
-            {exportMenuOpen && canExportCurrentReport && (
-              <>
-                <div onClick={() => setExportMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-                <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", zIndex: 50, minWidth: 190, overflow: "hidden" }}>
-                  <button
-                    onClick={() => { setExportMenuOpen(false); handleExportPdf(); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "11px 14px", border: "none", borderBottom: "1px solid var(--border)", background: "var(--card)", cursor: "pointer", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", fontSize: 14 }}
-                  >
-                    📄 Exportar a PDF
-                  </button>
-                  {(activeReport === "inventario" || activeReport === "externos" || activeReport === "distribucion" || activeReport === "stock" || activeReport === "estadisticas") && (
-                    <button
-                      onClick={() => {
-                        setExportMenuOpen(false);
-                        if (activeReport === "inventario") exportarInventarioExcel();
-                        else if (activeReport === "externos") exportarExternosExcel();
-                        else if (activeReport === "distribucion") exportarDistribucionExcel();
-                        else if (activeReport === "stock") exportarStockExcel();
-                        else if (activeReport === "estadisticas") exportarEstadisticasExcel();
-                      }}
-                      style={{ display: "block", width: "100%", textAlign: "left", padding: "11px 14px", border: "none", background: "var(--card)", cursor: "pointer", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)", fontSize: 14 }}
-                    >
-                      📊 Exportar a Excel
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+          {/*
+            El botón declara que abre un menú, así que abre un menú de verdad.
+            Antes lo que se desplegaba eran dos botones sueltos dentro de un
+            `div`: sin `role`, sin cierre con Escape, sin recorrido con flechas,
+            y con un `div` a pantalla completa cuyo único cometido era recibir
+            un clic para cerrar — un control de ratón disfrazado de capa, que
+            con teclado no existía. La primitiva del sistema resuelve las cuatro
+            cosas y además devuelve el foco al botón al cerrarse.
+          */}
+          <DropdownMenu open={exportMenuOpen} onOpenChange={setExportMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={!canExportCurrentReport || exporting}
+                loading={exporting}
+                title={canExportCurrentReport ? "Exportar informe" : "Genera primero un informe"}
+              >
+                {exporting ? "Exportando…" : "Exportar"}
+                <ChevronDown aria-hidden="true" className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onSelect={handleExportPdf}>Exportar a PDF</DropdownMenuItem>
+              {PUEDEN_EXCEL.has(activeReport) && (
+                <DropdownMenuItem onSelect={() => exportarExcelDelInforme(activeReport)}>
+                  Exportar a Excel
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {(() => {
