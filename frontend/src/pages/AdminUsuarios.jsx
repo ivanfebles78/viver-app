@@ -732,9 +732,7 @@ export default function AdminUsuarios() {
         },
       },
     ],
-    // Los manejadores son estables dentro de un render; `busyId` es lo que
-    // cambia el estado deshabilitado del menú.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- los manejadores son estables dentro de un render; `busyId` es lo único que cambia el estado deshabilitado del menú
     [busyId]
   );
 

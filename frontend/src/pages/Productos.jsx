@@ -182,7 +182,13 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
       setNota("");
       setErr("");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    /*
+     * `valorPorDefectoFormato` queda fuera de la lista a propósito. Es una
+     * función de módulo, estable, y añadirla no cambiaría cuándo se ejecuta el
+     * efecto: lo que tiene que reiniciar el formulario es abrirlo o cambiar de
+     * producto, no que la regla del formato por defecto exista.
+     */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `valorPorDefectoFormato` es una función de módulo, estable; añadirla no cambiaría cuándo se reinicia el formulario
   }, [open, producto?.id]);
 
   if (!open || !producto) return null;

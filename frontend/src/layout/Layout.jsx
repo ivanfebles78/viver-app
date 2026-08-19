@@ -76,8 +76,7 @@ export default function Layout() {
     if (location.pathname !== ROUTES.DASHBOARD) return;
     if (!me) return; // espera a tener al usuario para no abrirlo antes de la sesión
     if (shouldShowWelcomeOnStart()) setWelcomeOpen(true);
-    // Solo se evalúa al cambiar de ruta o al cargar al usuario.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo debe evaluarse al cambiar de ruta o al cargar al usuario
   }, [location.pathname, me?.id]);
 
   useEffect(() => {
