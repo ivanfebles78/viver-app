@@ -278,3 +278,64 @@ describe("explicacionDisponible", () => {
     expect(texto).not.toMatch(/estará disponible el/i);
   });
 });
+
+/* ══ 5. La tabla se desplaza a lo ancho, y se puede usar sin ratón ═══════ */
+
+describe("la tabla desplazable en móvil", () => {
+  /*
+   * DECISIÓN DE PRODUCTO: en móvil no se ocultan Reservado ni Disponible. Diez
+   * columnas no caben en 320 px, así que la tabla se desplaza en horizontal —
+   * deliberadamente.
+   *
+   * Eso obliga a algo que se olvida casi siempre: un `overflow-x: auto` a secas
+   * es una trampa. El contenido está, se ve arrastrando con el dedo, y es
+   * INALCANZABLE con teclado, porque entre una columna y la siguiente no hay
+   * nada que reciba el foco y las flechas nunca llegan a desplazar el
+   * contenedor.
+   */
+  it("es una región con nombre, no un div mudo", async () => {
+    api.getProductos.mockResolvedValue([producto()]);
+    render(<Productos />);
+    await filaDe("Ficus benjamina");
+
+    const region = screen.getByRole("region", { name: /catálogo de productos/i });
+    expect(region).toBeInTheDocument();
+    // Y contiene la tabla, no es una región cualquiera de la página.
+    expect(region.querySelector("table")).not.toBeNull();
+  });
+
+  it("entra en el orden de tabulación para poder desplazarla con el teclado", async () => {
+    api.getProductos.mockResolvedValue([producto()]);
+    render(<Productos />);
+    await filaDe("Ficus benjamina");
+
+    const region = screen.getByRole("region", { name: /catálogo de productos/i });
+    expect(region).toHaveAttribute("tabindex", "0");
+  });
+
+  it("el nombre AVISA de que hay más contenido a los lados", async () => {
+    /*
+     * Quien escucha la página necesita saber que la tabla se desplaza; si no,
+     * se queda con las cuatro primeras columnas creyendo que son todas.
+     */
+    api.getProductos.mockResolvedValue([producto()]);
+    render(<Productos />);
+    await filaDe("Ficus benjamina");
+
+    const region = screen.getByRole("region", { name: /catálogo de productos/i });
+    expect(region.getAttribute("aria-label")).toMatch(/desplazable|horizontal/i);
+  });
+
+  it("y las columnas siguen ahí: no se ocultan en ningún ancho", async () => {
+    // El equipo usa el móvil en el vivero. Esconder Disponible es esconder
+    // justo el número por el que se mira la pantalla.
+    api.getProductos.mockResolvedValue([producto()]);
+    render(<Productos />);
+    await filaDe("Ficus benjamina");
+
+    for (const nombre of ["Stock", "Reservado", "Disponible"]) {
+      const th = screen.getByRole("columnheader", { name: nombre });
+      expect(th.className).not.toMatch(/hidden|sm:table-cell|md:table-cell/);
+    }
+  });
+});

@@ -1808,7 +1808,26 @@ export default function Productos() {
           queda dentro de la tabla, que es donde tiene sentido: una tabla de diez
           columnas no cabe en un móvil y forzarla a caber la haría ilegible.
         */
-        <div style={{ overflowX: "auto", minWidth: 0, maxWidth: "100%" }}>
+        <div
+          /*
+            UNA REGIÓN DESPLAZABLE, Y QUE SE PUEDA USAR SIN RATÓN.
+            Un `overflow-x: auto` a secas es una trampa de accesibilidad: el
+            contenido existe, se ve al arrastrar con el dedo o con la rueda, y es
+            INALCANZABLE para quien navega con teclado. No hay nada dentro que
+            reciba el foco entre una columna y la siguiente, así que las flechas
+            nunca llegan a desplazarlo.
+            Con `tabIndex={0}` la región entra en el orden de tabulación y las
+            flechas, Inicio y Fin la desplazan — comportamiento nativo del
+            navegador en cuanto el contenedor puede enfocarse (SC 2.1.1).
+            `role="region"` + nombre accesible hacen que un lector de pantalla
+            la anuncie como lo que es, en vez de soltar al usuario dentro de una
+            tabla sin avisar de que hay más a los lados (SC 1.3.1, 4.1.2).
+          */
+          role="region"
+          aria-label="Catálogo de productos. Tabla desplazable en horizontal."
+          tabIndex={0}
+          style={{ overflowX: "auto", minWidth: 0, maxWidth: "100%" }}
+        >
           <table
             className="w-full border-collapse [&_td]:p-3 [&_td]:align-middle [&_th]:p-3 [&_tbody_tr]:border-t [&_tbody_tr]:border-[var(--border)]"
             style={{ minWidth: 720 }}
