@@ -909,6 +909,19 @@ def _reservas_por_producto_tamano(db: Session, exclude_pedido_id: Optional[int] 
     hoy = datetime.utcnow().date()
     pedidos = (
         db.query(Pedido)
+        # LAS LÍNEAS, EN LA MISMA CONSULTA.
+        #
+        # `Pedido.items` es una relación perezosa, así que el bucle de abajo
+        # dispara un SELECT por cada pedido vivo. Medido con un contador de
+        # sentencias sobre una sesión y una base limpias: **34 consultas para
+        # listar 30 productos**, cuando el docstring de `get_productos` promete
+        # tres «independientemente del número de productos». Con esta línea, 5.
+        #
+        # No se nota con datos de juguete. En un vivero con doscientos pedidos
+        # abiertos son doscientos viajes a la base de datos cada vez que alguien
+        # abre Productos — y la columna Reservado hace que esa pantalla se abra
+        # mucho más.
+        .options(selectinload(Pedido.items))
         .filter(func.lower(Pedido.tipo) == "salida")
         .filter(func.upper(Pedido.estado).in_(["RESERVA", "APROBADO", "APROBADO_PARCIAL"]))
         .filter(or_(Pedido.fecha_caducidad.is_(None), Pedido.fecha_caducidad >= hoy))
