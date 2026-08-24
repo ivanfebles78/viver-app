@@ -1267,22 +1267,31 @@ function PedidoDetalleCellOld({
                       gridTemplateColumns: "1fr 80px 70px",
                       gap: 8,
                       alignItems: "center",
-                      opacity: isDenegado ? 0.55 : 1,
+                      /*
+                        Una línea denegada se atenúa, pero NO con opacidad.
+                        `opacity: 0.55` mezclaba el texto con el fondo y dejaba
+                        `--foreground` en 4,0:1 sobre blanco — por debajo del
+                        4,5 que exige la AA (SC 1.4.3). Medido con axe en
+                        navegador, no supuesto.
+                        La atenuación ahora la da el color del texto, con un
+                        token que sí cumple (7,58:1), y el tachado sigue siendo
+                        el canal que no depende del color (SC 1.4.1).
+                      */
                     }}
                   >
                     <div
                       style={{
                         fontWeight: "var(--font-weight-semibold)",
-                        color: "var(--foreground)",
+                        color: isDenegado ? "var(--muted-foreground)" : "var(--foreground)",
                         textDecoration: isDenegado ? "line-through" : "none",
                       }}
                     >
                       {nombre}
                     </div>
-                    <div style={{ textAlign: "center", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
+                    <div style={{ textAlign: "center", fontWeight: "var(--font-weight-semibold)", color: isDenegado ? "var(--muted-foreground)" : "var(--foreground)" }}>
                       {it.tamano || "—"}
                     </div>
-                    <div style={{ textAlign: "right", fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
+                    <div style={{ textAlign: "right", fontWeight: "var(--font-weight-semibold)", color: isDenegado ? "var(--muted-foreground)" : "var(--foreground)" }}>
                       {formatCantidad(it.cantidad ?? 0) || "0"}
                     </div>
                   </div>

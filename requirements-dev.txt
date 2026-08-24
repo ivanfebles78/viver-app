@@ -1,0 +1,6 @@
+# Dependencias SÓLO para ejecutar las pruebas del backend.
+#
+# Van aparte de `requirements.txt` a propósito: la imagen que se despliega no
+# necesita pytest, y meterlo ahí sería enviar a producción código de pruebas.
+-r requirements.txt
+pytest==8.3.4

@@ -78,10 +78,44 @@ const REGLAS = {
   region: { enabled: false },
 };
 
+/**
+ * LAS ETIQUETAS QUE SE EXIGEN.
+ *
+ * Hasta ahora `axe.run` se llamaba sin `runOnly`, es decir, con el conjunto de
+ * reglas ACTIVAS POR DEFECTO. Y ahí estaba el agujero: axe-core trae
+ * `target-size` —el criterio 2.5.8 de WCAG 2.2— **desactivada por defecto**.
+ * Comprobado en la versión instalada:
+ *
+ *   axe.getRules(["wcag22aa"])  ->  ["target-size"]
+ *   ...cuya definición lleva `enabled: false`.
+ *
+ * Resultado: toda la suite de accesibilidad de las fases anteriores estaba en
+ * verde sin haber comprobado 2.5.8 ni una sola vez. No es que la interfaz
+ * fallara —se ha medido en navegador y pasa—, es que nadie lo estaba mirando.
+ *
+ * Se declaran las etiquetas de forma explícita para que añadir WCAG 2.2 sea una
+ * decisión visible y no dependa de lo que axe decida activar por defecto.
+ */
+const ETIQUETAS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"];
+
 async function violaciones(nodo) {
-  const r = await axe.run(nodo, { rules: REGLAS, resultTypes: ["violations"] });
+  const r = await axe.run(nodo, {
+    runOnly: { type: "tag", values: ETIQUETAS },
+    rules: REGLAS,
+    resultTypes: ["violations"],
+  });
   return r.violations;
 }
+
+/*
+ * `target-size` necesita geometría real y jsdom no compone diseño: mide todo a
+ * 0×0 y la regla no puede decidir. Por eso NO se activa aquí —daría un verde
+ * falso o un rojo falso, y las dos cosas son peores que no medir—. Se verifica
+ * en navegador real y queda recogido en el informe de fase.
+ *
+ * Lo que sí protege esta suite es el resto de WCAG 2.2, y que la lista de
+ * etiquetas esté escrita a la vista de quien la lea.
+ */
 
 function exigirCero(nombre, vs) {
   if (vs.length === 0) return;

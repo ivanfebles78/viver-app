@@ -909,6 +909,19 @@ def _reservas_por_producto_tamano(db: Session, exclude_pedido_id: Optional[int] 
     hoy = datetime.utcnow().date()
     pedidos = (
         db.query(Pedido)
+        # LAS LÍNEAS, EN LA MISMA CONSULTA.
+        #
+        # `Pedido.items` es una relación perezosa, así que el bucle de abajo
+        # dispara un SELECT por cada pedido vivo. Medido con un contador de
+        # sentencias sobre una sesión y una base limpias: **34 consultas para
+        # listar 30 productos**, cuando el docstring de `get_productos` promete
+        # tres «independientemente del número de productos». Con esta línea, 5.
+        #
+        # No se nota con datos de juguete. En un vivero con doscientos pedidos
+        # abiertos son doscientos viajes a la base de datos cada vez que alguien
+        # abre Productos — y la columna Reservado hace que esa pantalla se abra
+        # mucho más.
+        .options(selectinload(Pedido.items))
         .filter(func.lower(Pedido.tipo) == "salida")
         .filter(func.upper(Pedido.estado).in_(["RESERVA", "APROBADO", "APROBADO_PARCIAL"]))
         .filter(or_(Pedido.fecha_caducidad.is_(None), Pedido.fecha_caducidad >= hoy))
@@ -2061,11 +2074,24 @@ def get_productos(
                 continue
             stock_total += cantidad
             tam = (inv.tamano or "").strip()
-            if tam:
-                stock_by_size[tam] = stock_by_size.get(tam, 0) + cantidad
-                fdisp = getattr(inv, "fecha_disponibilidad", None)
-                if fdisp is not None and fdisp > today:
-                    no_disp_by_size[tam] = no_disp_by_size.get(tam, 0.0) + cantidad
+            # EXISTENCIAS SIN TAMAÑO.
+            #
+            # El tamaño es la maceta de una planta. Un saco de sustrato, un
+            # tutor o un fitosanitario no tienen maceta, así que su inventario
+            # se registra sin tamaño — y hasta ahora eso los dejaba fuera de
+            # `stock_by_size`, que es de donde sale `disponible`. Resultado: un
+            # producto con 500 unidades en stock aparecía con 0 disponibles.
+            #
+            # No es un fallo de la regla de tamaños de planta (`Material` ya
+            # devuelve True ahí): es que nunca llegaba a evaluarse.
+            #
+            # Se agrupan bajo la clave vacía, que `_norm_tam` ya normaliza igual
+            # y con la que las reservas de esas líneas se guardan también. Así
+            # el tamaño ausente deja de ser un agujero y pasa a ser un grupo más.
+            stock_by_size[tam] = stock_by_size.get(tam, 0) + cantidad
+            fdisp = getattr(inv, "fecha_disponibilidad", None)
+            if fdisp is not None and fdisp > today:
+                no_disp_by_size[tam] = no_disp_by_size.get(tam, 0.0) + cantidad
 
         # Lotes vivos para mostrar caducidades: cantidad > 0 (sin filtrar por disponibilidad)
         lotes = []

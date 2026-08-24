@@ -224,3 +224,91 @@ export function construirCsvProductos(productos) {
 
 /** Nombre del fichero descargado. */
 export const CSV_FILENAME = "productos_vivero.csv";
+
+/* ── Existencias: stock, reservado y disponible ─────────────────────────── */
+
+/**
+ * LAS TRES CIFRAS DE UN PRODUCTO.
+ *
+ * `stock` son las existencias físicas registradas. `reservado` es la parte de
+ * esas existencias ya comprometida por pedidos de salida vivos. `disponible`
+ * es lo que de verdad se puede pedir o asignar.
+ *
+ * Las tres las calcula el BACKEND y aquí no se recalcula ninguna: hacerlo
+ * crearía una segunda fuente de verdad que se desviaría el día que cambie una
+ * regla de negocio. Esta función sólo decide cómo se PRESENTAN.
+ *
+ * ── Por qué `disponible` no siempre es `stock − reservado` ────────────────
+ *
+ * Porque el vivero tiene existencias que están pero todavía no sirven:
+ *
+ *   · el semillero nunca se puede pedir;
+ *   · un árbol o una palmera sólo cuentan en M35, y un arbusto en M20 o M35;
+ *   · las entradas con fecha de disponibilidad futura están madurando.
+ *
+ * Un drago con 8 unidades en M20 tiene stock 8, reservado 0 y disponible 0, y
+ * las tres cifras son correctas. Enseñar `stock − reservado` ahí diría 8 y
+ * sería una promesa falsa: nadie puede pedir esas ocho.
+ *
+ * Por eso se muestra el `disponible` autoritativo Y se explica el desajuste
+ * cuando lo hay, en vez de esconderlo. Un número que no cuadra sin explicación
+ * se lee como un error de la aplicación.
+ */
+export function existenciasDe(producto) {
+  const num = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const stock = num(producto?.stock);
+  const reservado = num(producto?.reservado);
+  const disponible = num(producto?.disponible);
+
+  /*
+   * La diferencia entre lo que quedaría al restar y lo que de verdad se puede
+   * servir. Positiva = hay existencias retenidas por reglas del vivero.
+   */
+  const noServible = stock - reservado - disponible;
+
+  return {
+    stock,
+    reservado,
+    disponible,
+    /*
+     * Lo que se PINTA. Nunca negativo: «-15 disponibles» no significa nada para
+     * quien gestiona un vivero y parece un fallo de la aplicación.
+     *
+     * Recortar aquí NO esconde el problema, y ésa es la diferencia con un
+     * `Math.max(0, …)` puesto de tapadillo: el recorte es sólo de presentación
+     * y la causa se sigue anunciando con `inconsistente`, que la fila muestra
+     * con texto. Se protege la lectura y se deja el defecto a la vista.
+     */
+    disponibleMostrado: Math.max(0, disponible),
+    // Con tolerancia: son decimales (Numeric(12,3)) y comparar con === sobre
+    // flotantes marca desajustes de 0,0000001 que no existen.
+    cuadra: Math.abs(noServible) < 0.001,
+    noServible: noServible > 0.001 ? noServible : 0,
+    /*
+     * RESERVADO > STOCK no debería ocurrir nunca: el alta de pedido comprueba
+     * `stock − reservado` antes de aceptar. Si aparece, es una inconsistencia
+     * de datos y NO se disimula recortando a cero en silencio — se marca para
+     * que se vea y se investigue.
+     */
+    inconsistente: reservado > stock + 0.001,
+  };
+}
+
+/**
+ * Qué se le cuenta a quien lee la tabla cuando las cifras no cuadran.
+ *
+ * Devuelve `null` cuando no hay nada que explicar, para no meter ruido en las
+ * filas normales — que son la mayoría.
+ */
+export function explicacionDisponible(ex) {
+  if (ex.inconsistente) {
+    return "Hay más unidades reservadas que existencias registradas. Revisa el inventario de este producto.";
+  }
+  if (ex.noServible > 0) {
+    return "Hay existencias que aún no se pueden servir: semillero, tamaño insuficiente para su tipo de planta, o entradas con fecha de disponibilidad futura.";
+  }
+  return null;
+}

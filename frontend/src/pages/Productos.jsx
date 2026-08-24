@@ -35,6 +35,8 @@ import {
   puedeMarcarInterno as puedeMarcarInternoLogica,
   puedePedirMas as puedePedirMasLogica,
   validarNuevoProducto,
+  existenciasDe,
+  explicacionDisponible,
 } from "./productos.logic";
 import {
   getUnidadProducto,
@@ -69,6 +71,9 @@ const ProductoRow = memo(function ProductoRow({
     stock < Number(min);
   // Cacheamos la unidad por fila — antes se llamaba dos veces (stock y mínimo).
   const unidad = getUnidadProducto(p);
+  // Las tres cifras las calcula el backend; aquí sólo se decide cómo se leen.
+  const ex = existenciasDe(p);
+  const explicacion = explicacionDisponible(ex);
 
   return (
     /*
@@ -99,6 +104,41 @@ const ProductoRow = memo(function ProductoRow({
           {low && <StatusBadge status="pending" label="Bajo mínimo" />}
         </span>
       </td>
+
+      {/*
+        RESERVADO. Comprometido por pedidos de salida vivos. Cifra sobria: es
+        contexto para leer «Disponible», no la cifra que se consulta.
+      */}
+      <td style={{ textAlign: "center" }}>
+        <span className="tabular">
+          {ex.reservado > 0 ? formatEnteroConUnidad(ex.reservado, unidad) : "0"}
+        </span>
+      </td>
+
+      {/*
+        DISPONIBLE. Es el número que decide si se puede pedir, así que va con
+        el peso tipográfico de Stock y no en gris.
+
+        Cuando no cuadra con `stock − reservado` se explica al lado, con TEXTO
+        —no sólo con un tooltip ni sólo con color—, porque un número que no
+        cuadra sin explicación se lee como un fallo de la aplicación.
+      */}
+      <td style={{ textAlign: "center" }}>
+        <span className="inline-flex items-center justify-center gap-1.5">
+          <span className="tabular font-[var(--font-weight-medium)]">
+            {formatEnteroConUnidad(ex.disponibleMostrado, unidad) || "0"}
+          </span>
+          {explicacion && (
+            <>
+              <span aria-hidden="true" title={explicacion} className="text-[var(--muted-foreground)]">
+                *
+              </span>
+              <span className="sr-only">{explicacion}</span>
+            </>
+          )}
+        </span>
+      </td>
+
       {!esEmpresaExterna && (
         <td style={{ textAlign: "center" }}>
           {p.stock_minimo === null || p.stock_minimo === undefined
@@ -1754,7 +1794,40 @@ export default function Productos() {
          * altura de fila fija, ni márgenes negativos, ni posicionamiento
          * absoluto, ni números por pantalla.
          */
-        <div style={{ overflowX: "auto" }}>
+        /*
+          El envoltorio tiene que CONTENER la tabla, no crecer con ella.
+
+          `overflow-x: auto` por sí solo no basta: como elemento de un contenedor
+          flexible, su `min-width` es `auto`, así que se estiraba hasta los
+          720 px de ancho mínimo de la tabla y empujaba la página entera. Medido
+          al añadir Reservado y Disponible: a 320 px el documento pasó a medir
+          745 px de ancho y apareció scroll horizontal DE PÁGINA, que es lo que
+          el criterio 1.4.10 no admite.
+
+          Con `minWidth: 0` el envoltorio puede encogerse y el desplazamiento se
+          queda dentro de la tabla, que es donde tiene sentido: una tabla de diez
+          columnas no cabe en un móvil y forzarla a caber la haría ilegible.
+        */
+        <div
+          /*
+            UNA REGIÓN DESPLAZABLE, Y QUE SE PUEDA USAR SIN RATÓN.
+            Un `overflow-x: auto` a secas es una trampa de accesibilidad: el
+            contenido existe, se ve al arrastrar con el dedo o con la rueda, y es
+            INALCANZABLE para quien navega con teclado. No hay nada dentro que
+            reciba el foco entre una columna y la siguiente, así que las flechas
+            nunca llegan a desplazarlo.
+            Con `tabIndex={0}` la región entra en el orden de tabulación y las
+            flechas, Inicio y Fin la desplazan — comportamiento nativo del
+            navegador en cuanto el contenedor puede enfocarse (SC 2.1.1).
+            `role="region"` + nombre accesible hacen que un lector de pantalla
+            la anuncie como lo que es, en vez de soltar al usuario dentro de una
+            tabla sin avisar de que hay más a los lados (SC 1.3.1, 4.1.2).
+          */
+          role="region"
+          aria-label="Catálogo de productos. Tabla desplazable en horizontal."
+          tabIndex={0}
+          style={{ overflowX: "auto", minWidth: 0, maxWidth: "100%" }}
+        >
           <table
             className="w-full border-collapse [&_td]:p-3 [&_td]:align-middle [&_th]:p-3 [&_tbody_tr]:border-t [&_tbody_tr]:border-[var(--border)]"
             style={{ minWidth: 720 }}
@@ -1769,6 +1842,16 @@ export default function Productos() {
                 <th scope="col" className="text-left">Categoría</th>
                 <th scope="col" className="text-left">Subcategoría</th>
                 <th scope="col" className="text-center">Stock</th>
+                {/*
+                  RESERVADO y DISPONIBLE.
+
+                  `scope="col"` para que un lector de pantalla lea «Ficus
+                  benjamina, Disponible, 75» y no un número suelto. Van juntas y
+                  tras Stock porque se leen como una resta: lo que hay, lo que
+                  está comprometido, lo que queda.
+                */}
+                <th scope="col" className="text-center">Reservado</th>
+                <th scope="col" className="text-center">Disponible</th>
                 {!esEmpresaExterna && <th scope="col" className="text-center">Stock mínimo</th>}
                 {puedeMarcarInterno && <th scope="col" className="text-center">Interno</th>}
                 {puedePedirMas && <th scope="col" className="text-center">Acciones</th>}
@@ -1779,7 +1862,8 @@ export default function Productos() {
                 <tr>
                   <td
                     colSpan={
-                      5 + (!esEmpresaExterna ? 1 : 0) + (puedeMarcarInterno ? 1 : 0) + (puedePedirMas ? 1 : 0)
+                      // 4 de texto + Stock + Reservado + Disponible, y las opcionales.
+                      7 + (!esEmpresaExterna ? 1 : 0) + (puedeMarcarInterno ? 1 : 0) + (puedePedirMas ? 1 : 0)
                     }
                     style={{ textAlign: "center" }}
                   >
