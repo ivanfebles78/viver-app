@@ -2061,11 +2061,24 @@ def get_productos(
                 continue
             stock_total += cantidad
             tam = (inv.tamano or "").strip()
-            if tam:
-                stock_by_size[tam] = stock_by_size.get(tam, 0) + cantidad
-                fdisp = getattr(inv, "fecha_disponibilidad", None)
-                if fdisp is not None and fdisp > today:
-                    no_disp_by_size[tam] = no_disp_by_size.get(tam, 0.0) + cantidad
+            # EXISTENCIAS SIN TAMAÑO.
+            #
+            # El tamaño es la maceta de una planta. Un saco de sustrato, un
+            # tutor o un fitosanitario no tienen maceta, así que su inventario
+            # se registra sin tamaño — y hasta ahora eso los dejaba fuera de
+            # `stock_by_size`, que es de donde sale `disponible`. Resultado: un
+            # producto con 500 unidades en stock aparecía con 0 disponibles.
+            #
+            # No es un fallo de la regla de tamaños de planta (`Material` ya
+            # devuelve True ahí): es que nunca llegaba a evaluarse.
+            #
+            # Se agrupan bajo la clave vacía, que `_norm_tam` ya normaliza igual
+            # y con la que las reservas de esas líneas se guardan también. Así
+            # el tamaño ausente deja de ser un agujero y pasa a ser un grupo más.
+            stock_by_size[tam] = stock_by_size.get(tam, 0) + cantidad
+            fdisp = getattr(inv, "fecha_disponibilidad", None)
+            if fdisp is not None and fdisp > today:
+                no_disp_by_size[tam] = no_disp_by_size.get(tam, 0.0) + cantidad
 
         # Lotes vivos para mostrar caducidades: cantidad > 0 (sin filtrar por disponibilidad)
         lotes = []
