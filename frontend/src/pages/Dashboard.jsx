@@ -623,6 +623,10 @@ export default function Dashboard() {
                   percent: p.porcentaje,
                 }))}
                 unit="uds."
+                // Verde para la demanda y azul para los destinos: distingue
+                // los dos rankings de un vistazo. El tono no dice nada de los
+                // datos; dentro de cada lista todas las filas comparten color.
+                tono="verde"
                 emptyLabel="Todavía no hay pedidos de salida con los que calcular la demanda."
               />
               {(analytics.productos_demandados?.total_unidades || 0) > 0 && (
@@ -654,6 +658,9 @@ export default function Dashboard() {
                   percent: d.porcentaje,
                 }))}
                 unit="envíos"
+                // Azul: es el destino, la geografía. Se mantiene el color con
+                // el que ya se pintaban los envíos.
+                tono="azul"
                 emptyLabel="Todavía no hay pedidos de salida con un barrio de destino registrado."
               />
               {(analytics.destinos_frecuentes?.total_envios || 0) > 0 && (
