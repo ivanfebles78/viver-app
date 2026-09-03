@@ -22,17 +22,55 @@ import { cn } from "../../ui";
  *     reales del vivero —el más pedido ronda el 12 %— escalar contra el total
  *     dejaría las cinco barras en un hilo indistinguible.
  *
- * El color no comunica: todas las barras comparten tono. Lo que distingue una
- * fila de otra es la posición, la etiqueta y la cifra, que están en texto.
- * Funciona en blanco y negro y al imprimir (SC 1.4.1).
+ * El color no comunica NADA sobre los datos. Dentro de un ranking todas las
+ * filas comparten tono, así que lo que distingue una de otra es la posición,
+ * la etiqueta y la cifra — todo en texto. El tono cambia ENTRE rankings, para
+ * que en el panel se distingan de un vistazo, pero un mismo ranking sigue
+ * leyéndose igual en blanco y negro y al imprimir (SC 1.4.1).
  */
+
+/**
+ * Tonos disponibles.
+ *
+ * Son clases COMPLETAS y literales, no plantillas: Tailwind resuelve las
+ * clases leyendo el código fuente, así que una construida con interpolación no
+ * llegaría a existir en la hoja de estilos.
+ *
+ * Ir por clase en lugar de por estilo en línea también evita sumar deuda al
+ * guardarraíl de tokens: el único valor que de verdad se calcula al pintar es
+ * la anchura de la barra.
+ *
+ * El acento del puesto es el mismo color al 12 %: un apunte del tono, no una
+ * superficie de color. La cifra del puesto NO se tiñe — sobre ese fondo casi
+ * blanco, `--chart-4` se queda en 3,74:1 y el texto pequeño necesita 4,5:1.
+ */
+const TONOS = {
+  azul: {
+    barra: "bg-[var(--chart-1)]",
+    puesto: "bg-[color-mix(in_srgb,var(--chart-1)_12%,transparent)]",
+  },
+  verde: {
+    barra: "bg-[var(--chart-4)]",
+    puesto: "bg-[color-mix(in_srgb,var(--chart-4)_12%,transparent)]",
+  },
+};
 
 /**
  * @param {Array}  items      [{ id, label, sublabel?, value, percent }]
  * @param {string} unit       Unidad de `value`, para el texto de cada fila.
  * @param {string} emptyLabel Qué decir cuando no hay nada que ordenar.
+ * @param {string} tono       "azul" | "verde". Distingue un ranking de otro de
+ *                            un vistazo; no codifica NADA sobre los datos.
  */
-export default function RankingList({ items = [], unit = "", emptyLabel = "Sin datos", className }) {
+export default function RankingList({
+  items = [],
+  unit = "",
+  emptyLabel = "Sin datos",
+  tono = "azul",
+  className,
+}) {
+  const colores = TONOS[tono] || TONOS.azul;
+
   if (items.length === 0) {
     return <p className={cn("text-body-sm text-muted-foreground", className)}>{emptyLabel}</p>;
   }
@@ -59,8 +97,9 @@ export default function RankingList({ items = [], unit = "", emptyLabel = "Sin d
               aria-hidden="true"
               className={cn(
                 "tabular mt-0.5 flex size-5 shrink-0 items-center justify-center",
-                "rounded-[var(--radius-xs)] bg-muted text-caption",
-                "font-[var(--font-weight-medium)] text-muted-foreground"
+                "rounded-[var(--radius-xs)] text-caption",
+                "font-[var(--font-weight-medium)] text-muted-foreground",
+                colores.puesto
               )}
             >
               {i + 1}
@@ -91,7 +130,7 @@ export default function RankingList({ items = [], unit = "", emptyLabel = "Sin d
                 className="h-1.5 w-full overflow-hidden rounded-[var(--radius-full)] bg-muted"
               >
                 <div
-                  className="h-full rounded-[var(--radius-full)] bg-[var(--chart-1)]"
+                  className={cn("h-full rounded-[var(--radius-full)]", colores.barra)}
                   style={{ width: `${ancho}%` }}
                 />
               </div>

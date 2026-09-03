@@ -26,9 +26,46 @@ import { cn } from "../../ui";
  * barra de desplazamiento horizontal a la página entera. Envuelta, el
  * `overflow: hidden` del div la recorta.
  *
- * Ningún dato depende del color: todas las barras comparten tono. El máximo y
- * el mínimo se nombran en el pie, no se tiñen.
+ * Ningún dato depende del color. Cada día tiene el suyo para dar variedad y
+ * para que la columna del martes sea la misma el martes que viene, pero el
+ * color no CODIFICA nada: qué día es y cuánto vale están escritos encima y
+ * debajo de cada barra, y el máximo y el mínimo se nombran en el pie con
+ * palabras. Quitando el color, el gráfico sigue diciendo lo mismo (SC 1.4.1).
  */
+
+/**
+ * Un color por día, de la escala --chart-* del sistema.
+ *
+ * Clases literales y completas: Tailwind las resuelve leyendo el código, así
+ * que una construida por interpolación no existiría en la hoja. Además evita
+ * sumar deuda al guardarraíl — el único valor calculado al pintar sigue siendo
+ * la altura.
+ *
+ * Dos elecciones que no son las obvias, y por qué:
+ *
+ *   - El miércoles va en naranja (--chart-7) y no en el ámbar (--chart-2), que
+ *     sería el cálido natural: sobre la pista gris el ámbar se queda en 2,91:1
+ *     en modo claro, por debajo del 3:1 que pide el contraste de elementos no
+ *     textuales. El naranja es el cálido más cercano que sí lo cumple.
+ *   - El martes va en verde lima (--chart-6) y no en el verde azulado
+ *     (--chart-4): el jueves ocupa el azul secundario, que en esta paleta es un
+ *     cian, y junto al verde azulado los dos se leían como el mismo color —
+ *     sobre todo en modo oscuro, donde son teal-400 y cyan-400. El lima separa
+ *     de verdad, y además es el verde más verde de la escala.
+ *
+ * Los cinco superan 3:1 sobre la pista en los dos modos y ninguna pareja
+ * contigua comparte familia.
+ */
+const COLOR_DIA = {
+  1: "bg-[var(--chart-1)]", // lunes     · azul
+  2: "bg-[var(--chart-6)]", // martes    · verde lima
+  3: "bg-[var(--chart-7)]", // miércoles · naranja (ver nota sobre el ámbar)
+  4: "bg-[var(--chart-8)]", // jueves    · azul secundario/cian
+  5: "bg-[var(--chart-5)]", // viernes   · violeta
+};
+
+/** Si algún día llegara fuera de 1..5, no se pinta de un color inventado. */
+const COLOR_POR_DEFECTO = "bg-[var(--chart-1)]";
 
 /** «Lunes y martes», «lunes, martes y miércoles». */
 function enumerar(dias) {
@@ -65,7 +102,10 @@ export default function WeekdayChart({ dias = [], mas = [], menos = [], desde, h
                   gráfico. Sigue cabiendo de sobra a 320px. */}
               <div className="flex h-32 w-full items-end overflow-hidden rounded-[var(--radius-sm)] bg-muted">
                 <div
-                  className="w-full rounded-[var(--radius-sm)] bg-[var(--chart-1)]"
+                  className={cn(
+                    "w-full rounded-[var(--radius-sm)]",
+                    COLOR_DIA[dia.iso] || COLOR_POR_DEFECTO
+                  )}
                   style={{ height: `${alto}%` }}
                 />
               </div>
