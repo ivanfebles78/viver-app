@@ -87,7 +87,7 @@ jobs:
           if-no-files-found: ignore
 
   backend:
-    name: Backend — contrato de reservas de stock
+    name: Backend — reservas de stock y analítica del panel
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # `defaults.run.working-directory` apunta a `frontend/`; aquí se trabaja en
@@ -126,10 +126,12 @@ jobs:
         # `requirements-dev.txt` incluye a `requirements.txt` y añade pytest.
         run: pip install -r requirements-dev.txt
 
-      - name: Pruebas del contrato de reservas
-        # Fija qué estados RESERVAN y cuáles LIBERAN, que es lo que decide
-        # cuántas unidades se pueden pedir de cada producto. Antes de esta fase
-        # el backend no tenía ni una prueba.
+      - name: Pruebas del backend
+        # Reservas: fija qué estados RESERVAN y cuáles LIBERAN, que es lo que
+        # decide cuántas unidades se pueden pedir de cada producto.
+        # Analítica: los rankings del panel y la media por día de la semana,
+        # incluida la conversión a hora canaria y los desempates, que sobre
+        # SQLite no se podrían comprobar (agrupa devolviendo ya ordenado).
         env:
           TEST_DATABASE_URL: postgresql+psycopg://vivero:vivero@localhost:5432/vivero_pruebas
           DATABASE_URL: postgresql+psycopg://vivero:vivero@localhost:5432/vivero_pruebas
