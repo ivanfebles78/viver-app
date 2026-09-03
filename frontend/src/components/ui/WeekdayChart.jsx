@@ -60,7 +60,10 @@ export default function WeekdayChart({ dias = [], mas = [], menos = [], desde, h
               <span className="tabular text-caption font-[var(--font-weight-medium)]">
                 {unDecimal(dia.media)}
               </span>
-              <div className="flex h-20 w-full items-end overflow-hidden rounded-[var(--radius-sm)] bg-muted">
+              {/* 128px: con 80 las diferencias entre 2,1 y 2,5 se apreciaban
+                  peor, y comparar longitudes es justo para lo que existe el
+                  gráfico. Sigue cabiendo de sobra a 320px. */}
+              <div className="flex h-32 w-full items-end overflow-hidden rounded-[var(--radius-sm)] bg-muted">
                 <div
                   className="w-full rounded-[var(--radius-sm)] bg-[var(--chart-1)]"
                   style={{ height: `${alto}%` }}
