@@ -40,6 +40,7 @@ vi.mock("../api/api", () => {
     getProductos: vacio(),
     getMovimientos: vacio(),
     getPedidos: vacio(),
+    getDashboardAnalytics: vacio(),
     getZonasConfig: vacio(),
     getZonaItems: vacio(),
     getClientes: vacio(),

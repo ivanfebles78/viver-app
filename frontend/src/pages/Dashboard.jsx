@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { PackageSearch, ClipboardList } from "lucide-react";
 
-import { getMe, getPedidos, getProductos } from "../api/api";
+import { getDashboardAnalytics, getMe, getPedidos, getProductos } from "../api/api";
 import {
   Card,
   DataTable,
@@ -13,10 +13,12 @@ import { Alert, LoadingState, Truncated } from "../components/ui/feedback";
 import { SectionHeader } from "../components/ui/layout";
 import { KpiRow, KpiCell } from "../components/ui/KpiRow";
 import ProportionBar from "../components/ui/ProportionBar";
+import RankingList from "../components/ui/RankingList";
+import WeekdayChart from "../components/ui/WeekdayChart";
 import LinkButton from "../components/ui/LinkButton";
 import { estadoPedido, estadoCaducidad } from "../app/estado";
 import { formatFechaCanaria } from "../utils/fecha";
-import { ROUTES } from "../app/permissions";
+import { ROUTES, canSeeAnalitica } from "../app/permissions";
 
 /*
  * PANEL DE CONTROL.
@@ -199,6 +201,8 @@ export default function Dashboard() {
   const [pedidos, setPedidos] = useState([]);
   const [warnings, setWarnings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [me, setMe] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -206,7 +210,11 @@ export default function Dashboard() {
       // de lo que falta, en lugar de quedarse en blanco. Comportamiento previo.
       const results = await Promise.allSettled([getMe(), getProductos(), getPedidos()]);
       const nextWarnings = [];
-      const [, productosRes, pedidosRes] = results;
+      const [meRes, productosRes, pedidosRes] = results;
+
+      // `getMe` ya se pedía; antes se descartaba. Ahora decide si esta persona
+      // puede ver la analítica agregada.
+      if (meRes.status === "fulfilled") setMe(meRes.value);
 
       if (productosRes.status === "fulfilled") {
         setProductos(Array.isArray(productosRes.value) ? productosRes.value : []);
@@ -226,6 +234,37 @@ export default function Dashboard() {
       setLoading(false);
     })();
   }, []);
+
+  const puedeVerAnalitica = canSeeAnalitica(me);
+
+  /*
+   * La analítica se pide aparte, y solo si el rol la tiene permitida.
+   *
+   * Aparte, porque no debe retrasar el panel: es información de contexto, no
+   * lo que se necesita para operar. Y condicionada, porque pedirla sin permiso
+   * sería provocar un 403 en cada carga a propósito.
+   */
+  useEffect(() => {
+    if (!puedeVerAnalitica) return;
+
+    let cancelado = false;
+    (async () => {
+      try {
+        const data = await getDashboardAnalytics();
+        if (!cancelado) setAnalytics(data);
+      } catch (error) {
+        if (cancelado) return;
+        // Un fallo aquí no puede dejar el panel en blanco: se avisa y el resto
+        // de la pantalla sigue funcionando.
+        setAnalytics(null);
+        setWarnings((previas) => [...previas, `Analítica: ${getErrorMessage(error)}`]);
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [puedeVerAnalitica]);
 
   const caducidadItems = useMemo(() => buildCaducidadItems(productos), [productos]);
 
@@ -554,6 +593,115 @@ export default function Dashboard() {
           </Card>
         </div>
       </section>
+
+      {/* ── Demanda ──────────────────────────────────────────────────────────
+          Sección aparte de «Distribución» a propósito: aquélla describe lo que
+          HAY en el vivero, ésta lo que se PIDE. Solo aparece cuando el rol
+          puede verla y el servidor ha respondido; nunca se pinta un esqueleto
+          de gráfico vacío que sugiera que no hay demanda.                    */}
+      {puedeVerAnalitica && analytics && (
+        <section className="flex flex-col gap-4" aria-labelledby="demanda">
+          <SectionHeader
+            id="demanda"
+            title="Demanda"
+            description="Qué se pide, a dónde se sirve y qué días entra el trabajo."
+          />
+
+          <div className="grid grid-cols-1 gap-[var(--card-gap)] md:grid-cols-2 xl:grid-cols-3">
+            <Card className="flex flex-col gap-3 p-[var(--card-padding)]">
+              <SectionHeader
+                as="h3"
+                title="Productos más demandados"
+                description="Unidades pedidas en pedidos de salida."
+              />
+              <RankingList
+                items={(analytics.productos_demandados?.items || []).map((p) => ({
+                  id: p.producto_id,
+                  label: p.nombre,
+                  sublabel: `${numero(p.pedidos)} ${p.pedidos === 1 ? "pedido" : "pedidos"}`,
+                  value: numero(p.unidades),
+                  percent: p.porcentaje,
+                }))}
+                unit="uds."
+                emptyLabel="Todavía no hay pedidos de salida con los que calcular la demanda."
+              />
+              {(analytics.productos_demandados?.total_unidades || 0) > 0 && (
+                <p className="text-caption text-muted-foreground">
+                  <span className="tabular">
+                    {numero(analytics.productos_demandados.total_unidades)}
+                  </span>{" "}
+                  unidades demandadas entre{" "}
+                  <span className="tabular">
+                    {numero(analytics.productos_demandados.productos_distintos)}
+                  </span>{" "}
+                  productos.
+                </p>
+              )}
+            </Card>
+
+            <Card className="flex flex-col gap-3 p-[var(--card-padding)]">
+              <SectionHeader
+                as="h3"
+                title="Destinos más frecuentes"
+                description="Pedidos de salida servidos a cada barrio."
+              />
+              <RankingList
+                items={(analytics.destinos_frecuentes?.items || []).map((d, i) => ({
+                  id: `${i}-${d.barrio}`,
+                  label: d.barrio,
+                  sublabel: d.distrito || null,
+                  value: numero(d.envios),
+                  percent: d.porcentaje,
+                }))}
+                unit="envíos"
+                emptyLabel="Todavía no hay pedidos de salida con un barrio de destino registrado."
+              />
+              {(analytics.destinos_frecuentes?.total_envios || 0) > 0 && (
+                <p className="text-caption text-muted-foreground">
+                  <span className="tabular">{numero(analytics.destinos_frecuentes.total_envios)}</span>{" "}
+                  envíos hacia{" "}
+                  <span className="tabular">
+                    {numero(analytics.destinos_frecuentes.destinos_distintos)}
+                  </span>{" "}
+                  destinos.
+                  {/* La cifra sin destino se dice, no se esconde: es la señal
+                      de que hay pedidos mal cumplimentados en el origen. */}
+                  {analytics.destinos_frecuentes.envios_sin_destino > 0 && (
+                    <>
+                      {" "}
+                      <span className="tabular">
+                        {numero(analytics.destinos_frecuentes.envios_sin_destino)}
+                      </span>{" "}
+                      sin barrio registrado, fuera del ranking.
+                    </>
+                  )}
+                </p>
+              )}
+            </Card>
+
+            <Card className="flex flex-col gap-3 p-[var(--card-padding)]">
+              <SectionHeader
+                as="h3"
+                title="Pedidos por día de la semana"
+                description="Media de pedidos recibidos, en hora canaria."
+              />
+              {(analytics.pedidos_por_dia?.total_pedidos || 0) > 0 ? (
+                <WeekdayChart
+                  dias={analytics.pedidos_por_dia.dias || []}
+                  mas={analytics.pedidos_por_dia.dias_mas_pedidos || []}
+                  menos={analytics.pedidos_por_dia.dias_menos_pedidos || []}
+                  desde={analytics.pedidos_por_dia.desde}
+                  hasta={analytics.pedidos_por_dia.hasta}
+                />
+              ) : (
+                <p className="text-body-sm text-muted-foreground">
+                  Todavía no hay pedidos recibidos de lunes a viernes.
+                </p>
+              )}
+            </Card>
+          </div>
+        </section>
+      )}
 
       {/* ── Accesos operativos ───────────────────────────────────────────── */}
       <section className="flex flex-col gap-4" aria-labelledby="accesos">

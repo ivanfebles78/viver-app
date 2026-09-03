@@ -20,6 +20,7 @@ vi.mock("../api/api", () => ({
   getMe: vi.fn(),
   getProductos: vi.fn(),
   getPedidos: vi.fn(),
+  getDashboardAnalytics: vi.fn(),
 }));
 
 import { getMe, getProductos, getPedidos } from "../api/api";

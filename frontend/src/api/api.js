@@ -200,6 +200,20 @@ export const marcarZonaInterna = async (zonaId, interno) => {
   return data;
 };
 
+// ---------------- ANALÍTICA DEL PANEL ----------------
+
+/**
+ * Métricas ya agregadas en el servidor: productos más demandados, destinos más
+ * frecuentes y pedidos por día de la semana.
+ *
+ * Se agregan con GROUP BY en la base de datos en lugar de descargar el
+ * histórico de pedidos y movimientos para contarlo en el navegador.
+ */
+export const getDashboardAnalytics = async () => {
+  const { data } = await api.get("/dashboard/analytics");
+  return data;
+};
+
 // ---------------- PEDIDOS ----------------
 
 export const getPedidos = async () => {

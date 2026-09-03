@@ -59,6 +59,16 @@
       "desglose": { "LEGITIMATE_RUNTIME": 2 },
       "motivo": "Anchura de la barra en porcentaje y color de serie por índice: es el dato lo que dibuja la barra."
     },
+    "components/ui/RankingList.jsx": {
+      "total": 1,
+      "desglose": { "LEGITIMATE_RUNTIME": 1 },
+      "motivo": "Anchura de la barra de cada puesto, en porcentaje sobre el primero del ranking: no se conoce hasta que hay datos."
+    },
+    "components/ui/WeekdayChart.jsx": {
+      "total": 1,
+      "desglose": { "LEGITIMATE_RUNTIME": 1 },
+      "motivo": "Altura de la barra de cada día, en porcentaje sobre la media mayor: no se conoce hasta que hay datos."
+    },
     "components/ui/layout.jsx": {
       "total": 1,
       "desglose": { "LEGITIMATE_RUNTIME": 1 },

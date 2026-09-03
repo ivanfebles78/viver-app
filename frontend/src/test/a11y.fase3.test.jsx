@@ -33,6 +33,7 @@ vi.mock("../api/api", () => ({
   getMe: vi.fn(),
   getProductos: vi.fn(),
   getPedidos: vi.fn(),
+  getDashboardAnalytics: vi.fn(),
   getLote: vi.fn(),
   login: vi.fn(),
   requestPasswordReset: vi.fn(),

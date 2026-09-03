@@ -291,3 +291,27 @@ export function canOpenMapaVivero(me) {
     role === ROLES.GESTOR_VIVERO
   );
 }
+
+/**
+ * Analítica agregada del panel (productos más demandados, destinos más
+ * frecuentes y pedidos por día).
+ *
+ * NO es una elección estética: `GET /pedidos` recorta las FILAS que ven la
+ * empresa externa —solo sus pedidos y las reposiciones servibles— y el
+ * proveedor —solo reposiciones servibles—. Un ranking calculado sobre el
+ * histórico COMPLETO del ayuntamiento les permitiría deducir qué se pide y a
+ * qué barrios se sirve a partir de datos que no tienen permiso para consultar.
+ *
+ * Esta lista debe coincidir con `require_roles` de `GET /dashboard/analytics`
+ * en main.py; el backend es quien manda y aquí solo se evita pedir algo que
+ * devolvería 403.
+ */
+export function canSeeAnalitica(me) {
+  const role = rolEfectivo(me);
+  return (
+    role === ROLES.ADMIN ||
+    role === ROLES.MANAGER ||
+    role === ROLES.TECNICO ||
+    role === ROLES.GESTOR_VIVERO
+  );
+}

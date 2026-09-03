@@ -50,7 +50,8 @@ import MovimientoDetalleModal from "./movimientos/MovimientoDetalleModal";
  * una copia literal de main sobre datos generados. Aquí solo queda
  * presentación y estado de interfaz.
  *
- * Lo que NO cambia: las siete reglas de filtrado, el orden y el contenido de
+ * Lo que NO cambia: las reglas de filtrado previas —a las que se suma la del
+ * nº de pedido, inerte mientras el campo esté vacío—, el orden y el contenido de
  * las once columnas, el `Promise.all` de la carga —que falla entero si falla
  * una fuente, igual que antes—, el alta que se detiene en el primer error y
  * avisa «Guardados N/M», y los 3 000 ms del mensaje.
@@ -107,6 +108,7 @@ export default function Movimientos() {
     origen: "",
     destino: "",
     fecha: "",
+    pedido: "",
   });
 
   const setFiltro = useCallback((clave, valor) => {
@@ -114,7 +116,16 @@ export default function Movimientos() {
   }, []);
 
   const limpiarFiltros = () =>
-    setFiltros({ producto: "", tipo: "", zona: "", uuid: "", origen: "", destino: "", fecha: "" });
+    setFiltros({
+      producto: "",
+      tipo: "",
+      zona: "",
+      uuid: "",
+      origen: "",
+      destino: "",
+      fecha: "",
+      pedido: "",
+    });
 
   const hayFiltros = Object.values(filtros).some(Boolean);
 
@@ -482,6 +493,20 @@ export default function Movimientos() {
             value={filtros.uuid}
             onChange={(v) => setFiltro("uuid", v)}
             placeholder="Fragmento del UUID"
+          />
+          {/*
+            A diferencia de Producto y UUID, que buscan por fragmento, este
+            campo exige el número COMPLETO: un pedido es una referencia
+            concreta, y devolver el 120 y el 512 al escribir 12 obligaría a
+            revisar a mano una lista que se pidió justamente para acotar.
+          */}
+          <SearchField
+            label="Nº de pedido"
+            hideLabel={false}
+            value={filtros.pedido}
+            onChange={(v) => setFiltro("pedido", v)}
+            placeholder="Número exacto, p. ej. 128"
+            inputMode="numeric"
           />
           <SelectField
             label="Origen"
