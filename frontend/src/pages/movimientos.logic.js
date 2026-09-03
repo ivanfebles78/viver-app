@@ -341,6 +341,28 @@ export function getFormErrors(form, formatoConfig = null) {
  * Se extrae del `useMemo` del componente tal cual. Todos se combinan con Y
  * lógico y un filtro vacío no restringe.
  */
+/**
+ * Interpreta el nº de pedido tecleado en el filtro.
+ *
+ * El identificador que ve el usuario ES `pedido.id`: la aplicación lo muestra
+ * siempre como «#123» —columna Pedido de esta tabla, detalle del movimiento y
+ * PDF del pedido— y el modelo no tiene ningún otro código.
+ *
+ * @returns `null` si no hay filtro (no debe restringir nada), el id exacto a
+ *          buscar, o `NaN` si lo tecleado no es un número (no coincide con
+ *          nada, en lugar de devolverlo todo).
+ */
+export function parsearNumeroPedido(texto) {
+  const limpio = String(texto ?? "").trim().replace(/^#/, "").trim();
+  if (!limpio) return null;
+  // Coincidencia EXACTA, no «contiene»: buscar 12 devuelve el pedido 12 y no
+  // también el 120 y el 512. Se aceptan la almohadilla —porque es como aparece
+  // en pantalla— y los ceros a la izquierda —porque es como se copia de un
+  // documento—, que son la misma referencia escrita de otra forma.
+  if (!/^\d+$/.test(limpio)) return NaN;
+  return Number(limpio);
+}
+
 export function filtrarMovimientos(movimientos, filtros) {
   const {
     producto = "",
@@ -350,7 +372,10 @@ export function filtrarMovimientos(movimientos, filtros) {
     origen = "",
     destino = "",
     fecha = "",
+    pedido = "",
   } = filtros || {};
+
+  const pedidoBuscado = parsearNumeroPedido(pedido);
 
   return safeArray(movimientos).filter((m) => {
     const productoTxt = producto.trim().toLowerCase();
@@ -375,7 +400,25 @@ export function filtrarMovimientos(movimientos, filtros) {
     const destinoMatch = !destino || destinoReal === String(destino).toLowerCase();
     const fechaMatch = !fecha || dateInputValue(m?.fecha_movimiento) === fecha;
 
-    return productoMatch && tipoMatch && zonaMatch && uuidMatch && origenMatch && destinoMatch && fechaMatch;
+    // Sin nada tecleado no restringe: los movimientos sin pedido asociado
+    // —entradas, traslados internos, ajustes— son mayoría y siguen viéndose
+    // igual que siempre.
+    const idPedido = m?.pedido_id;
+    const pedidoMatch =
+      pedidoBuscado === null ||
+      (idPedido !== null && idPedido !== undefined && idPedido !== "" &&
+        Number(idPedido) === pedidoBuscado);
+
+    return (
+      productoMatch &&
+      tipoMatch &&
+      zonaMatch &&
+      uuidMatch &&
+      origenMatch &&
+      destinoMatch &&
+      fechaMatch &&
+      pedidoMatch
+    );
   });
 }
 

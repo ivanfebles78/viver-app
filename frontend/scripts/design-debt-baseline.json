@@ -7,6 +7,12 @@
     "components/ui/ProportionBar.jsx": {
       "estilo-en-linea": 2
     },
+    "components/ui/RankingList.jsx": {
+      "estilo-en-linea": 1
+    },
+    "components/ui/WeekdayChart.jsx": {
+      "estilo-en-linea": 1
+    },
     "components/ui/layout.jsx": {
       "estilo-en-linea": 1
     },

@@ -29,6 +29,7 @@ import {
   canManageUsuarios,
   canSeeNotifications,
   canOpenMapaVivero,
+  canSeeAnalitica,
 } from "./permissions";
 
 /** Las 13 rutas de la aplicación, tal y como las declara App.jsx. */
@@ -448,6 +449,36 @@ describe("capacidades de la interfaz", () => {
     expect(canSeeNotifications({ rol: "empresa_externa" })).toBe(false);
     expect(canSeeNotifications(null)).toBe(false);
     expect(canSeeNotifications({})).toBe(false);
+  });
+
+  /*
+   * La analítica agrega el histórico COMPLETO de pedidos del ayuntamiento.
+   * `GET /pedidos` recorta las filas que ven la empresa externa y el
+   * proveedor, así que dejarles ver los rankings les permitiría deducir qué se
+   * pide y a dónde se sirve a partir de datos que no pueden consultar.
+   */
+  it("canSeeAnalitica excluye a quien tiene los pedidos recortados", () => {
+    for (const role of ["empresa_externa", "proveedor"]) {
+      expect(canSeeAnalitica({ rol: role })).toBe(false);
+    }
+  });
+
+  it("canSeeAnalitica permite a quien ya ve todos los pedidos", () => {
+    for (const role of ["admin", "manager", "tecnico", "gestor_vivero"]) {
+      expect(canSeeAnalitica({ rol: role })).toBe(true);
+    }
+  });
+
+  it("canSeeAnalitica respeta los alias de administrador", () => {
+    for (const role of ["superadmin", "admin_vivero"]) {
+      expect(canSeeAnalitica({ rol: role })).toBe(true);
+    }
+  });
+
+  it("canSeeAnalitica no concede acceso sin rol", () => {
+    expect(canSeeAnalitica(null)).toBe(false);
+    expect(canSeeAnalitica({})).toBe(false);
+    expect(canSeeAnalitica({ rol: "inventado" })).toBe(false);
   });
 
   it("canOpenMapaVivero solo para roles internos del vivero", () => {

@@ -43,6 +43,7 @@ from schemas import PedidoActionRequest, PedidoDecidirRequest, PedidoOut
 # símbolo directamente. Ver tenant.py.
 import tenant
 from tenant import set_session_cliente
+from analytics import dashboard_analytics
 
 import account_tokens
 import email_service
@@ -3644,6 +3645,31 @@ def listar_movimientos(
             }
         )
     return out
+
+
+# =============================
+# ANALÍTICA DEL PANEL
+# =============================
+@app.get("/dashboard/analytics")
+def get_dashboard_analytics(
+    limite: int = 5,
+    db: Session = Depends(get_db),
+    # OJO con los permisos: `GET /pedidos` recorta las FILAS que ven
+    # `empresa_externa` (solo sus pedidos + reposiciones servibles) y
+    # `proveedor` (solo reposiciones servibles). Un ranking agregado sobre TODO
+    # el histórico del ayuntamiento les dejaría deducir demanda y destinos que
+    # hoy no pueden consultar, así que esos dos roles quedan fuera. El resto son
+    # exactamente los que ya ven el histórico completo de pedidos.
+    current_user: Usuario = Depends(
+        require_roles(["admin", "manager", "tecnico", "gestor_vivero"])
+    ),
+):
+    """Métricas agregadas del panel (productos más demandados, destinos más
+    frecuentes y pedidos por día de la semana) en una sola respuesta. La
+    definición exacta de cada métrica está en analytics.py."""
+    # `limite` llega por query string: se acota a un rango sensato.
+    limite = max(1, min(int(limite or 5), 20))
+    return dashboard_analytics(db, limite=limite)
 
 
 # =============================
