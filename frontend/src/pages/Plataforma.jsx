@@ -4,8 +4,10 @@ import {
   enrollAyuntamiento,
   getSuperadminStats,
   importClienteData,
+  restaurarZonasDefecto,
   setActiveClienteId,
   updateCliente,
+  vaciarZonasCliente,
 } from "../api/api";
 import { Badge, Button, Card, CardContent, PageHeader, StatusBadge } from "../ui";
 import { Alert } from "../components/ui/feedback";
@@ -145,6 +147,9 @@ export default function Plataforma() {
   const [importBusyId, setImportBusyId] = useState(null);
   const [importMsg, setImportMsg] = useState(null);
 
+  const [zonasBusyId, setZonasBusyId] = useState(null);
+  const [zonasMsg, setZonasMsg] = useState(null);
+
   const { confirmar, dialogo: dialogoConfirmacion } = useConfirm();
 
   const cargar = async () => {
@@ -192,6 +197,52 @@ export default function Plataforma() {
     // peticiones siguientes.
     setActiveClienteId(cid);
     window.location.assign("/dashboard");
+  };
+
+  // Vacía las zonas del mapa de un ayuntamiento (por id, sin ambigüedad de
+  // cabecera). Para corregir zonas mal etiquetadas: un ayuntamiento no debe ver
+  // las de otro. Tras vaciar, ese ayuntamiento dibuja las suyas.
+  const vaciarZonas = async (c) => {
+    setZonasMsg(null);
+    const ok = await confirmar({
+      title: `¿Vaciar las zonas de ${c.nombre}?`,
+      description: `Se eliminarán las ${c.zonas} zona(s) del mapa de este ayuntamiento. No afecta a ningún otro. Después podrá dibujar las suyas (o, en Santa Cruz, restaurar las de por defecto).`,
+      confirmLabel: "Vaciar zonas",
+      destructive: true,
+    });
+    if (!ok) return;
+    setZonasBusyId(c.id);
+    try {
+      const res = await vaciarZonasCliente(c.id);
+      setZonasMsg({ ok: true, text: `Zonas de ${c.nombre} vaciadas (${res.eliminadas}).` });
+      await cargar();
+    } catch (err) {
+      setZonasMsg({ ok: false, text: err?.response?.data?.detail || "No se pudieron vaciar las zonas." });
+    } finally {
+      setZonasBusyId(null);
+    }
+  };
+
+  // Restaura las 17 zonas por defecto de Santa Cruz (solo válido en Santa Cruz).
+  const restaurarZonas = async (c) => {
+    setZonasMsg(null);
+    const ok = await confirmar({
+      title: `¿Restaurar las zonas por defecto de ${c.nombre}?`,
+      description: "Se reemplazarán las zonas actuales de este ayuntamiento por las 17 originales de Santa Cruz. Podrás reposicionarlas luego en el editor.",
+      confirmLabel: "Restaurar zonas",
+      destructive: true,
+    });
+    if (!ok) return;
+    setZonasBusyId(c.id);
+    try {
+      const res = await restaurarZonasDefecto(c.id);
+      setZonasMsg({ ok: true, text: `Restauradas ${res.restauradas} zonas por defecto en ${c.nombre}.` });
+      await cargar();
+    } catch (err) {
+      setZonasMsg({ ok: false, text: err?.response?.data?.detail || "No se pudieron restaurar las zonas." });
+    } finally {
+      setZonasBusyId(null);
+    }
   };
 
   /*
@@ -346,6 +397,11 @@ export default function Plataforma() {
             </h2>
 
             {cuotaError ? <Alert tone="error">{cuotaError}</Alert> : null}
+            {zonasMsg ? (
+              <Alert tone={zonasMsg.ok ? "success" : "error"} onDismiss={() => setZonasMsg(null)}>
+                {zonasMsg.text}
+              </Alert>
+            ) : null}
 
             <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border)]">
               <table
@@ -363,6 +419,7 @@ export default function Plataforma() {
                     <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Productos</th>
                     <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Pedidos</th>
                     <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Movimientos</th>
+                    <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Zonas</th>
                     <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Cuota</th>
                     <th scope="col" className="text-left text-caption font-[var(--font-weight-semibold)]">Acciones</th>
                   </tr>
@@ -390,6 +447,7 @@ export default function Plataforma() {
                         <td className="tabular">{c.productos}</td>
                         <td className="tabular">{c.pedidos}</td>
                         <td className="tabular">{c.movimientos}</td>
+                        <td className="tabular">{c.zonas ?? 0}</td>
                         <td>
                           {editando ? (
                             <div className="flex flex-wrap items-end gap-2">
@@ -457,6 +515,30 @@ export default function Plataforma() {
                             <Button type="button" size="sm" variant="secondary" onClick={() => entrarComo(c.id)}>
                               Entrar
                             </Button>
+
+                            {/* Corrección de zonas mal etiquetadas: vaciar las de
+                                ESTE ayuntamiento (por id, sin ambigüedad) y, en
+                                Santa Cruz, restaurar las de por defecto. */}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => vaciarZonas(c)}
+                              disabled={zonasBusyId === c.id || !c.zonas}
+                            >
+                              {zonasBusyId === c.id ? "Zonas…" : `Vaciar zonas (${c.zonas ?? 0})`}
+                            </Button>
+                            {c.slug === "santa-cruz" && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => restaurarZonas(c)}
+                                disabled={zonasBusyId === c.id}
+                              >
+                                Restaurar zonas por defecto
+                              </Button>
+                            )}
 
                             {/*
                              * El input va etiquetado y visible al foco en vez de
