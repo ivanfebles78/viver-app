@@ -308,9 +308,13 @@ export default function ZoneEditor({ zonas, onSave, onCancel, saving = false, ma
 
       <div className="vivero-map-wrapper zone-editor-canvas">
         {/* `alt=""`: el nombre lo da el `role="application"` del SVG de encima.
-            La foto es la del vivero del ayuntamiento activo (`mapaUrl`); si aún
-            no ha subido ninguna, se cae al plano estático. */}
-        <img src={mapaUrl || "/mapa-vivero.png"} alt="" className="vivero-map-image" />
+            La foto es la del vivero del ayuntamiento activo (`mapaUrl`). Si aún
+            no ha subido ninguna NO se usa una por defecto (era la de Santa Cruz,
+            que así se mostraba a otros ayuntamientos): se edita sobre fondo
+            neutro. */}
+        {mapaUrl ? (
+          <img src={mapaUrl} alt="" className="vivero-map-image" />
+        ) : null}
         <svg
           ref={svgRef}
           className="vivero-map-overlay"

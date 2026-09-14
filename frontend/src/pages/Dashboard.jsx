@@ -4,6 +4,7 @@ import { PackageSearch, ClipboardList } from "lucide-react";
 import { getDashboardAnalytics, getMe, getPedidos, getProductos } from "../api/api";
 import {
   Card,
+  cn,
   DataTable,
   EmptyState,
   PageHeader,
@@ -506,7 +507,18 @@ export default function Dashboard() {
             />
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-[var(--card-gap)] xl:grid-cols-2">
+          /* Rejilla asimétrica: «Caducidades» necesita más ancho porque su
+             columna «Estado» lleva una insignia larga («Próximo a caducar») que
+             en 50/50 se recortaba; «Bajo mínimo» son cifras cortas y se apaña con
+             menos. Cuando solo hay uno de los dos, ocupa todo. */
+          <div
+            className={cn(
+              "grid grid-cols-1 gap-[var(--card-gap)]",
+              atencionCaducidad.length > 0 && bajoMinimoItems.length > 0
+                ? "xl:grid-cols-[3fr_2fr]"
+                : "xl:grid-cols-1"
+            )}
+          >
             {atencionCaducidad.length > 0 && (
               <div className="flex min-w-0 flex-col gap-3">
                 <SectionHeader

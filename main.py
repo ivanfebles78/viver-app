@@ -1627,7 +1627,16 @@ def get_mapa_imagen(
     c = db.query(Cliente).filter(Cliente.id == cid).first()
     if not c or not c.mapa_imagen:
         raise HTTPException(status_code=404, detail="Este vivero aún no tiene mapa")
-    return Response(content=bytes(c.mapa_imagen), media_type=c.mapa_mimetype or "image/png")
+    # no-store: esta respuesta DEPENDE del ayuntamiento (cabecera X-Cliente-Id),
+    # pero la URL es la misma para todos. Sin esto, el navegador cachea la imagen
+    # por URL y, al cambiar de ayuntamiento (o al iniciar sesión otro usuario en
+    # el mismo navegador), sirve el mapa del ayuntamiento ANTERIOR: un ayuntamiento
+    # acababa viendo el mapa de otro. Ver también el cache-buster del cliente.
+    return Response(
+        content=bytes(c.mapa_imagen),
+        media_type=c.mapa_mimetype or "image/png",
+        headers={"Cache-Control": "no-store, private", "Vary": "X-Cliente-Id"},
+    )
 
 
 _MAPA_MIMETYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}
@@ -1706,7 +1715,14 @@ def get_logo_imagen(
     c = db.query(Cliente).filter(Cliente.id == cid).first()
     if not c or not c.logo_imagen:
         raise HTTPException(status_code=404, detail="Este ayuntamiento aún no tiene logo")
-    return Response(content=bytes(c.logo_imagen), media_type=c.logo_mimetype or "image/png")
+    # no-store: depende del ayuntamiento activo, misma URL para todos (ver la
+    # nota de /mapa-imagen). Evita que un ayuntamiento vea el logo de otro por
+    # caché del navegador.
+    return Response(
+        content=bytes(c.logo_imagen),
+        media_type=c.logo_mimetype or "image/png",
+        headers={"Cache-Control": "no-store, private", "Vary": "X-Cliente-Id"},
+    )
 
 
 @app.post("/logo-imagen")
@@ -5286,6 +5302,7 @@ def _serialize_zona(z: ZonaPolygon) -> dict:
 
 @app.get("/zonas-config")
 def get_zonas_config(
+    response: Response,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -5307,6 +5324,13 @@ def get_zonas_config(
     # ayuntamientos que, al editarse, podía sobrescribir las del ayuntamiento
     # equivocado. El super-admin debe elegir un ayuntamiento para ver/editar sus
     # zonas (la edición ya lo exigía en PUT).
+    #
+    # no-store: la respuesta depende del ayuntamiento activo (cabecera
+    # X-Cliente-Id) pero la URL es la misma para todos. Sin esto el navegador
+    # podía servir las zonas cacheadas del ayuntamiento anterior al cambiar de
+    # ayuntamiento — un ayuntamiento veía las zonas de otro.
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Vary"] = "X-Cliente-Id"
     if tenant.get_session_cliente(db) is None:
         return []
     rows = db.query(ZonaPolygon).order_by(ZonaPolygon.sort_order.asc(), ZonaPolygon.id.asc()).all()
