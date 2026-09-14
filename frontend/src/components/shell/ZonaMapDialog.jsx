@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ImageUp } from "lucide-react";
 
 import {
   getZonaItems,
@@ -103,6 +104,9 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false })
   // Object URL vivo de la foto: se revoca antes de sustituirlo y al desmontar,
   // para no dejar blobs huérfanos en memoria tras cada (re)subida.
   const mapaUrlRef = useRef(null);
+  // El input de fichero va oculto; lo dispara el botón visible (más claro que un
+  // input de fichero suelto, que no parece un botón de subida).
+  const fileInputRef = useRef(null);
 
   const canEdit = ENABLE_ZONE_EDITOR && isAdmin;
   const imagenMapa = mapaUrl || mapaViveroFallback;
@@ -331,34 +335,40 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false })
         <div className="grid max-h-[75dvh] min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[1.45fr_0.8fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
           <div className="min-h-0 overflow-y-auto border-b border-border p-4 lg:border-b-0 lg:border-r">
             {(canEdit || canManageMapa) && (
-              <div className="mb-3 flex flex-wrap items-end justify-end gap-3">
+              <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
                 {canManageMapa && (
                   /*
-                   * Input de fichero VISIBLE con su `<label htmlFor>`, igual que
-                   * el resto de subidas de la app: se alcanza con el teclado y
-                   * tiene nombre accesible, a diferencia del input escondido
-                   * dentro de un `<label>`.
+                   * Botón CLARO de subida: un `<Button>` con icono que dispara
+                   * un input de fichero oculto (aria-hidden, fuera del tab: el
+                   * control accesible es el botón). Antes era un input suelto
+                   * que no parecía un botón de subir imagen.
                    */
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <label
-                      htmlFor="mapa-vivero-fichero"
-                      className="text-caption uppercase text-muted-foreground"
+                  <>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={subiendoMapa}
                     >
+                      <ImageUp aria-hidden="true" className="size-4" />
                       {subiendoMapa
                         ? "Subiendo…"
                         : mapaUrl
                           ? "Cambiar foto del vivero"
                           : "Subir foto del vivero"}
-                    </label>
+                    </Button>
                     <input
-                      id="mapa-vivero-fichero"
+                      ref={fileInputRef}
                       type="file"
                       accept="image/png,image/jpeg,image/webp,image/gif"
                       onChange={handleSubirMapa}
                       disabled={subiendoMapa}
-                      className="text-body-sm"
+                      aria-hidden="true"
+                      tabIndex={-1}
+                      className="sr-only"
                     />
-                  </div>
+                  </>
                 )}
                 {canEdit && (
                   <Button variant="secondary" size="sm" onClick={() => setEditMode(true)}>

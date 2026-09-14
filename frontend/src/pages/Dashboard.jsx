@@ -390,8 +390,11 @@ export default function Dashboard() {
           );
           const dias = i.diasRestantes;
           return (
-            <div className="flex flex-col items-start gap-1">
-              <StatusBadge status={status} label={label} />
+            <div className="flex min-w-0 flex-col items-start gap-1">
+              {/* `whitespace-normal`: el badge por defecto va en una sola línea
+                  (nowrap) y "Próximo a caducar" se recortaba en columnas
+                  estrechas. Aquí se permite que envuelva a dos líneas. */}
+              <StatusBadge status={status} label={label} className="h-auto whitespace-normal text-left" />
               {typeof dias === "number" && (
                 <span className="text-caption text-muted-foreground">
                   {dias < 0

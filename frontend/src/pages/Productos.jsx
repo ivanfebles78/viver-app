@@ -962,8 +962,13 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
         {msg ? <Alert tone="success">{msg}</Alert> : null}
         {err ? <Alert tone="error">{err}</Alert> : null}
 
-        <TabsContent value="listado">
-            <div>
+        {/* `min-w-0`: sin él, este panel (hijo flex de Tabs) toma como mínimo el
+            ancho intrínseco de la tabla (min-width: 760) y NO deja que el
+            contenedor de scroll horizontal de la tabla haga su trabajo — la
+            tabla se salía y se recortaban las columnas de la derecha (Interno,
+            Acciones). Con min-w-0 el panel puede encoger y la tabla scrollea. */}
+        <TabsContent value="listado" className="min-w-0">
+            <div className="min-w-0">
               <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
                 <input
                   // El marcador de posición desaparece al teclear: no sirve como
