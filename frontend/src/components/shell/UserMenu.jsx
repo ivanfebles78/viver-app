@@ -1,4 +1,4 @@
-import { KeyRound, LifeBuoy, LogOut, Users, Map } from "lucide-react";
+import { KeyRound, LifeBuoy, LogOut, Users, Map, Settings } from "lucide-react";
 
 import {
   Button,
@@ -36,10 +36,12 @@ export default function UserMenu({
   rol,
   canManageUsuarios,
   canOpenMapa,
+  canManageAjustes,
   onChangePassword,
   onOpenHelp,
   onOpenUsuarios,
   onOpenMapa,
+  onOpenAjustes,
   onLogout,
 }) {
   const nombre = formatUsername(username) || "—";
@@ -80,6 +82,13 @@ export default function UserMenu({
           <DropdownMenuItem onSelect={onOpenUsuarios}>
             <Users className="size-4" />
             {L.usuarios}
+          </DropdownMenuItem>
+        )}
+
+        {canManageAjustes && (
+          <DropdownMenuItem onSelect={onOpenAjustes}>
+            <Settings className="size-4" />
+            {L.ajustes}
           </DropdownMenuItem>
         )}
 

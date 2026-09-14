@@ -5,6 +5,7 @@ import { Sprout } from "lucide-react";
 import { clearStoredToken, getMe, getProductos, getPedidos } from "../api/api";
 import ClienteSelector from "../components/common/ClienteSelector";
 import CambiarPasswordModal from "../components/common/CambiarPasswordModal";
+import AjustesAyuntamientoModal from "../components/common/AjustesAyuntamientoModal";
 import WelcomeModal from "../components/welcome/WelcomeModal";
 import { shouldShowWelcomeOnStart } from "../components/welcome/welcomeStorage";
 import NotificationsPanel from "../components/shell/NotificationsPanel";
@@ -28,6 +29,7 @@ import {
   canOpenMapaVivero,
   canManageMapaImagen,
   canEditZonas,
+  canManageAjustes,
   ROLES,
   ROUTES,
 } from "../app/permissions";
@@ -66,6 +68,7 @@ export default function Layout() {
   const [pedidosUsuario, setPedidosUsuario] = useState([]);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [ajustesOpen, setAjustesOpen] = useState(false);
   const [readNotificationIds, setReadNotificationIds] = useState(() =>
     getReadNotificationsFromStorage()
   );
@@ -282,10 +285,12 @@ export default function Layout() {
             rol={rolMostrado}
             canManageUsuarios={canManageUsuarios(me)}
             canOpenMapa={canOpenMapaVivero(me)}
+            canManageAjustes={canManageAjustes(me)}
             onChangePassword={() => setPasswordModalOpen(true)}
             onOpenHelp={() => setWelcomeOpen(true)}
             onOpenUsuarios={() => navigate(ROUTES.ADMIN_USUARIOS)}
             onOpenMapa={() => setMapOpen(true)}
+            onOpenAjustes={() => setAjustesOpen(true)}
             onLogout={logout}
           />
         }
@@ -325,6 +330,7 @@ export default function Layout() {
       </AppShell>
 
       <CambiarPasswordModal open={passwordModalOpen} onClose={() => setPasswordModalOpen(false)} />
+      <AjustesAyuntamientoModal open={ajustesOpen} onClose={() => setAjustesOpen(false)} />
       <WelcomeModal open={welcomeOpen} onClose={() => setWelcomeOpen(false)} />
       {canOpenMapaVivero(me) && (
         <ZonaMapDialog

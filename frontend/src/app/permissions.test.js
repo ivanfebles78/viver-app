@@ -31,6 +31,7 @@ import {
   canOpenMapaVivero,
   canManageMapaImagen,
   canEditZonas,
+  canManageAjustes,
   canSeeAnalitica,
 } from "./permissions";
 
@@ -511,6 +512,16 @@ describe("capacidades de la interfaz", () => {
       expect(canEditZonas({ rol: role })).toBe(false);
     }
     expect(canEditZonas(null)).toBe(false);
+  });
+
+  it("canManageAjustes: logo y nombre solo administración (admin y sus alias)", () => {
+    for (const role of ["admin", "admin_vivero", "superadmin"]) {
+      expect(canManageAjustes({ rol: role })).toBe(true);
+    }
+    for (const role of ["manager", "tecnico", "gestor_vivero", "empresa_externa", "proveedor"]) {
+      expect(canManageAjustes({ rol: role })).toBe(false);
+    }
+    expect(canManageAjustes(null)).toBe(false);
   });
 });
 

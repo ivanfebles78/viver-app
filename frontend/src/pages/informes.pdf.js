@@ -21,6 +21,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
 import logoViverApp from "../assets/logo.png";
+import { fetchLogoDataUrl } from "../api/api";
 import {
   ESTADO_STOCK_LABEL,
   fmtCantInv,
@@ -80,19 +81,38 @@ async function addDocHeader(doc, title, me) {
   doc.setFillColor(6, 182, 212);
   doc.rect(0, 28, pageWidth, 3, "F");
 
+  // Nombre del ayuntamiento (marca del informe). Si no viene, cae a "ViverApp".
+  const nombreEntidad = (me?.cliente_nombre || "ViverApp").trim() || "ViverApp";
+
+  // Ajuste del tamaño del nombre para que quepa en la banda (deja hueco al logo).
+  const maxNombreWidth = pageWidth - 14 - 46; // margen izq. + zona del logo
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
   doc.setTextColor(255, 255, 255);
-  doc.text("ViverApp", 14, 16);
+  let nombreSize = 22;
+  doc.setFontSize(nombreSize);
+  // `getTextWidth` puede no existir en entornos de prueba con un jsPDF mockeado;
+  // si no está, se muestra al tamaño base sin reajustar.
+  const puedeMedir = typeof doc.getTextWidth === "function";
+  while (nombreSize > 11 && puedeMedir && doc.getTextWidth(nombreEntidad) > maxNombreWidth) {
+    nombreSize -= 1;
+    doc.setFontSize(nombreSize);
+  }
+  doc.text(nombreEntidad, 14, 16);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.setTextColor(226, 232, 240);
   doc.text("Sistema de gestión del vivero", 14, 23);
 
+  // Logo del ayuntamiento (si lo ha subido); si no, el genérico de ViverApp.
   try {
-    const logoDataUrl = await loadImageAsDataUrl(logoViverApp);
-    doc.addImage(logoDataUrl, "PNG", pageWidth - 42, 1, 32, 32);
+    const propio = await fetchLogoDataUrl().catch(() => null);
+    if (propio?.dataUrl) {
+      doc.addImage(propio.dataUrl, propio.format || "PNG", pageWidth - 42, 1, 32, 32);
+    } else {
+      const logoDataUrl = await loadImageAsDataUrl(logoViverApp);
+      doc.addImage(logoDataUrl, "PNG", pageWidth - 42, 1, 32, 32);
+    }
   } catch (e) {
     console.error("No se pudo cargar el logo para el PDF:", e);
   }

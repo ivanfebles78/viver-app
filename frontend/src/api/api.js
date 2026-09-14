@@ -542,5 +542,64 @@ export const deleteMapaImagen = async () => {
   return data;
 };
 
+// =========================
+// LOGO Y NOMBRE DEL AYUNTAMIENTO (branding de informes)
+// =========================
+
+// objectURL del logo del ayuntamiento activo (para previsualizar). null si no hay.
+export const fetchLogoImagenUrl = async () => {
+  try {
+    const resp = await api.get("/logo-imagen", { responseType: "blob" });
+    return URL.createObjectURL(resp.data);
+  } catch (err) {
+    if (err?.response?.status === 404) return null; // aún sin logo
+    throw err;
+  }
+};
+
+// dataURL (base64) del logo, para incrustarlo en los PDF (jsPDF addImage).
+// Devuelve { dataUrl, format } o null si el ayuntamiento no tiene logo.
+export const fetchLogoDataUrl = async () => {
+  try {
+    const resp = await api.get("/logo-imagen", { responseType: "blob" });
+    const blob = resp.data;
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    const format = (blob.type || "").includes("jpeg") || (blob.type || "").includes("jpg")
+      ? "JPEG"
+      : "PNG";
+    return { dataUrl, format };
+  } catch (err) {
+    if (err?.response?.status === 404) return null;
+    throw err;
+  }
+};
+
+export const uploadLogoImagen = async (file) => {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post("/logo-imagen", form);
+  return data;
+};
+
+export const deleteLogoImagen = async () => {
+  const { data } = await api.delete("/logo-imagen");
+  return data;
+};
+
+export const getMiAyuntamiento = async () => {
+  const { data } = await api.get("/mi-ayuntamiento");
+  return data;
+};
+
+export const updateMiAyuntamiento = async (nombre) => {
+  const { data } = await api.patch("/mi-ayuntamiento", { nombre });
+  return data;
+};
+
 export default api;
 

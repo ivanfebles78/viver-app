@@ -36,6 +36,12 @@ class Cliente(Base):
     mapa_mimetype = Column(String(60), nullable=True)
     mapa_updated_at = Column(DateTime, nullable=True)
 
+    # Logo del ayuntamiento para los informes/PDF (bytea en la BD, como el mapa).
+    # Si es NULL, los informes usan el logo genérico de ViverApp.
+    logo_imagen = Column(LargeBinary, nullable=True)
+    logo_mimetype = Column(String(60), nullable=True)
+    logo_updated_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
