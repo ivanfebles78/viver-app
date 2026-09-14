@@ -386,11 +386,16 @@ describe("contrato · foto del vivero por ayuntamiento", () => {
         .mockResolvedValueOnce("blob:foto-2");
       api.uploadMapaImagen.mockResolvedValue({ ok: true });
 
+      // El botón visible es el control accesible; el input de fichero va oculto.
       render(<ZonaMapDialog open onClose={vi.fn()} isAdmin canManageMapa />);
 
       await waitFor(() => expect(api.fetchMapaImagenUrl).toHaveBeenCalledTimes(1));
+      expect(
+        screen.getByRole("button", { name: /foto del vivero/i })
+      ).toBeInTheDocument();
 
-      const input = await screen.findByLabelText(/foto del vivero/i);
+      // El Dialog de Radix va en un portal (document.body), no en el container.
+      const input = document.querySelector('input[type="file"]');
       const file = new File(["contenido"], "vivero.png", { type: "image/png" });
       await user.upload(input, file);
 
