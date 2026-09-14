@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Check, Plus, ClipboardList } from "lucide-react";
+import { Copy, Check, Plus } from "lucide-react";
 
 import { getMovimientos, getProductos, getPedidos, createMovimiento } from "../api/api";
 import { loadZonasFromServer } from "../components/vivero/zonesStorage";
@@ -34,7 +34,6 @@ import {
   safeArray,
 } from "./movimientos.logic";
 import MovimientoModal from "./movimientos/MovimientoModal";
-import MovimientoCestaModal from "./movimientos/MovimientoCestaModal";
 import MovimientoDetalleModal from "./movimientos/MovimientoDetalleModal";
 
 /*
@@ -88,7 +87,6 @@ export default function Movimientos() {
   const [saving, setSaving] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
-  const [showSalidaModal, setShowSalidaModal] = useState(false);
   const [detalleMovimiento, setDetalleMovimiento] = useState(null);
 
   const [msg, setMsg] = useState("");
@@ -246,7 +244,6 @@ export default function Movimientos() {
         showTimedMessage(`Guardados ${creados}/${payloads.length}. ${errorMsg}`, "error");
       } else {
         setShowModal(false);
-        setShowSalidaModal(false);
         await load();
         showTimedMessage(
           payloads.length > 1
@@ -415,26 +412,16 @@ export default function Movimientos() {
         title="Movimientos"
         description="Registra y consulta entradas, salidas, préstamos, devoluciones y traslados del vivero."
         /*
-          `max-w-[calc(100vw-2rem)]` no es un apaño: es lo que rompe una
-          circularidad real.
-
-          `PageHeader` mete las acciones en un contenedor `flex-wrap shrink-0`.
-          Al no poder encogerse, su ancho se resuelve por el CONTENIDO, así que
-          los hijos nunca «necesitan» partirse: los dos botones sumaban 400 px
-          y a 320 px el primario quedaba cortado por el borde —medido en
-          navegador—. Un `w-full` no ayuda, porque el 100 % se calcula contra
-          ese mismo ancho por contenido.
-
-          Anclar el máximo al VIEWPORT rompe el bucle: a 320 px el tope son
-          288 px, los botones no caben en una línea y la fila se parte sola.
+          Un único punto de entrada. El asistente que abre este botón cubre los
+          cuatro tipos (entrada, salida, traslado y devolución) y, dentro de
+          cada uno, asociar un pedido aprobado, marcar préstamo o devolución y
+          construir un lote de varios productos. Antes había dos botones —uno
+          para «servir pedido / devolución» y otro para el alta— que abrían dos
+          modales solapados; se unificaron en este.
         */
         actions={
           <div className="flex max-w-[calc(100vw-2rem)] flex-wrap justify-end gap-2">
-            <Button variant="secondary" onClick={() => setShowModal(true)}>
-              <ClipboardList aria-hidden="true" className="size-4" />
-              Servir pedido / Devolución
-            </Button>
-            <Button variant="primary" onClick={() => setShowSalidaModal(true)}>
+            <Button variant="primary" onClick={() => setShowModal(true)}>
               <Plus aria-hidden="true" className="size-4" />
               Nuevo movimiento
             </Button>
@@ -560,11 +547,11 @@ export default function Movimientos() {
       />
 
       {/*
-        `key`: igual que en la cesta, abrir el modal monta una instancia nueva y
-        el estado arranca en el de la declaración. Reemplaza a un `useEffect`
-        que reiniciaba once campos al cerrarse: un `setState` en cascada por
-        apertura, y una lista que había que ampliar cada vez que se añadía un
-        campo. El remontado no se olvida de ninguno.
+        `key`: abrir el modal monta una instancia nueva y el estado arranca en el
+        de la declaración. Reemplaza a un `useEffect` que reiniciaba once campos
+        al cerrarse: un `setState` en cascada por apertura, y una lista que había
+        que ampliar cada vez que se añadía un campo. El remontado no se olvida de
+        ninguno.
       */}
       <MovimientoModal
         key={showModal ? "movimiento-abierto" : "movimiento-cerrado"}
@@ -576,24 +563,6 @@ export default function Movimientos() {
         onSubmit={handleCreateMovimiento}
         saving={saving}
         zonas={zonasDisponibles}
-      />
-
-      {/*
-        `key`: abrir el modal monta una instancia NUEVA, así que su estado
-        arranca en el de la declaración. Antes esto lo hacía un `useEffect` que
-        reiniciaba trece campos al cerrarse — un `setState` en cascada por cada
-        apertura, y una lista que había que acordarse de ampliar cada vez que se
-        añadía un campo. El remontado no se puede olvidar de ninguno.
-      */}
-      <MovimientoCestaModal
-        key={showSalidaModal ? "cesta-abierta" : "cesta-cerrada"}
-        open={showSalidaModal}
-        onClose={() => setShowSalidaModal(false)}
-        productos={productos}
-        movimientos={movimientos}
-        zonas={zonasDisponibles}
-        onSubmit={handleCreateMovimiento}
-        saving={saving}
       />
 
       <MovimientoDetalleModal

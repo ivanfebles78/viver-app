@@ -136,23 +136,12 @@ describe("a11y · Movimientos", () => {
     sinViolaciones(await analizar(document.body));
   });
 
-  it("con la cesta abierta", async () => {
-    const user = userEvent.setup();
-    render(<Movimientos />);
-    await screen.findByRole("table");
-
-    await user.click(screen.getByRole("button", { name: /nuevo movimiento/i }));
-    const dialogo = await screen.findByRole("dialog");
-    expect(within(dialogo).getByRole("tablist")).toBeInTheDocument();
-    sinViolaciones(await analizar(document.body));
-  });
-
   it("con el asistente abierto en el paso 1", async () => {
     const user = userEvent.setup();
     render(<Movimientos />);
     await screen.findByRole("table");
 
-    await user.click(screen.getByRole("button", { name: /servir pedido/i }));
+    await user.click(screen.getByRole("button", { name: /nuevo movimiento/i }));
     const dialogo = await screen.findByRole("dialog");
     expect(within(dialogo).getByRole("radiogroup", { name: /tipo de movimiento/i })).toBeInTheDocument();
     sinViolaciones(await analizar(document.body));
@@ -163,7 +152,7 @@ describe("a11y · Movimientos", () => {
     render(<Movimientos />);
     await screen.findByRole("table");
 
-    await user.click(screen.getByRole("button", { name: /servir pedido/i }));
+    await user.click(screen.getByRole("button", { name: /nuevo movimiento/i }));
     const dialogo = await screen.findByRole("dialog");
     await user.click(within(dialogo).getByRole("radio", { name: /entrada al vivero/i }));
     // La entrada exige elegir procedencia antes de continuar.

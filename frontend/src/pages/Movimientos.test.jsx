@@ -465,29 +465,20 @@ describe("Movimientos · cabecera", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 
-  it("las dos acciones siguen estando", async () => {
+  it("una única acción: Nuevo movimiento", async () => {
     pintar();
     await esperarTabla();
     expect(screen.getByRole("button", { name: /nuevo movimiento/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /servir pedido/i })).toBeInTheDocument();
+    // Los dos botones anteriores se unificaron en uno: ya no hay «Servir pedido».
+    expect(screen.queryByRole("button", { name: /servir pedido/i })).not.toBeInTheDocument();
   });
 
-  it("«Nuevo movimiento» abre la cesta", async () => {
+  it("«Nuevo movimiento» abre el asistente en el paso 1 (los cuatro tipos)", async () => {
     const user = userEvent.setup();
     pintar();
     await esperarTabla();
 
     await user.click(screen.getByRole("button", { name: /nuevo movimiento/i }));
-    const dialogo = await screen.findByRole("dialog");
-    expect(within(dialogo).getByRole("tab", { name: /salida/i })).toBeInTheDocument();
-  });
-
-  it("«Servir pedido» abre el asistente en el paso 1", async () => {
-    const user = userEvent.setup();
-    pintar();
-    await esperarTabla();
-
-    await user.click(screen.getByRole("button", { name: /servir pedido/i }));
     const dialogo = await screen.findByRole("dialog");
     expect(within(dialogo).getByText(/qué tipo de movimiento/i)).toBeInTheDocument();
     expect(within(dialogo).getByRole("radiogroup", { name: /tipo de movimiento/i })).toBeInTheDocument();
