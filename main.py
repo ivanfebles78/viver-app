@@ -99,6 +99,68 @@ def _ensure_schema() -> None:
 _ensure_schema()
 
 
+# Zonas del mapa por defecto de Santa Cruz. Es la configuración ORIGINAL de su
+# vivero (la misma que el frontend guarda en zonasConfig.js). Se usa SOLO para
+# restaurar las zonas de Santa Cruz si se quedara sin ninguna (BD nueva o
+# pérdida accidental). NINGÚN otro ayuntamiento se siembra con esto: cada uno
+# dibuja las suyas desde cero. Los puntos son aproximados en algunas zonas
+# (splits), pensados para reposicionarse con el editor.
+_ZONAS_DEFAULT_SANTA_CRUZ = [
+    {"id": "zona-1", "apiId": "1", "nombre": "Zona 1", "color": "#F4E2C1", "puntos": "60,1208 440,1013 420,933 585,718 673,684 760,650 935,583 915,403 800,358 325,983"},
+    {"id": "zona-2", "apiId": "2", "nombre": "Zona 2", "color": "#E87B69", "puntos": "1035,665 1046,695 1359,515 1571,370 1546,327 1311,468"},
+    {"id": "zona-3a", "apiId": "3a", "nombre": "Zona 3 A", "color": "#9FD486", "puntos": "1028,667 1100,615 1076,589 1000,637"},
+    {"id": "zona-3b", "apiId": "3b", "nombre": "Zona 3 B", "color": "#7DBE6F", "puntos": "1100,615 1171,573 1160,530 1076,589"},
+    {"id": "zona-4a", "apiId": "4a", "nombre": "Zona 4 A", "color": "#F5D547", "puntos": "1366,754 1510,711 1530,741 1623,709 1650,770 1431,831 1336,798"},
+    {"id": "zona-4b", "apiId": "4b", "nombre": "Zona 4 B", "color": "#F08A80", "puntos": "1435,829 1655,774 1672,867 1486,919 1412,866"},
+    {"id": "zona-5", "apiId": "5", "nombre": "Zona 5", "color": "#F3CF39", "puntos": "920,790 435,1030 425,975 890,740"},
+    {"id": "zona-6", "apiId": "6", "nombre": "Zona 6", "color": "#A7D98C", "puntos": "739,1062 705,975 860,915 887,994"},
+    {"id": "zona-7", "apiId": "7", "nombre": "Zona 7", "color": "#9ECBE2", "puntos": "871,1163 924,1183 896,1278 584,1183 284,1174 107,1194 678,914 730,1057 816,1029 887,987 866,906 919,878 943,891"},
+    {"id": "zona-8", "apiId": "8", "nombre": "Zona 8", "color": "#F3E0BD", "puntos": "1491,661 1335,749 1238,842 1107,1095 1075,1250 1218,1306 1600,1271 1716,1021 1663,1034 1678,874 1452,937 1331,802 1351,754 1524,707 1538,665"},
+    {"id": "zona-9a", "apiId": "9a", "nombre": "Zona 9 A", "color": "#F7E85B", "puntos": "1163,576 1240,510 1190,490 1156,544"},
+    {"id": "zona-9b", "apiId": "9b", "nombre": "Zona 9 B", "color": "#E8D947", "puntos": "1240,510 1370,420 1320,398 1190,490"},
+    {"id": "zona-9c", "apiId": "9c", "nombre": "Zona 9 C", "color": "#D9C835", "puntos": "1370,420 1538,333 1513,263 1320,398"},
+    {"id": "zona-10a", "apiId": "10a", "nombre": "Zona 10 A", "color": "#6BAED6", "puntos": "698,978 852,914 836,833 675,915"},
+    {"id": "zona-10b", "apiId": "10b", "nombre": "Zona 10 B", "color": "#4E8BC5", "puntos": "935,885 1000,915 920,1190 860,1170"},
+    {"id": "zona-11", "apiId": "11", "nombre": "Zona 11", "color": "#E56F61", "puntos": "875,620 550,750 400,980 885,749 900,680"},
+    {"id": "zona-12", "apiId": "12", "nombre": "Zona 12", "color": "#C77DBA", "puntos": "1750,150 1950,150 1950,300 1750,300"},
+]
+
+
+def _restaurar_zonas_santa_cruz_si_vacio(db: Session, cliente_id: int) -> None:
+    """Restaura las zonas por defecto de Santa Cruz SOLO si no tiene ninguna.
+
+    Idempotente y acotado: si Santa Cruz ya tiene alguna zona, NO se toca (se
+    respetan las ediciones del admin). Sirve de red de seguridad ante una
+    pérdida accidental de las zonas. Se acota a mano por cliente_id porque el
+    conteo y la inserción ocurren en el arranque, con la Session sin ayuntamiento
+    activo (sin auto-filtro de tenant.py)."""
+    tiene = (
+        db.query(ZonaPolygon)
+        .filter(ZonaPolygon.cliente_id == cliente_id)
+        .execution_options(skip_tenant=True)
+        .count()
+    )
+    if tiene > 0:
+        return
+    now = datetime.utcnow()
+    for idx, z in enumerate(_ZONAS_DEFAULT_SANTA_CRUZ):
+        db.add(
+            ZonaPolygon(
+                id=z["id"],
+                cliente_id=cliente_id,
+                api_id=z["apiId"],
+                nombre=z["nombre"],
+                color=z["color"],
+                puntos=z["puntos"],
+                sort_order=idx,
+                updated_at=now,
+                updated_by="seed",
+            )
+        )
+    db.commit()
+    print(f"[seed] Restauradas {len(_ZONAS_DEFAULT_SANTA_CRUZ)} zonas por defecto de Santa Cruz.")
+
+
 def _seed_bootstrap() -> None:
     """Arranque de una BD nueva y vacía: crea el ayuntamiento de Santa Cruz
     (cliente id=1) y, si no existe ningún usuario, un super-admin global y un
@@ -122,6 +184,10 @@ def _seed_bootstrap() -> None:
             db.add(cliente)
             db.commit()
             db.refresh(cliente)
+
+        # Red de seguridad: si Santa Cruz se quedó sin zonas, se restauran las
+        # suyas por defecto. No afecta a ningún otro ayuntamiento.
+        _restaurar_zonas_santa_cruz_si_vacio(db, cliente.id)
 
         total_users = db.query(Usuario).count()
         if total_users == 0:
@@ -5234,6 +5300,15 @@ def get_zonas_config(
     el frontend arranca con el mapa sin zonas (cada ayuntamiento dibuja las
     suyas); ya no hereda las zonas estáticas de Santa Cruz.
     """
+    # AISLAMIENTO: sin ayuntamiento activo (super-admin en «Todos los
+    # ayuntamientos») NO se devuelven zonas. Antes, con cliente_id None, el
+    # auto-filtro de tenant.py no se aplicaba y esta consulta devolvía las zonas
+    # de TODOS los ayuntamientos mezcladas: un mapa con zonas de varios
+    # ayuntamientos que, al editarse, podía sobrescribir las del ayuntamiento
+    # equivocado. El super-admin debe elegir un ayuntamiento para ver/editar sus
+    # zonas (la edición ya lo exigía en PUT).
+    if tenant.get_session_cliente(db) is None:
+        return []
     rows = db.query(ZonaPolygon).order_by(ZonaPolygon.sort_order.asc(), ZonaPolygon.id.asc()).all()
     return [_serialize_zona(z) for z in rows]
 

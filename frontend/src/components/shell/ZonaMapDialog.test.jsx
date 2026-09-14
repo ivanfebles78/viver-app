@@ -414,3 +414,24 @@ describe("contrato · foto del vivero por ayuntamiento", () => {
     expect(await screen.findByText(/no se pudieron cargar las zonas/i)).toBeInTheDocument();
   });
 });
+
+/* ══ 6. Super-admin sin ayuntamiento activo («Todos los ayuntamientos») ══════ */
+
+describe("contrato · sin ayuntamiento activo (super-admin en «Todos»)", () => {
+  it("NO pide las zonas a ningún ayuntamiento (evita mezclar las de todos)", async () => {
+    render(<ZonaMapDialog open onClose={vi.fn()} isAdmin sinAyuntamiento />);
+    // Debe avisar de que hay que elegir un ayuntamiento…
+    expect(await screen.findByText(/selecciona un ayuntamiento/i)).toBeInTheDocument();
+    // …y no debe haber cargado zonas de nadie.
+    expect(api.getZonasConfig).not.toHaveBeenCalled();
+  });
+
+  it("no ofrece editar zonas ni subir la foto sin un ayuntamiento elegido", async () => {
+    render(<ZonaMapDialog open onClose={vi.fn()} isAdmin canManageMapa sinAyuntamiento />);
+    await screen.findByText(/selecciona un ayuntamiento/i);
+    expect(screen.queryByRole("button", { name: /editar zonas/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /subir foto del vivero|cambiar foto del vivero/i })
+    ).not.toBeInTheDocument();
+  });
+});

@@ -73,7 +73,7 @@ function ZonePanelLoading() {
 /** Cuántos productos de la zona se muestran por tanda ("Mostrar más"). */
 const ZONA_ITEMS_STEP = 8;
 
-function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false }) {
+function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false, sinAyuntamiento = false }) {
   const [selectedZone, setSelectedZone] = useState(null);
   const [zonaData, setZonaData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -108,7 +108,10 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false })
   // input de fichero suelto, que no parece un botón de subida).
   const fileInputRef = useRef(null);
 
-  const canEdit = ENABLE_ZONE_EDITOR && isAdmin;
+  // Sin ayuntamiento activo (super-admin en «Todos») no se puede ver ni editar
+  // el mapa de ninguno en concreto: ni editar zonas ni subir la foto.
+  const canEdit = ENABLE_ZONE_EDITOR && isAdmin && !sinAyuntamiento;
+  const puedeSubirMapa = canManageMapa && !sinAyuntamiento;
   const imagenMapa = mapaUrl || mapaViveroFallback;
 
   const zonePolygons = useMemo(
@@ -120,6 +123,13 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false })
   // "sin zonas" (lista vacía, normal) de un error real (se avisa).
   useEffect(() => {
     if (!open) return undefined;
+    // Sin ayuntamiento activo no se cargan zonas: no hay ninguno del que
+    // mostrarlas (y el servidor devuelve [] en ese caso).
+    if (sinAyuntamiento) {
+      setZonas([]);
+      setZonasError("");
+      return undefined;
+    }
     let cancelled = false;
     setZonasError("");
     loadZonasFromServer()
@@ -135,7 +145,7 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false })
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, sinAyuntamiento]);
 
   // Carga la imagen del mapa del ayuntamiento activo. Revoca el object URL
   // anterior antes de sustituirlo, para que cada (re)subida no deje un blob
@@ -196,10 +206,13 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false })
     } catch (err) {
       console.error("Error guardando zonas en servidor:", err);
       // Antes era un `window.alert`: bloqueaba el hilo y no dejaba rastro, así
-      // que al aceptarlo el usuario no sabía si sus cambios seguían ahí.
+      // que al aceptarlo el usuario no sabía si sus cambios seguían ahí. Se
+      // muestra el motivo real del backend cuando lo hay (p. ej. «Selecciona un
+      // ayuntamiento antes de editar sus zonas»), que es más útil que un genérico.
       setZonaError(
-        "No se pudo guardar la configuración de zonas en el servidor. " +
-          "Revisa la conexión y vuelve a intentarlo."
+        err?.response?.data?.detail ||
+          "No se pudo guardar la configuración de zonas en el servidor. " +
+            "Revisa la conexión y vuelve a intentarlo."
       );
     } finally {
       setSavingZonas(false);
@@ -334,9 +347,17 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false })
             `auto` y no encogería. */}
         <div className="grid max-h-[75dvh] min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[1.45fr_0.8fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
           <div className="min-h-0 overflow-y-auto border-b border-border p-4 lg:border-b-0 lg:border-r">
-            {(canEdit || canManageMapa) && (
+            {sinAyuntamiento && (
+              <div className="mb-3">
+                <Alert tone="info">
+                  Selecciona un ayuntamiento en el selector de arriba para ver y editar sus zonas.
+                  Cada ayuntamiento tiene sus propias zonas.
+                </Alert>
+              </div>
+            )}
+            {(canEdit || puedeSubirMapa) && (
               <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-                {canManageMapa && (
+                {puedeSubirMapa && (
                   /*
                    * Botón CLARO de subida: un `<Button>` con icono que dispara
                    * un input de fichero oculto (aria-hidden, fuera del tab: el
