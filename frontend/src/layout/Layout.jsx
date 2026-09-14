@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sprout } from "lucide-react";
 
-import { clearStoredToken, getMe, getProductos, getPedidos } from "../api/api";
+import { clearStoredToken, getMe, getProductos, getPedidos, getActiveClienteId } from "../api/api";
 import ClienteSelector from "../components/common/ClienteSelector";
 import CambiarPasswordModal from "../components/common/CambiarPasswordModal";
 import AjustesAyuntamientoModal from "../components/common/AjustesAyuntamientoModal";
@@ -30,6 +30,7 @@ import {
   canManageMapaImagen,
   canEditZonas,
   canManageAjustes,
+  esSuperadmin,
   ROLES,
   ROUTES,
 } from "../app/permissions";
@@ -338,6 +339,9 @@ export default function Layout() {
           onClose={() => setMapOpen(false)}
           isAdmin={canEditZonas(me)}
           canManageMapa={canManageMapaImagen(me)}
+          /* Super-admin en «Todos los ayuntamientos»: no hay ayuntamiento activo,
+             así que no se pueden ver ni editar zonas de ninguno en concreto. */
+          sinAyuntamiento={esSuperadmin(me) && !getActiveClienteId()}
         />
       )}
     </ToastProvider>
