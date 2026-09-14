@@ -229,11 +229,11 @@ export default function MapaVivero() {
       ) : null}
 
       <div className="vivero-map-wrapper">
-        <img
-          src={mapaUrl || "/mapa-vivero.png"}
-          alt="Mapa del vivero"
-          className="vivero-map-image"
-        />
+        {/* Sin foto propia NO se muestra una por defecto (era la de Santa Cruz,
+            que se filtraba a otros ayuntamientos): fondo neutro con las zonas. */}
+        {mapaUrl ? (
+          <img src={mapaUrl} alt="Mapa del vivero" className="vivero-map-image" />
+        ) : null}
 
         <svg
           className="vivero-map-overlay"

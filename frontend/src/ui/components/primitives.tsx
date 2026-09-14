@@ -132,19 +132,24 @@ export function TabsContent({ className, ...props }: React.ComponentPropsWithout
 
 /* ── Avatar ─────────────────────────────────────────────────────────── */
 export function Avatar({
-  name, src, size = 'md', className
-}: { name: string; src?: string | null; size?: 'sm' | 'md' | 'lg'; className?: string }) {
+  name, src, size = 'md', tone = 'muted', className
+}: { name: string; src?: string | null; size?: 'sm' | 'md' | 'lg'; tone?: 'muted' | 'primary'; className?: string }) {
   const dimension = { sm: 'size-6', md: 'size-8', lg: 'size-10' }[size];
   const initials = name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('');
+  // `primary`: círculo con color de marca e inicial en contraste. Se usa donde el
+  // avatar ES un control (p. ej. el disparador del menú de cuenta): así se ve que
+  // hay algo pulsable, en vez del gris-sobre-gris que se confundía con adorno.
+  const toneRoot = tone === 'primary' ? 'bg-primary' : 'bg-muted';
+  const toneText = tone === 'primary' ? 'text-primary-foreground' : 'text-muted-foreground';
   return (
     <AvatarPrimitive.Root
-      className={cn('relative flex shrink-0 overflow-hidden rounded-full bg-muted', dimension, className)}
+      className={cn('relative flex shrink-0 overflow-hidden rounded-full', toneRoot, dimension, className)}
     >
       {src && <AvatarPrimitive.Image src={src} alt="" className="size-full object-cover" />}
       {/* The name is provided by the surrounding control, so initials are decorative. */}
       <AvatarPrimitive.Fallback
         aria-hidden="true"
-        className="flex size-full items-center justify-center text-caption font-[var(--font-weight-semibold)] text-muted-foreground"
+        className={cn('flex size-full items-center justify-center text-caption font-[var(--font-weight-semibold)]', toneText)}
       >
         {initials}
       </AvatarPrimitive.Fallback>

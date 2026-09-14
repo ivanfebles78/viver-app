@@ -325,14 +325,24 @@ describe("adversarial · el grupo no bifurca el sistema de diseño", () => {
     }
   });
 
-  it("la foto del plano es la del ayuntamiento activo, no un fichero estático fijo", () => {
+  it("la foto del plano es la del ayuntamiento activo, y NUNCA un fichero estático por defecto", () => {
     /*
-     * Multi-tenant: cada ayuntamiento ve/edita SU foto del vivero. El editor
-     * pinta el fondo con la imagen recibida por prop (reserva al plano estático
-     * sólo si el ayuntamiento aún no ha subido la suya), y las dos superficies
-     * cargan esa imagen por `cliente_id` y se la pasan al editor.
+     * Multi-tenant: cada ayuntamiento ve/edita SU foto del vivero, intransferible.
+     * El editor pinta el fondo con la imagen recibida por prop (`mapaUrl`) y, si
+     * el ayuntamiento aún no ha subido la suya, NO cae a un plano estático — ese
+     * fichero era la foto de Santa Cruz y se mostraba a los demás ayuntamientos.
+     * Las dos superficies cargan la imagen por `cliente_id` y se la pasan al editor.
      */
-    expect(FUENTE_EDITOR).toMatch(/src=\{mapaUrl\s*\|\|\s*["']\/mapa-vivero\.png["']\}/);
+    // El editor usa mapaUrl como fuente de la imagen…
+    expect(FUENTE_EDITOR).toMatch(/src=\{mapaUrl\}/);
+    // …y en NINGUNA superficie se referencia el fichero estático como reserva.
+    for (const [nombre, fuente] of [
+      ["MapaVivero", FUENTE_MAPA],
+      ["ZonaMapDialog", FUENTE_DIALOGO],
+      ["ZoneEditor", FUENTE_EDITOR],
+    ]) {
+      expect(fuente, nombre).not.toMatch(/mapa-vivero\.png/);
+    }
     for (const [nombre, fuente] of [
       ["MapaVivero", FUENTE_MAPA],
       ["ZonaMapDialog", FUENTE_DIALOGO],

@@ -52,7 +52,7 @@ export default function UserMenu({
         <Button variant="ghost" size="icon-sm" label={L.menu}>
           {/* Las iniciales son decorativas: el nombre accesible lo aporta el
               botón que las envuelve. */}
-          <Avatar name={nombre} size="sm" />
+          <Avatar name={nombre} size="sm" tone="primary" />
         </Button>
       </DropdownMenuTrigger>
 

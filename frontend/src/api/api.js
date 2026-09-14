@@ -42,6 +42,17 @@ export const setActiveClienteId = (id) => {
   }
 };
 
+// Sufijo de URL que ata las respuestas por ayuntamiento a URLs DISTINTAS. Las
+// imágenes/zonas dependen del ayuntamiento (cabecera X-Cliente-Id) pero su URL
+// es la misma para todos: el navegador las cachea por URL y, al cambiar de
+// ayuntamiento, servía las del anterior (un ayuntamiento veía el mapa/logo/zonas
+// de otro). El backend ya manda `Cache-Control: no-store`; esto además evita
+// servir una entrada ya cacheada de antes, sin pedir al usuario un refresco duro.
+const clienteCacheParam = () => {
+  const cid = getActiveClienteId();
+  return `?cid=${cid != null ? cid : "own"}`;
+};
+
 api.interceptors.request.use((config) => {
   const token = getStoredToken();
   if (token) {
@@ -388,7 +399,7 @@ export const getPrestamosActivos = async () => {
 // =========================
 
 export const getZonasConfig = async () => {
-  const { data } = await api.get("/zonas-config");
+  const { data } = await api.get(`/zonas-config${clienteCacheParam()}`);
   return data;
 };
 
@@ -522,7 +533,7 @@ export const importClienteData = async (clienteId, file) => {
 // header de auth, se descarga como blob y se devuelve un objectURL.
 export const fetchMapaImagenUrl = async () => {
   try {
-    const resp = await api.get("/mapa-imagen", { responseType: "blob" });
+    const resp = await api.get(`/mapa-imagen${clienteCacheParam()}`, { responseType: "blob" });
     return URL.createObjectURL(resp.data);
   } catch (err) {
     if (err?.response?.status === 404) return null; // aún sin mapa
@@ -549,7 +560,7 @@ export const deleteMapaImagen = async () => {
 // objectURL del logo del ayuntamiento activo (para previsualizar). null si no hay.
 export const fetchLogoImagenUrl = async () => {
   try {
-    const resp = await api.get("/logo-imagen", { responseType: "blob" });
+    const resp = await api.get(`/logo-imagen${clienteCacheParam()}`, { responseType: "blob" });
     return URL.createObjectURL(resp.data);
   } catch (err) {
     if (err?.response?.status === 404) return null; // aún sin logo
@@ -561,7 +572,7 @@ export const fetchLogoImagenUrl = async () => {
 // Devuelve { dataUrl, format } o null si el ayuntamiento no tiene logo.
 export const fetchLogoDataUrl = async () => {
   try {
-    const resp = await api.get("/logo-imagen", { responseType: "blob" });
+    const resp = await api.get(`/logo-imagen${clienteCacheParam()}`, { responseType: "blob" });
     const blob = resp.data;
     const dataUrl = await new Promise((resolve, reject) => {
       const reader = new FileReader();

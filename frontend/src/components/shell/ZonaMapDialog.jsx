@@ -9,7 +9,6 @@ import {
 } from "../../api/api";
 import { Badge, Button, Dialog, DialogContent, Skeleton } from "../../ui";
 import { useConfirm } from "../ui/ConfirmDialog";
-import mapaViveroFallback from "../../assets/mapa-vivero.png";
 import "../vivero/MapaVivero.css";
 import ZoneEditor from "../vivero/ZoneEditor";
 import { loadZonasFromServer, saveZonasToServer } from "../vivero/zonesStorage";
@@ -112,7 +111,12 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false, s
   // el mapa de ninguno en concreto: ni editar zonas ni subir la foto.
   const canEdit = ENABLE_ZONE_EDITOR && isAdmin && !sinAyuntamiento;
   const puedeSubirMapa = canManageMapa && !sinAyuntamiento;
-  const imagenMapa = mapaUrl || mapaViveroFallback;
+  // El mapa es propio de cada ayuntamiento. Si este ayuntamiento aún no ha
+  // subido su foto, NO se muestra ninguna por defecto (antes se caía a la foto
+  // estática de Santa Cruz, que así se «filtraba» al resto de ayuntamientos):
+  // se deja el fondo neutro con las zonas y, para quien pueda, la invitación a
+  // subir su plano.
+  const tieneMapa = !!mapaUrl;
 
   const zonePolygons = useMemo(
     () => (Array.isArray(zonas) ? zonas.filter((z) => !z.disabled) : []),
@@ -293,6 +297,35 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false, s
     }
   }, [open]);
 
+  // Super-admin en «Todos los ayuntamientos»: no hay un vivero concreto que
+  // mostrar. Cada ayuntamiento tiene SU mapa y SUS zonas, intransferibles; no se
+  // muestra ninguno «por defecto». Se pide elegir un ayuntamiento.
+  if (sinAyuntamiento) {
+    return (
+      <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+        <DialogContent
+          title="Mapa del vivero"
+          description="Cada ayuntamiento tiene su propio mapa y sus propias zonas."
+          closeLabel="Cerrar"
+          size="md"
+        >
+          <div className="flex flex-col gap-4 p-2">
+            <Alert tone="info">
+              Selecciona un ayuntamiento en el selector de la parte superior para ver su
+              mapa y sus zonas. No hay un mapa por defecto: el mapa de cada
+              ayuntamiento es suyo y no se comparte con los demás.
+            </Alert>
+            <div className="flex justify-end">
+              <Button type="button" variant="secondary" onClick={onClose}>
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   // El editor de zonas ocupa toda la superficie: se presenta como su propio
   // diálogo en lugar de anidarse dentro del anterior.
   if (editMode && canEdit) {
@@ -347,14 +380,6 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false, s
             `auto` y no encogería. */}
         <div className="grid max-h-[75dvh] min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[1.45fr_0.8fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
           <div className="min-h-0 overflow-y-auto border-b border-border p-4 lg:border-b-0 lg:border-r">
-            {sinAyuntamiento && (
-              <div className="mb-3">
-                <Alert tone="info">
-                  Selecciona un ayuntamiento en el selector de arriba para ver y editar sus zonas.
-                  Cada ayuntamiento tiene sus propias zonas.
-                </Alert>
-              </div>
-            )}
             {(canEdit || puedeSubirMapa) && (
               <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
                 {puedeSubirMapa && (
@@ -438,11 +463,23 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false, s
               es un botón con su propia etiqueta. Poner también un alt aquí haría
               que el lector anunciara el plano dos veces seguidas.
             */}
-            <img
-              src={imagenMapa}
-              alt=""
-              className="absolute inset-0 h-full w-full object-contain"
-            />
+            {tieneMapa ? (
+              <img
+                src={mapaUrl}
+                alt=""
+                className="absolute inset-0 h-full w-full object-contain"
+              />
+            ) : (
+              /* Sin foto propia: fondo neutro (no la de otro ayuntamiento) con
+                 una pista de que se puede subir el plano. */
+              <div className="absolute inset-0 flex items-center justify-center p-4 text-center">
+                <span className="text-body-sm text-muted-foreground">
+                  {puedeSubirMapa
+                    ? "Este vivero aún no tiene plano. Súbelo con «Subir foto del vivero»."
+                    : "Este vivero aún no tiene plano."}
+                </span>
+              </div>
+            )}
 
             <svg
               viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
