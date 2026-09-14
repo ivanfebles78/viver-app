@@ -82,6 +82,9 @@ def _ensure_schema() -> None:
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS mapa_mimetype VARCHAR(60)",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS mapa_updated_at TIMESTAMP",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS cuota_mensual NUMERIC(10,2)",
+        "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS logo_imagen BYTEA",
+        "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS logo_mimetype VARCHAR(60)",
+        "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS logo_updated_at TIMESTAMP",
     ]
     try:
         with engine.begin() as conn:
@@ -1408,6 +1411,8 @@ def _cliente_to_dict(c: Cliente, with_mapa: bool = False) -> dict:
         "telefono": c.telefono,
         "tiene_mapa": c.mapa_imagen is not None,
         "mapa_updated_at": c.mapa_updated_at.isoformat() if c.mapa_updated_at else None,
+        "tiene_logo": c.logo_imagen is not None,
+        "logo_updated_at": c.logo_updated_at.isoformat() if c.logo_updated_at else None,
         # Cuota propia del ayuntamiento (NULL = usa la de la plataforma).
         "cuota_mensual": float(c.cuota_mensual) if c.cuota_mensual is not None else None,
     }
@@ -1612,6 +1617,125 @@ def delete_mapa_imagen(
     db.add(c)
     db.commit()
     return {"ok": True}
+
+
+# =============================
+# LOGO Y NOMBRE DEL AYUNTAMIENTO (branding de los informes/PDF)
+# =============================
+# El logo y el nombre del ayuntamiento activo se usan en la cabecera de todos
+# los informes generados. Definibles por el admin del ayuntamiento y por el
+# superadmin. El logo se guarda en la BD (bytea), como el mapa.
+
+@app.get("/logo-imagen")
+def get_logo_imagen(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Devuelve el logo del ayuntamiento activo (para mostrarlo y para los PDF)."""
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    c = db.query(Cliente).filter(Cliente.id == cid).first()
+    if not c or not c.logo_imagen:
+        raise HTTPException(status_code=404, detail="Este ayuntamiento aún no tiene logo")
+    return Response(content=bytes(c.logo_imagen), media_type=c.logo_mimetype or "image/png")
+
+
+@app.post("/logo-imagen")
+async def upload_logo_imagen(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    """Sube/reemplaza el logo del ayuntamiento activo. Admin del ayuntamiento
+    (admin/admin_vivero) y superadmin."""
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+
+    mimetype = (file.content_type or "").lower()
+    if mimetype not in _MAPA_MIMETYPES:
+        raise HTTPException(status_code=400, detail="Formato no válido. Usa PNG, JPG, WEBP o GIF.")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="El fichero está vacío")
+    if len(data) > _MAPA_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="La imagen supera el tamaño máximo (8 MB)")
+
+    c = db.query(Cliente).filter(Cliente.id == cid).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Ayuntamiento no encontrado")
+    c.logo_imagen = data
+    c.logo_mimetype = mimetype
+    c.logo_updated_at = datetime.utcnow()
+    db.add(c)
+    db.commit()
+    return {"ok": True, "mimetype": mimetype, "bytes": len(data)}
+
+
+@app.delete("/logo-imagen")
+def delete_logo_imagen(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    """Elimina el logo del ayuntamiento activo (los informes vuelven al genérico)."""
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    c = db.query(Cliente).filter(Cliente.id == cid).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Ayuntamiento no encontrado")
+    c.logo_imagen = None
+    c.logo_mimetype = None
+    c.logo_updated_at = None
+    db.add(c)
+    db.commit()
+    return {"ok": True}
+
+
+class MiAyuntamientoUpdate(BaseModel):
+    nombre: str
+
+
+@app.get("/mi-ayuntamiento")
+def get_mi_ayuntamiento(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Datos del ayuntamiento activo (nombre, si tiene logo/mapa) para la
+    pantalla de ajustes."""
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    c = db.query(Cliente).filter(Cliente.id == cid).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Ayuntamiento no encontrado")
+    return _cliente_to_dict(c)
+
+
+@app.patch("/mi-ayuntamiento")
+def update_mi_ayuntamiento(
+    payload: MiAyuntamientoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    """Actualiza el NOMBRE del ayuntamiento activo. Admin del ayuntamiento y
+    superadmin. (El superadmin también puede hacerlo por id con PATCH /clientes.)"""
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    nombre = (payload.nombre or "").strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail="El nombre no puede estar vacío.")
+    c = db.query(Cliente).filter(Cliente.id == cid).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Ayuntamiento no encontrado")
+    c.nombre = nombre
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return _cliente_to_dict(c)
 
 
 # =============================

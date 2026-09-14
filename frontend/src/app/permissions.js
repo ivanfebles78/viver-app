@@ -317,6 +317,17 @@ export function canEditZonas(me) {
 }
 
 /**
+ * Ajustes del ayuntamiento: logo y nombre usados en los informes.
+ *
+ * Solo administración: `admin` (y por colapso `admin_vivero` y `superadmin`).
+ * Debe coincidir con `require_roles(["admin"])` de `POST/DELETE /logo-imagen` y
+ * `PATCH /mi-ayuntamiento` en main.py.
+ */
+export function canManageAjustes(me) {
+  return rolEfectivo(me) === ROLES.ADMIN;
+}
+
+/**
  * Analítica agregada del panel (productos más demandados, destinos más
  * frecuentes y pedidos por día).
  *
