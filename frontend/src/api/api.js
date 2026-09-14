@@ -525,6 +525,20 @@ export const importClienteData = async (clienteId, file) => {
   return data;
 };
 
+// Vacía todas las zonas del mapa de un ayuntamiento (por id de ruta, sin
+// ambigüedad de cabecera). Superadmin. Para corregir zonas mal etiquetadas.
+export const vaciarZonasCliente = async (clienteId) => {
+  const { data } = await api.delete(`/superadmin/clientes/${clienteId}/zonas`);
+  return data;
+};
+
+// Restaura las zonas por defecto de Santa Cruz en ese ayuntamiento. Superadmin.
+// Solo válido para Santa Cruz (el backend lo rechaza en los demás).
+export const restaurarZonasDefecto = async (clienteId) => {
+  const { data } = await api.post(`/superadmin/clientes/${clienteId}/zonas/restaurar-defecto`);
+  return data;
+};
+
 // =========================
 // MAPA DEL VIVERO (imagen por ayuntamiento)
 // =========================

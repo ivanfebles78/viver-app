@@ -2242,6 +2242,9 @@ def superadmin_stats(
     productos_por = _counts_by_cliente(Producto)
     pedidos_por = _counts_by_cliente(Pedido)
     movimientos_por = _counts_by_cliente(Movimiento)
+    # Zonas del mapa por ayuntamiento: sirve para detectar (y corregir) datos mal
+    # etiquetados — p.ej. zonas de un ayuntamiento guardadas bajo el id de otro.
+    zonas_por = _counts_by_cliente(ZonaPolygon)
 
     cuota_default = _cuota_mensual_default()
     activos = [c for c in clientes if c.activo]
@@ -2267,6 +2270,7 @@ def superadmin_stats(
             "productos": int(productos_por.get(c.id, 0)),
             "pedidos": int(pedidos_por.get(c.id, 0)),
             "movimientos": int(movimientos_por.get(c.id, 0)),
+            "zonas": int(zonas_por.get(c.id, 0)),
             # cuota_mensual = la que se le factura (efectiva).
             "cuota_mensual": round(cuota_c, 2),
             # cuota_personalizada = True si tiene precio propio (descuento).
@@ -2308,6 +2312,73 @@ def superadmin_stats(
         "evolucion_altas": evolucion,
         "por_cliente": por_cliente,
     }
+
+
+@app.delete("/superadmin/clientes/{cliente_id}/zonas")
+def superadmin_vaciar_zonas(
+    cliente_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_global_admin()),
+):
+    """Vacía TODAS las zonas del mapa del ayuntamiento indicado EN LA RUTA.
+
+    El ayuntamiento se toma del path, no de la cabecera X-Cliente-Id: así el
+    superadmin corrige sin ambigüedad zonas mal etiquetadas (guardadas bajo el
+    ayuntamiento equivocado) sin depender del ayuntamiento «activo». Después, el
+    ayuntamiento puede dibujar las suyas (o, para Santa Cruz, restaurarse las de
+    por defecto)."""
+    set_session_cliente(db, None)  # global; el borrado se acota a mano por path
+    c = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Ayuntamiento no encontrado")
+    n = (
+        db.query(ZonaPolygon)
+        .filter(ZonaPolygon.cliente_id == cliente_id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {"ok": True, "cliente_id": cliente_id, "eliminadas": int(n or 0)}
+
+
+@app.post("/superadmin/clientes/{cliente_id}/zonas/restaurar-defecto")
+def superadmin_restaurar_zonas_defecto(
+    cliente_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_global_admin()),
+):
+    """Restaura las zonas por defecto de Santa Cruz en el ayuntamiento del path.
+
+    REEMPLAZA (borra + inserta) las zonas del ayuntamiento por las 17 por defecto.
+    Solo tiene sentido para Santa Cruz (son SUS zonas originales); en cualquier
+    otro ayuntamiento se rechaza para no imponerle zonas ajenas — cada uno dibuja
+    las suyas."""
+    set_session_cliente(db, None)
+    c = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Ayuntamiento no encontrado")
+    if c.slug != "santa-cruz":
+        raise HTTPException(
+            status_code=400,
+            detail="Las zonas por defecto son las de Santa Cruz; solo pueden restaurarse en ese ayuntamiento. Los demás dibujan las suyas.",
+        )
+    db.query(ZonaPolygon).filter(ZonaPolygon.cliente_id == cliente_id).delete(synchronize_session=False)
+    now = datetime.utcnow()
+    for idx, z in enumerate(_ZONAS_DEFAULT_SANTA_CRUZ):
+        db.add(
+            ZonaPolygon(
+                id=z["id"],
+                cliente_id=cliente_id,
+                api_id=z["apiId"],
+                nombre=z["nombre"],
+                color=z["color"],
+                puntos=z["puntos"],
+                sort_order=idx,
+                updated_at=now,
+                updated_by=getattr(current_user, "username", "superadmin"),
+            )
+        )
+    db.commit()
+    return {"ok": True, "cliente_id": cliente_id, "restauradas": len(_ZONAS_DEFAULT_SANTA_CRUZ)}
 
 
 # Orden de importación (padres → hijos). Se preservan los IDs originales porque

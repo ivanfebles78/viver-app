@@ -22,6 +22,8 @@ vi.mock("../api/api", () => ({
   setActiveClienteId: vi.fn(),
   updateCliente: vi.fn(),
   importClienteData: vi.fn(),
+  vaciarZonasCliente: vi.fn(),
+  restaurarZonasDefecto: vi.fn(),
 }));
 
 import * as api from "../api/api";
@@ -56,6 +58,7 @@ const STATS = {
       productos: 100,
       pedidos: 30,
       movimientos: 700,
+      zonas: 17,
       cuota_mensual: 199,
       cuota_personalizada: false,
     },
@@ -68,6 +71,7 @@ const STATS = {
       productos: 20,
       pedidos: 10,
       movimientos: 200,
+      zonas: 3,
       cuota_mensual: 150,
       cuota_personalizada: true,
     },
@@ -80,6 +84,8 @@ const ficheroCopia = () =>
 beforeEach(() => {
   api.getSuperadminStats.mockResolvedValue(STATS);
   api.importClienteData.mockResolvedValue({ importado: { productos: 12, movimientos: 3 } });
+  api.vaciarZonasCliente.mockResolvedValue({ ok: true, eliminadas: 3 });
+  api.restaurarZonasDefecto.mockResolvedValue({ ok: true, restauradas: 17 });
   api.updateCliente.mockResolvedValue({});
   api.enrollAyuntamiento.mockResolvedValue({
     cliente: { id: 9, nombre: "Ayuntamiento de Arico" },
@@ -355,3 +361,43 @@ async function textoDelAviso() {
   const dlg = await screen.findByRole("alertdialog");
   return dlg.textContent || "";
 }
+
+/* ══ Gestión de zonas por ayuntamiento (corrección de datos mal etiquetados) ══ */
+
+const botonDeLaFila = async (nombre, re) => {
+  const fila = (await screen.findByText(nombre)).closest("tr");
+  return within(fila).getByRole("button", { name: re });
+};
+
+describe("contrato · zonas por ayuntamiento", () => {
+  it("muestra el número de zonas de cada ayuntamiento", async () => {
+    pintar();
+    const fila = (await screen.findByText("Ayuntamiento de La Laguna")).closest("tr");
+    // La Laguna tiene 3 zonas en el mock; el botón de vaciar lo refleja.
+    expect(within(fila).getByRole("button", { name: /vaciar zonas \(3\)/i })).toBeInTheDocument();
+  });
+
+  it("vaciar zonas exige confirmación y llama al backend con el id de la fila", async () => {
+    const user = userEvent.setup();
+    pintar();
+    await esperarTabla();
+
+    const boton = await botonDeLaFila("Ayuntamiento de La Laguna", /vaciar zonas/i);
+    await user.click(boton);
+    // Nada llega al backend hasta confirmar.
+    expect(api.vaciarZonasCliente).not.toHaveBeenCalled();
+
+    const dlg = await screen.findByRole("alertdialog");
+    await user.click(within(dlg).getByRole("button", { name: /vaciar zonas/i }));
+
+    await waitFor(() => expect(api.vaciarZonasCliente).toHaveBeenCalledWith(2));
+  });
+
+  it("«Restaurar zonas por defecto» solo aparece en Santa Cruz", async () => {
+    pintar();
+    const filaSC = (await screen.findByText(/Santa Cruz de Tenerife/)).closest("tr");
+    const filaLL = (await screen.findByText("Ayuntamiento de La Laguna")).closest("tr");
+    expect(within(filaSC).getByRole("button", { name: /restaurar zonas/i })).toBeInTheDocument();
+    expect(within(filaLL).queryByRole("button", { name: /restaurar zonas/i })).not.toBeInTheDocument();
+  });
+});
