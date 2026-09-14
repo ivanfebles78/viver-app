@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   getZonaItems,
@@ -99,6 +99,10 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false })
   const [mapaUrl, setMapaUrl] = useState(null);
   const [subiendoMapa, setSubiendoMapa] = useState(false);
   const [mapaError, setMapaError] = useState("");
+  const [zonasError, setZonasError] = useState("");
+  // Object URL vivo de la foto: se revoca antes de sustituirlo y al desmontar,
+  // para no dejar blobs huérfanos en memoria tras cada (re)subida.
+  const mapaUrlRef = useRef(null);
 
   const canEdit = ENABLE_ZONE_EDITOR && isAdmin;
   const imagenMapa = mapaUrl || mapaViveroFallback;
@@ -108,36 +112,60 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false })
     [zonas]
   );
 
-  // Cuando se abre el modal, recarga las zonas desde el servidor.
+  // Cuando se abre el modal, recarga las zonas desde el servidor. Distingue
+  // "sin zonas" (lista vacía, normal) de un error real (se avisa).
   useEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
     let cancelled = false;
-    loadZonasFromServer().then((data) => {
-      if (!cancelled) setZonas(data);
-    });
+    setZonasError("");
+    loadZonasFromServer()
+      .then((data) => {
+        if (!cancelled) setZonas(data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setZonas([]);
+          setZonasError("No se pudieron cargar las zonas del mapa. Revisa la conexión.");
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, [open]);
 
-  // Carga la imagen del mapa del ayuntamiento activo al abrir el modal.
+  // Carga la imagen del mapa del ayuntamiento activo. Revoca el object URL
+  // anterior antes de sustituirlo, para que cada (re)subida no deje un blob
+  // huérfano en memoria.
   const cargarMapa = React.useCallback(() => {
-    let objectUrl = null;
+    const revocarAnterior = () => {
+      if (mapaUrlRef.current) {
+        URL.revokeObjectURL(mapaUrlRef.current);
+        mapaUrlRef.current = null;
+      }
+    };
     fetchMapaImagenUrl()
       .then((url) => {
-        objectUrl = url;
+        revocarAnterior();
+        mapaUrlRef.current = url;
         setMapaUrl(url);
       })
-      .catch(() => setMapaUrl(null));
-    return () => {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
+      .catch(() => {
+        revocarAnterior();
+        setMapaUrl(null);
+      });
   }, []);
 
   useEffect(() => {
-    if (!open) return undefined;
-    return cargarMapa();
+    if (open) cargarMapa();
   }, [open, cargarMapa]);
+
+  // Libera el object URL de la foto al desmontar el diálogo.
+  useEffect(
+    () => () => {
+      if (mapaUrlRef.current) URL.revokeObjectURL(mapaUrlRef.current);
+    },
+    []
+  );
 
   const handleSubirMapa = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -344,6 +372,14 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false })
               <div className="mb-3">
                 <Alert tone="error" onDismiss={() => setMapaError("")}>
                   {mapaError}
+                </Alert>
+              </div>
+            ) : null}
+
+            {zonasError ? (
+              <div className="mb-3">
+                <Alert tone="error" onDismiss={() => setZonasError("")}>
+                  {zonasError}
                 </Alert>
               </div>
             ) : null}

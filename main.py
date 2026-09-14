@@ -4828,8 +4828,9 @@ def get_zonas_config(
     filtrar las zonas por ayuntamiento — el auto-filtro de tenant.py usa el
     cliente_id fijado en la Session al autenticar.)
 
-    Si el ayuntamiento aún no tiene zonas configuradas, devuelve []. El frontend
-    tiene un fallback al fichero estático `zonasConfig.js` en ese caso.
+    Si el ayuntamiento aún no tiene zonas configuradas, devuelve []. En ese caso
+    el frontend arranca con el mapa sin zonas (cada ayuntamiento dibuja las
+    suyas); ya no hereda las zonas estáticas de Santa Cruz.
     """
     rows = db.query(ZonaPolygon).order_by(ZonaPolygon.sort_order.asc(), ZonaPolygon.id.asc()).all()
     return [_serialize_zona(z) for z in rows]

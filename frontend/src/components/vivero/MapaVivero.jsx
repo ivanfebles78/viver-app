@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import "./MapaVivero.css";
 import useMapaDebug from "./useMapaDebug";
 import { getMe, getZonaItems, fetchMapaImagenUrl, uploadMapaImagen } from "../../api/api";
@@ -41,28 +41,52 @@ export default function MapaVivero() {
   // BD). Si el ayuntamiento aún no tiene mapa propio, caemos al PNG estático.
   const [mapaUrl, setMapaUrl] = useState(null);
   const [subiendoMapa, setSubiendoMapa] = useState(false);
+  // Object URL vivo de la foto: se revoca antes de sustituirlo y al desmontar.
+  const mapaUrlRef = useRef(null);
 
   const cargarMapa = React.useCallback(() => {
-    let objectUrl = null;
+    const revocarAnterior = () => {
+      if (mapaUrlRef.current) {
+        URL.revokeObjectURL(mapaUrlRef.current);
+        mapaUrlRef.current = null;
+      }
+    };
     fetchMapaImagenUrl()
       .then((url) => {
-        objectUrl = url;
+        revocarAnterior();
+        mapaUrlRef.current = url;
         setMapaUrl(url);
       })
-      .catch(() => setMapaUrl(null));
-    return () => {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
+      .catch(() => {
+        revocarAnterior();
+        setMapaUrl(null);
+      });
   }, []);
 
   useEffect(() => cargarMapa(), [cargarMapa]);
 
-  // Carga inicial desde servidor (con fallback al fichero si falla).
+  // Libera el object URL de la foto al desmontar.
+  useEffect(
+    () => () => {
+      if (mapaUrlRef.current) URL.revokeObjectURL(mapaUrlRef.current);
+    },
+    []
+  );
+
+  // Carga las zonas del ayuntamiento. Lista vacía = sin zonas (normal); un fallo
+  // real se avisa en vez de dejar el mapa vacío en silencio.
   useEffect(() => {
     let cancelled = false;
-    loadZonasFromServer().then((data) => {
-      if (!cancelled) setZonas(data);
-    });
+    loadZonasFromServer()
+      .then((data) => {
+        if (!cancelled) setZonas(data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setZonas([]);
+          setError("No se pudieron cargar las zonas del mapa. Revisa la conexión.");
+        }
+      });
     return () => {
       cancelled = true;
     };

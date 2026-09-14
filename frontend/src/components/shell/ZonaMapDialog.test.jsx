@@ -369,3 +369,43 @@ describe("contrato · cambiar de zona", () => {
     await waitFor(() => expect(screen.queryByText("Especie 9")).not.toBeInTheDocument());
   });
 });
+
+/* ══ 4. Foto del vivero por ayuntamiento ════════════════════════════════ */
+
+describe("contrato · foto del vivero por ayuntamiento", () => {
+  it("no deja blobs huérfanos: revoca la foto anterior al re-subir", async () => {
+    const user = userEvent.setup();
+    const originalRevoke = URL.revokeObjectURL;
+    const revokeSpy = vi.fn();
+    URL.revokeObjectURL = revokeSpy;
+    try {
+      // Dos cargas de foto: una al abrir y otra tras subir; deben devolver
+      // object URLs distintos para poder comprobar que se revoca el primero.
+      api.fetchMapaImagenUrl
+        .mockResolvedValueOnce("blob:foto-1")
+        .mockResolvedValueOnce("blob:foto-2");
+      api.uploadMapaImagen.mockResolvedValue({ ok: true });
+
+      render(<ZonaMapDialog open onClose={vi.fn()} isAdmin canManageMapa />);
+
+      await waitFor(() => expect(api.fetchMapaImagenUrl).toHaveBeenCalledTimes(1));
+
+      const input = await screen.findByLabelText(/foto del vivero/i);
+      const file = new File(["contenido"], "vivero.png", { type: "image/png" });
+      await user.upload(input, file);
+
+      // Se vuelve a cargar la foto y, al hacerlo, se revoca la anterior.
+      await waitFor(() => expect(api.fetchMapaImagenUrl).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(revokeSpy).toHaveBeenCalledWith("blob:foto-1"));
+      expect(api.uploadMapaImagen).toHaveBeenCalledTimes(1);
+    } finally {
+      URL.revokeObjectURL = originalRevoke;
+    }
+  });
+
+  it("un fallo al cargar las zonas se avisa, no se silencia", async () => {
+    api.getZonasConfig.mockRejectedValueOnce(new Error("backend caído"));
+    render(<ZonaMapDialog open onClose={vi.fn()} isAdmin />);
+    expect(await screen.findByText(/no se pudieron cargar las zonas/i)).toBeInTheDocument();
+  });
+});

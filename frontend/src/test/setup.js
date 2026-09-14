@@ -48,6 +48,16 @@ if (!Element.prototype.hasPointerCapture) {
   Element.prototype.releasePointerCapture = () => {};
 }
 
+// El mapa del vivero sirve la foto del ayuntamiento como object URL (blob), que
+// crea y REVOCA para no dejar blobs huérfanos. jsdom no implementa ninguna de
+// las dos, así que el componente reventaría al desmontar sólo por el entorno.
+if (typeof URL.createObjectURL !== "function") {
+  URL.createObjectURL = () => "blob:jsdom-stub";
+}
+if (typeof URL.revokeObjectURL !== "function") {
+  URL.revokeObjectURL = () => {};
+}
+
 // Cada prueba parte de un DOM limpio y de un localStorage limpio. Sin esto, una
 // prueba que escribe el token de sesión deja autenticada a la siguiente, y los
 // fallos aparecen o desaparecen según el orden de ejecución.

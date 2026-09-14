@@ -27,6 +27,7 @@ import {
   canSeeNotifications,
   canOpenMapaVivero,
   canManageMapaImagen,
+  canEditZonas,
   ROLES,
   ROUTES,
 } from "../app/permissions";
@@ -329,7 +330,7 @@ export default function Layout() {
         <ZonaMapDialog
           open={mapOpen}
           onClose={() => setMapOpen(false)}
-          isAdmin={userRole === ROLES.ADMIN}
+          isAdmin={canEditZonas(me)}
           canManageMapa={canManageMapaImagen(me)}
         />
       )}
