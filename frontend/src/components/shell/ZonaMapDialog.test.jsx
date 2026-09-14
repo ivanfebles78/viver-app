@@ -19,7 +19,19 @@ vi.mock("../../api/api", () => ({
   marcarZonaInterna: vi.fn(),
   getZonasConfig: vi.fn(),
   updateZonasConfig: vi.fn(),
+  fetchMapaImagenUrl: vi.fn(),
+  uploadMapaImagen: vi.fn(),
 }));
+
+/**
+ * Zonas del ayuntamiento tal y como las sirve el backend. El panel ya no cae al
+ * fichero estático de Santa Cruz cuando el servidor no trae zonas, así que el
+ * test aporta las suyas por el mock de `getZonasConfig`.
+ */
+const ZONAS_MAPA = [
+  { id: "zona-1", apiId: "1", nombre: "Zona 1", color: "#F4E2C1", puntos: "0,0 100,0 100,100 0,100" },
+  { id: "zona-2", apiId: "2", nombre: "Zona 2", color: "#E8D947", puntos: "200,200 300,200 300,300 200,300" },
+];
 
 import * as api from "../../api/api";
 import ZonaMapDialog from "./ZonaMapDialog";
@@ -57,7 +69,9 @@ const MUCHOS = Array.from({ length: 12 }, (_, i) => ({
 beforeEach(() => {
   api.getZonaItems.mockResolvedValue({ items: ITEMS, todos_internos: false });
   api.marcarZonaInterna.mockResolvedValue({});
-  api.getZonasConfig.mockResolvedValue([]);
+  api.getZonasConfig.mockResolvedValue(ZONAS_MAPA);
+  api.fetchMapaImagenUrl.mockResolvedValue(null);
+  api.uploadMapaImagen.mockResolvedValue({ ok: true });
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -353,5 +367,45 @@ describe("contrato · cambiar de zona", () => {
 
     await user.click(zonas[1]);
     await waitFor(() => expect(screen.queryByText("Especie 9")).not.toBeInTheDocument());
+  });
+});
+
+/* ══ 4. Foto del vivero por ayuntamiento ════════════════════════════════ */
+
+describe("contrato · foto del vivero por ayuntamiento", () => {
+  it("no deja blobs huérfanos: revoca la foto anterior al re-subir", async () => {
+    const user = userEvent.setup();
+    const originalRevoke = URL.revokeObjectURL;
+    const revokeSpy = vi.fn();
+    URL.revokeObjectURL = revokeSpy;
+    try {
+      // Dos cargas de foto: una al abrir y otra tras subir; deben devolver
+      // object URLs distintos para poder comprobar que se revoca el primero.
+      api.fetchMapaImagenUrl
+        .mockResolvedValueOnce("blob:foto-1")
+        .mockResolvedValueOnce("blob:foto-2");
+      api.uploadMapaImagen.mockResolvedValue({ ok: true });
+
+      render(<ZonaMapDialog open onClose={vi.fn()} isAdmin canManageMapa />);
+
+      await waitFor(() => expect(api.fetchMapaImagenUrl).toHaveBeenCalledTimes(1));
+
+      const input = await screen.findByLabelText(/foto del vivero/i);
+      const file = new File(["contenido"], "vivero.png", { type: "image/png" });
+      await user.upload(input, file);
+
+      // Se vuelve a cargar la foto y, al hacerlo, se revoca la anterior.
+      await waitFor(() => expect(api.fetchMapaImagenUrl).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(revokeSpy).toHaveBeenCalledWith("blob:foto-1"));
+      expect(api.uploadMapaImagen).toHaveBeenCalledTimes(1);
+    } finally {
+      URL.revokeObjectURL = originalRevoke;
+    }
+  });
+
+  it("un fallo al cargar las zonas se avisa, no se silencia", async () => {
+    api.getZonasConfig.mockRejectedValueOnce(new Error("backend caído"));
+    render(<ZonaMapDialog open onClose={vi.fn()} isAdmin />);
+    expect(await screen.findByText(/no se pudieron cargar las zonas/i)).toBeInTheDocument();
   });
 });

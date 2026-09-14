@@ -20,6 +20,8 @@ vi.mock("../api/api", () => ({
   marcarZonaInterna: vi.fn(),
   getZonasConfig: vi.fn(),
   updateZonasConfig: vi.fn(),
+  fetchMapaImagenUrl: vi.fn(),
+  uploadMapaImagen: vi.fn(),
 }));
 
 vi.mock("../utils/plantImages", () => ({
@@ -58,7 +60,10 @@ beforeEach(() => {
     { id: 1, nombre: "Ayuntamiento de Santa Cruz de Tenerife" },
     { id: 2, nombre: "Ayuntamiento de La Laguna" },
   ]);
-  api.getZonasConfig.mockResolvedValue([]);
+  api.getZonasConfig.mockResolvedValue([
+    { id: "zona-1", apiId: "1", nombre: "Zona 1", color: "#F4E2C1", puntos: "0,0 100,0 100,100 0,100" },
+  ]);
+  api.fetchMapaImagenUrl.mockResolvedValue(null);
   api.getZonaItems.mockResolvedValue({
     items: [
       { producto_id: 1, nombre_cientifico: "Dracaena draco", nombre_natural: "Drago", cantidad: 10, tamanos: [{ tamano: "M20", cantidad: 10 }] },

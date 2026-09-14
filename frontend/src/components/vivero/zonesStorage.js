@@ -1,9 +1,8 @@
-import zonasDefault from "./zonasConfig";
 import { getZonasConfig, updateZonasConfig } from "../../api/api";
 
-// Las zonas se persisten ahora en el servidor (tabla zona_polygons).
-// El fichero zonasConfig.js queda como fallback "factory defaults" si la
-// API no responde o devuelve la lista vacía (primer arranque).
+// Las zonas se persisten en el servidor (tabla zona_polygons), aisladas por
+// ayuntamiento (cliente_id). Ya NO hay fallback al fichero estático
+// zonasConfig.js: un ayuntamiento nuevo, sin zonas propias, empieza vacío.
 
 export const parsePoints = (puntosStr) => {
   if (!puntosStr) return [];
@@ -21,22 +20,28 @@ export const pointsToString = (pointsArr) =>
   pointsArr.map(([x, y]) => `${Math.round(x)},${Math.round(y)}`).join(" ");
 
 /**
- * Carga la configuración de zonas desde el servidor.
- * Si el servidor no responde o devuelve una lista vacía, cae al fichero
- * estático zonasConfig.js.
+ * Carga las zonas del mapa DEL AYUNTAMIENTO ACTIVO desde el servidor.
+ *
+ * MULTI-TENANT: NO se cae al fichero estático `zonasConfig.js` cuando el
+ * servidor devuelve una lista vacía. Ese fichero contiene las zonas concretas
+ * de Santa Cruz; usarlo como fallback hacía que un ayuntamiento nuevo (sin
+ * zonas propias) viera —y, si editaba, guardara— las zonas de Santa Cruz. Un
+ * ayuntamiento sin zonas debe empezar VACÍO para dibujar las suyas.
+ *
+ * Las zonas de Santa Cruz viven en su propia BD (se importan con el resto de
+ * sus datos), así que no se pierden.
+ *
+ * IMPORTANTE: distingue "sin zonas" de "error". Una respuesta vacía del
+ * servidor devuelve `[]` (ayuntamiento nuevo, caso legítimo); un fallo de red o
+ * del backend se PROPAGA (throw) para que quien llama pueda avisar al usuario,
+ * en vez de mostrar un mapa vacío indistinguible de "aún no configurado".
  *
  * @returns {Promise<Array>} array de zonas {id, apiId, nombre, color, puntos}
+ * @throws si la petición falla (red o backend).
  */
 export const loadZonasFromServer = async () => {
-  try {
-    const data = await getZonasConfig();
-    if (Array.isArray(data) && data.length > 0) {
-      return data;
-    }
-  } catch (err) {
-    console.warn("[zonesStorage] No se pudo cargar zonas del servidor, usando fallback estático", err);
-  }
-  return zonasDefault;
+  const data = await getZonasConfig();
+  return Array.isArray(data) ? data : [];
 };
 
 /**
@@ -55,9 +60,3 @@ export const saveZonasToServer = async (zonas) => {
   }));
   return await updateZonasConfig(payload);
 };
-
-/**
- * Defaults estáticos (para inicializar el estado antes de la primera carga
- * asíncrona, y como fallback si la API falla).
- */
-export const getDefaultZonas = () => zonasDefault;

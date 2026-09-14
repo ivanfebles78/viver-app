@@ -34,6 +34,8 @@ vi.mock("../api/api", () => ({
   marcarZonaInterna: vi.fn(),
   getZonasConfig: vi.fn(),
   updateZonasConfig: vi.fn(),
+  fetchMapaImagenUrl: vi.fn(),
+  uploadMapaImagen: vi.fn(),
 }));
 
 vi.mock("../utils/plantImages", () => ({
@@ -51,7 +53,11 @@ import ZonaMapDialog from "../components/shell/ZonaMapDialog";
 beforeEach(() => {
   api.changePassword.mockResolvedValue({});
   api.getClientes.mockResolvedValue([{ id: 1, nombre: "Ayuntamiento de Santa Cruz de Tenerife" }]);
-  api.getZonasConfig.mockResolvedValue([]);
+  // El panel ya no cae al fichero estático de Santa Cruz: se aporta una zona.
+  api.getZonasConfig.mockResolvedValue([
+    { id: "zona-1", apiId: "1", nombre: "Zona 1", color: "#F4E2C1", puntos: "0,0 100,0 100,100 0,100" },
+  ]);
+  api.fetchMapaImagenUrl.mockResolvedValue(null);
   api.getZonaItems.mockResolvedValue({
     items: [{ producto_id: 1, nombre_cientifico: "Dracaena draco", cantidad: 5, tamanos: [] }],
     todos_internos: false,

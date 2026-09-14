@@ -55,7 +55,11 @@ const MUCHISIMOS = Array.from({ length: 60 }, (_, i) => ({
 
 beforeEach(() => {
   api.getZonaItems.mockResolvedValue({ items: MUCHISIMOS, todos_internos: false });
-  api.getZonasConfig.mockResolvedValue([]);
+  // El panel ya no cae al fichero estático de Santa Cruz: el test aporta una
+  // zona propia por el servidor para poder abrirla.
+  api.getZonasConfig.mockResolvedValue([
+    { id: "zona-1", apiId: "1", nombre: "Zona 1", color: "#F4E2C1", puntos: "0,0 100,0 100,100 0,100" },
+  ]);
   api.fetchMapaImagenUrl.mockResolvedValue(null);
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});

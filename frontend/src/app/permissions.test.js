@@ -29,6 +29,8 @@ import {
   canManageUsuarios,
   canSeeNotifications,
   canOpenMapaVivero,
+  canManageMapaImagen,
+  canEditZonas,
   canSeeAnalitica,
 } from "./permissions";
 
@@ -489,6 +491,26 @@ describe("capacidades de la interfaz", () => {
       expect(canOpenMapaVivero({ rol: role })).toBe(false);
     }
     expect(canOpenMapaVivero(null)).toBe(false);
+  });
+
+  it("canManageMapaImagen: admin (y alias) y manager suben la foto del vivero", () => {
+    for (const role of ["admin", "admin_vivero", "superadmin", "manager"]) {
+      expect(canManageMapaImagen({ rol: role })).toBe(true);
+    }
+    for (const role of ["tecnico", "gestor_vivero", "empresa_externa", "proveedor"]) {
+      expect(canManageMapaImagen({ rol: role })).toBe(false);
+    }
+    expect(canManageMapaImagen(null)).toBe(false);
+  });
+
+  it("canEditZonas: solo administración del vivero (admin y sus alias)", () => {
+    for (const role of ["admin", "admin_vivero", "superadmin"]) {
+      expect(canEditZonas({ rol: role })).toBe(true);
+    }
+    for (const role of ["manager", "tecnico", "gestor_vivero", "empresa_externa", "proveedor"]) {
+      expect(canEditZonas({ rol: role })).toBe(false);
+    }
+    expect(canEditZonas(null)).toBe(false);
   });
 });
 

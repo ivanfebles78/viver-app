@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import "./MapaVivero.css";
 import useMapaDebug from "./useMapaDebug";
 import { getMe, getZonaItems, fetchMapaImagenUrl, uploadMapaImagen } from "../../api/api";
-import zonasDefault from "./zonasConfig";
 import ZoneEditor from "./ZoneEditor";
 import { loadZonasFromServer, saveZonasToServer } from "./zonesStorage";
 import { formatCantidad } from "../../utils/numero";
@@ -10,12 +9,9 @@ import { getZonaDisplayName } from "../../utils/zonas";
 import { Button, Dialog, DialogContent } from "../../ui";
 import { Alert } from "../ui/feedback";
 import { contarProductosDistintos, nombreItem } from "./zonas.logic";
+import { canEditZonas, canManageMapaImagen } from "../../app/permissions";
 
 const DEBUG_MAPA = false;
-// Cinturón de seguridad: si está en false, el editor está oculto para todos
-// (incluso admins). Para deshabilitar la funcionalidad por completo, ponerlo
-// a false y desplegar.
-const ENABLE_ZONE_EDITOR = false;
 
 const readUserFromStorage = () => {
   try {
@@ -26,9 +22,10 @@ const readUserFromStorage = () => {
 };
 
 export default function MapaVivero() {
-  // zonas siempre arrancan con el fichero estático para que la primera pintura
-  // sea instantánea. El useEffect de abajo refresca desde el servidor.
-  const [zonas, setZonas] = useState(zonasDefault);
+  // Arranca vacío: las zonas son propias del ayuntamiento y se cargan del
+  // servidor (ver useEffect). No se usa el fichero estático de Santa Cruz para
+  // no mostrárselo a otro ayuntamiento.
+  const [zonas, setZonas] = useState([]);
   const [editMode, setEditMode] = useState(false);
   const [savingZonas, setSavingZonas] = useState(false);
 
@@ -44,28 +41,52 @@ export default function MapaVivero() {
   // BD). Si el ayuntamiento aún no tiene mapa propio, caemos al PNG estático.
   const [mapaUrl, setMapaUrl] = useState(null);
   const [subiendoMapa, setSubiendoMapa] = useState(false);
+  // Object URL vivo de la foto: se revoca antes de sustituirlo y al desmontar.
+  const mapaUrlRef = useRef(null);
 
   const cargarMapa = React.useCallback(() => {
-    let objectUrl = null;
+    const revocarAnterior = () => {
+      if (mapaUrlRef.current) {
+        URL.revokeObjectURL(mapaUrlRef.current);
+        mapaUrlRef.current = null;
+      }
+    };
     fetchMapaImagenUrl()
       .then((url) => {
-        objectUrl = url;
+        revocarAnterior();
+        mapaUrlRef.current = url;
         setMapaUrl(url);
       })
-      .catch(() => setMapaUrl(null));
-    return () => {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
+      .catch(() => {
+        revocarAnterior();
+        setMapaUrl(null);
+      });
   }, []);
 
   useEffect(() => cargarMapa(), [cargarMapa]);
 
-  // Carga inicial desde servidor (con fallback al fichero si falla).
+  // Libera el object URL de la foto al desmontar.
+  useEffect(
+    () => () => {
+      if (mapaUrlRef.current) URL.revokeObjectURL(mapaUrlRef.current);
+    },
+    []
+  );
+
+  // Carga las zonas del ayuntamiento. Lista vacía = sin zonas (normal); un fallo
+  // real se avisa en vez de dejar el mapa vacío en silencio.
   useEffect(() => {
     let cancelled = false;
-    loadZonasFromServer().then((data) => {
-      if (!cancelled) setZonas(data);
-    });
+    loadZonasFromServer()
+      .then((data) => {
+        if (!cancelled) setZonas(data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setZonas([]);
+          setError("No se pudieron cargar las zonas del mapa. Revisa la conexión.");
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -84,11 +105,9 @@ export default function MapaVivero() {
     };
   }, []);
 
-  const userRole = (me?.rol || me?.role || "").toString().trim().toLowerCase();
-  const isAdmin = userRole === "admin" || userRole === "admin_vivero";
-  const canEdit = ENABLE_ZONE_EDITOR && isAdmin;
-  // Subir/cambiar la imagen del mapa del vivero: admin, admin_vivero y manager.
-  const canManageMapa = ["admin", "admin_vivero", "manager"].includes(userRole);
+  // Permisos centralizados (fuente única en app/permissions.js).
+  const canEdit = canEditZonas(me);
+  const canManageMapa = canManageMapaImagen(me);
 
   const handleSubirMapa = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -164,6 +183,7 @@ export default function MapaVivero() {
         onSave={handleEditorSave}
         onCancel={() => setEditMode(false)}
         saving={savingZonas}
+        mapaUrl={mapaUrl}
       />
     );
   }

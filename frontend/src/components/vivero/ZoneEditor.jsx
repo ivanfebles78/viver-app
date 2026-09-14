@@ -32,7 +32,7 @@ const PASO_TECLADO_FINO = 1;
 
 const pickRandomColor = () => PALETA_ZONAS[Math.floor(Math.random() * PALETA_ZONAS.length)];
 
-export default function ZoneEditor({ zonas, onSave, onCancel, saving = false }) {
+export default function ZoneEditor({ zonas, onSave, onCancel, saving = false, mapaUrl = null }) {
   const [editedZonas, setEditedZonas] = useState(() =>
     zonas.map((z) => ({ ...z, _points: parsePoints(z.puntos) }))
   );
@@ -307,8 +307,10 @@ export default function ZoneEditor({ zonas, onSave, onCancel, saving = false }) 
       ) : null}
 
       <div className="vivero-map-wrapper zone-editor-canvas">
-        {/* `alt=""`: el nombre lo da el `role="application"` del SVG de encima. */}
-        <img src="/mapa-vivero.png" alt="" className="vivero-map-image" />
+        {/* `alt=""`: el nombre lo da el `role="application"` del SVG de encima.
+            La foto es la del vivero del ayuntamiento activo (`mapaUrl`); si aún
+            no ha subido ninguna, se cae al plano estático. */}
+        <img src={mapaUrl || "/mapa-vivero.png"} alt="" className="vivero-map-image" />
         <svg
           ref={svgRef}
           className="vivero-map-overlay"
