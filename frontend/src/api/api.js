@@ -601,5 +601,45 @@ export const updateMiAyuntamiento = async (nombre) => {
   return data;
 };
 
+// =========================
+// CATÁLOGO DE CATEGORÍAS / SUBCATEGORÍAS (por ayuntamiento)
+// =========================
+// Todas las mutaciones devuelven el catálogo completo actualizado.
+
+export const getCategorias = async () => {
+  const { data } = await api.get("/categorias");
+  return Array.isArray(data) ? data : [];
+};
+
+export const createCategoria = async (nombre) => {
+  const { data } = await api.post("/categorias", { nombre });
+  return data;
+};
+
+export const renameCategoria = async (id, nombre) => {
+  const { data } = await api.patch(`/categorias/${id}`, { nombre });
+  return data;
+};
+
+export const deleteCategoria = async (id) => {
+  const { data } = await api.delete(`/categorias/${id}`);
+  return data;
+};
+
+export const createSubcategoria = async (categoriaId, nombre) => {
+  const { data } = await api.post(`/categorias/${categoriaId}/subcategorias`, { nombre });
+  return data;
+};
+
+export const renameSubcategoria = async (id, nombre) => {
+  const { data } = await api.patch(`/subcategorias/${id}`, { nombre });
+  return data;
+};
+
+export const deleteSubcategoria = async (id) => {
+  const { data } = await api.delete(`/subcategorias/${id}`);
+  return data;
+};
+
 export default api;
 

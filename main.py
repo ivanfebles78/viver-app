@@ -25,6 +25,8 @@ from models import (
     Cliente,
     Usuario,
     Producto,
+    Categoria,
+    Subcategoria,
     Movimiento,
     Lote,
     InventarioLote,
@@ -1736,6 +1738,282 @@ def update_mi_ayuntamiento(
     db.commit()
     db.refresh(c)
     return _cliente_to_dict(c)
+
+
+# =============================
+# CATÁLOGO DE CATEGORÍAS Y SUBCATEGORÍAS (por ayuntamiento)
+# =============================
+# Catálogo gestionado que alimenta los desplegables de producto. Lo pueden
+# gestionar el admin del ayuntamiento y el superadmin. En los productos,
+# categoría/subcategoría siguen siendo texto: al renombrar se propaga a los
+# productos que la usan; al eliminar se BLOQUEA si algún producto la usa.
+
+class NombreIn(BaseModel):
+    nombre: str
+
+
+def _seed_categorias_si_vacio(db: Session, cid: int) -> None:
+    """Si el ayuntamiento no tiene catálogo, lo siembra con los valores que ya
+    usan sus productos. Idempotente: solo actúa cuando está vacío."""
+    if db.query(Categoria).filter(Categoria.cliente_id == cid).count() > 0:
+        return
+    filas = (
+        db.query(Producto.categoria, Producto.subcategoria)
+        .filter(Producto.cliente_id == cid)
+        .all()
+    )
+    cat_por_nombre: dict[str, Categoria] = {}
+    subs_vistas: set[tuple[str, str]] = set()
+    for catn, subn in filas:
+        catn = (catn or "").strip()
+        subn = (subn or "").strip()
+        if not catn:
+            continue
+        cat = cat_por_nombre.get(catn.lower())
+        if cat is None:
+            cat = Categoria(cliente_id=cid, nombre=catn)
+            db.add(cat)
+            db.flush()
+            cat_por_nombre[catn.lower()] = cat
+        if subn and (catn.lower(), subn.lower()) not in subs_vistas:
+            subs_vistas.add((catn.lower(), subn.lower()))
+            db.add(Subcategoria(cliente_id=cid, categoria_id=cat.id, nombre=subn))
+    db.commit()
+
+
+def _categorias_payload(db: Session, cid: int) -> list:
+    cats = (
+        db.query(Categoria)
+        .filter(Categoria.cliente_id == cid)
+        .order_by(func.lower(Categoria.nombre).asc())
+        .all()
+    )
+    subs = (
+        db.query(Subcategoria)
+        .filter(Subcategoria.cliente_id == cid)
+        .order_by(func.lower(Subcategoria.nombre).asc())
+        .all()
+    )
+    subs_por_cat: dict[int, list] = {}
+    for s in subs:
+        subs_por_cat.setdefault(s.categoria_id, []).append({"id": s.id, "nombre": s.nombre})
+    return [
+        {"id": c.id, "nombre": c.nombre, "subcategorias": subs_por_cat.get(c.id, [])}
+        for c in cats
+    ]
+
+
+@app.get("/categorias")
+def list_categorias(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Catálogo de categorías (con sus subcategorías) del ayuntamiento activo.
+    La primera vez se siembra con lo que ya usan los productos."""
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    _seed_categorias_si_vacio(db, cid)
+    return _categorias_payload(db, cid)
+
+
+@app.post("/categorias", status_code=201)
+def create_categoria(
+    payload: NombreIn,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    nombre = (payload.nombre or "").strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail="El nombre no puede estar vacío.")
+    existe = (
+        db.query(Categoria)
+        .filter(Categoria.cliente_id == cid, func.lower(Categoria.nombre) == nombre.lower())
+        .first()
+    )
+    if existe:
+        raise HTTPException(status_code=409, detail="Ya existe una categoría con ese nombre.")
+    cat = Categoria(cliente_id=cid, nombre=nombre)
+    db.add(cat)
+    db.commit()
+    return _categorias_payload(db, cid)
+
+
+@app.patch("/categorias/{categoria_id}")
+def rename_categoria(
+    categoria_id: int,
+    payload: NombreIn,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    nuevo = (payload.nombre or "").strip()
+    if not nuevo:
+        raise HTTPException(status_code=400, detail="El nombre no puede estar vacío.")
+    cat = db.query(Categoria).filter(Categoria.id == categoria_id, Categoria.cliente_id == cid).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+    if nuevo.lower() != cat.nombre.lower():
+        dup = (
+            db.query(Categoria)
+            .filter(Categoria.cliente_id == cid, func.lower(Categoria.nombre) == nuevo.lower(), Categoria.id != cat.id)
+            .first()
+        )
+        if dup:
+            raise HTTPException(status_code=409, detail="Ya existe una categoría con ese nombre.")
+    anterior = cat.nombre
+    cat.nombre = nuevo
+    db.add(cat)
+    # Propaga el nuevo nombre a los productos que la usan (bulk → filtro a mano).
+    db.query(Producto).filter(
+        Producto.cliente_id == cid, Producto.categoria == anterior
+    ).update({Producto.categoria: nuevo}, synchronize_session=False)
+    db.commit()
+    return _categorias_payload(db, cid)
+
+
+@app.delete("/categorias/{categoria_id}")
+def delete_categoria(
+    categoria_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    cat = db.query(Categoria).filter(Categoria.id == categoria_id, Categoria.cliente_id == cid).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+    en_uso = (
+        db.query(Producto)
+        .filter(Producto.cliente_id == cid, Producto.categoria == cat.nombre)
+        .count()
+    )
+    if en_uso > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"No se puede eliminar: {en_uso} producto(s) usan la categoría «{cat.nombre}». Cámbiala en esos productos primero.",
+        )
+    db.query(Subcategoria).filter(
+        Subcategoria.cliente_id == cid, Subcategoria.categoria_id == cat.id
+    ).delete(synchronize_session=False)
+    db.delete(cat)
+    db.commit()
+    return _categorias_payload(db, cid)
+
+
+@app.post("/categorias/{categoria_id}/subcategorias", status_code=201)
+def create_subcategoria(
+    categoria_id: int,
+    payload: NombreIn,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    cat = db.query(Categoria).filter(Categoria.id == categoria_id, Categoria.cliente_id == cid).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+    nombre = (payload.nombre or "").strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail="El nombre no puede estar vacío.")
+    existe = (
+        db.query(Subcategoria)
+        .filter(
+            Subcategoria.cliente_id == cid,
+            Subcategoria.categoria_id == cat.id,
+            func.lower(Subcategoria.nombre) == nombre.lower(),
+        )
+        .first()
+    )
+    if existe:
+        raise HTTPException(status_code=409, detail="Ya existe esa subcategoría en la categoría.")
+    db.add(Subcategoria(cliente_id=cid, categoria_id=cat.id, nombre=nombre))
+    db.commit()
+    return _categorias_payload(db, cid)
+
+
+@app.patch("/subcategorias/{subcategoria_id}")
+def rename_subcategoria(
+    subcategoria_id: int,
+    payload: NombreIn,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    nuevo = (payload.nombre or "").strip()
+    if not nuevo:
+        raise HTTPException(status_code=400, detail="El nombre no puede estar vacío.")
+    sub = db.query(Subcategoria).filter(Subcategoria.id == subcategoria_id, Subcategoria.cliente_id == cid).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subcategoría no encontrada")
+    cat = db.query(Categoria).filter(Categoria.id == sub.categoria_id, Categoria.cliente_id == cid).first()
+    if nuevo.lower() != sub.nombre.lower():
+        dup = (
+            db.query(Subcategoria)
+            .filter(
+                Subcategoria.cliente_id == cid,
+                Subcategoria.categoria_id == sub.categoria_id,
+                func.lower(Subcategoria.nombre) == nuevo.lower(),
+                Subcategoria.id != sub.id,
+            )
+            .first()
+        )
+        if dup:
+            raise HTTPException(status_code=409, detail="Ya existe esa subcategoría en la categoría.")
+    anterior = sub.nombre
+    sub.nombre = nuevo
+    db.add(sub)
+    # Propaga a los productos de esa categoría con esa subcategoría.
+    if cat is not None:
+        db.query(Producto).filter(
+            Producto.cliente_id == cid,
+            Producto.categoria == cat.nombre,
+            Producto.subcategoria == anterior,
+        ).update({Producto.subcategoria: nuevo}, synchronize_session=False)
+    db.commit()
+    return _categorias_payload(db, cid)
+
+
+@app.delete("/subcategorias/{subcategoria_id}")
+def delete_subcategoria(
+    subcategoria_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    sub = db.query(Subcategoria).filter(Subcategoria.id == subcategoria_id, Subcategoria.cliente_id == cid).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subcategoría no encontrada")
+    cat = db.query(Categoria).filter(Categoria.id == sub.categoria_id, Categoria.cliente_id == cid).first()
+    cat_nombre = cat.nombre if cat else None
+    en_uso = (
+        db.query(Producto)
+        .filter(
+            Producto.cliente_id == cid,
+            Producto.categoria == cat_nombre,
+            Producto.subcategoria == sub.nombre,
+        )
+        .count()
+    ) if cat_nombre else 0
+    if en_uso > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"No se puede eliminar: {en_uso} producto(s) usan la subcategoría «{sub.nombre}». Cámbiala en esos productos primero.",
+        )
+    db.delete(sub)
+    db.commit()
+    return _categorias_payload(db, cid)
 
 
 # =============================

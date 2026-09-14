@@ -8,9 +8,11 @@ import {
   updateProducto,
   deleteProducto,
   importarProductos,
+  getCategorias,
 } from "../api/api";
 import { formatCantidad, formatCantidadConUnidad, formatEnteroConUnidad } from "../utils/numero";
 import { rolEfectivo } from "../utils/roles";
+import { canManageCategorias } from "../app/permissions";
 import {
   Button,
   Dialog,
@@ -44,6 +46,7 @@ import {
   getFormatoOptions,
 } from "../utils/formato";
 import VerPlanta from "../components/VerPlanta";
+import CategoriasModal from "../components/common/CategoriasModal";
 import { usePlantsWithImage } from "../utils/plantImages";
 
 const TAMANOS = ["Semillero", "M12", "M20", "M35"];
@@ -662,7 +665,7 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
 }
 
 
-function GestionProductosModal({ open, productos, onClose, onChanged }) {
+function GestionProductosModal({ open, productos, onClose, onChanged, me }) {
   const [tab, setTab] = useState("listado");
   const [search, setSearch] = useState("");
   const [filtroCategoria, setFiltroCategoria] = useState("");
@@ -688,6 +691,23 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
   const [err, setErr] = useState("");
   const [file, setFile] = useState(null);
   const [importResult, setImportResult] = useState(null);
+
+  // Catálogo gestionado de categorías/subcategorías (por ayuntamiento). Alimenta
+  // los desplegables al crear un producto, junto con las que ya usan los
+  // productos existentes. La administración puede editarlo.
+  const [catalogo, setCatalogo] = useState([]);
+  const [categoriasModalOpen, setCategoriasModalOpen] = useState(false);
+  const puedeGestionarCategorias = canManageCategorias(me);
+
+  const cargarCatalogo = useCallback(() => {
+    getCategorias()
+      .then((data) => setCatalogo(Array.isArray(data) ? data : []))
+      .catch(() => setCatalogo([]));
+  }, []);
+
+  useEffect(() => {
+    if (open) cargarCatalogo();
+  }, [open, cargarCatalogo]);
 
   useEffect(() => {
     if (!open) {
@@ -1179,24 +1199,50 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
 
         <TabsContent value="nuevo">
           {(() => {
+            // Unión de las categorías presentes en los productos y las del
+            // catálogo gestionado por la administración, para que ambas fuentes
+            // aparezcan en el desplegable.
             const categoriasExistentes = [
-              ...new Set(
-                (Array.isArray(productos) ? productos : [])
+              ...new Set([
+                ...(Array.isArray(productos) ? productos : [])
                   .map((p) => String(p?.categoria || "").trim())
-                  .filter(Boolean)
-              ),
+                  .filter(Boolean),
+                ...(Array.isArray(catalogo) ? catalogo : [])
+                  .map((c) => String(c?.nombre || "").trim())
+                  .filter(Boolean),
+              ]),
             ].sort((a, b) => a.localeCompare(b, "es"));
 
+            const catSel = String(nuevoCategoriaSel || "").trim();
+            const subsDelCatalogo =
+              catSel && catSel !== "__NUEVA__"
+                ? ((Array.isArray(catalogo) ? catalogo : []).find(
+                    (c) => String(c?.nombre || "").trim() === catSel
+                  )?.subcategorias || []
+                  )
+                    .map((s) => String(s?.nombre || "").trim())
+                    .filter(Boolean)
+                : [];
+
             const subcategoriasParaCategoria = [
-              ...new Set(
-                (Array.isArray(productos) ? productos : [])
+              ...new Set([
+                ...(Array.isArray(productos) ? productos : [])
                   .filter((p) => !nuevoCategoriaSel || String(p?.categoria || "").trim() === nuevoCategoriaSel)
                   .map((p) => String(p?.subcategoria || "").trim())
-                  .filter(Boolean)
-              ),
+                  .filter(Boolean),
+                ...subsDelCatalogo,
+              ]),
             ].sort((a, b) => a.localeCompare(b, "es"));
 
             return (
+            <>
+            {puedeGestionarCategorias ? (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                <Button type="button" variant="secondary" size="sm" onClick={() => setCategoriasModalOpen(true)}>
+                  Gestionar categorías
+                </Button>
+              </div>
+            ) : null}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <label htmlFor="prod-nombre-cientifico" style={{ fontSize: 12, fontWeight: "var(--font-weight-semibold)", color: "var(--muted-foreground)", textTransform: "uppercase", marginBottom: 6 }}>Nombre científico *</label>
@@ -1289,6 +1335,7 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
                 </Button>
               </div>
             </div>
+            </>
             );
           })()}
         </TabsContent>
@@ -1359,6 +1406,11 @@ function GestionProductosModal({ open, productos, onClose, onChanged }) {
         {dialogoConfirmacion}
       </Tabs>
       </DialogContent>
+      <CategoriasModal
+        open={categoriasModalOpen}
+        onClose={() => setCategoriasModalOpen(false)}
+        onChanged={cargarCatalogo}
+      />
     </Dialog>
   );
 }
@@ -1929,6 +1981,7 @@ export default function Productos() {
         productos={productos}
         onClose={() => setGestionOpen(false)}
         onChanged={load}
+        me={me}
       />
     </div>
   );

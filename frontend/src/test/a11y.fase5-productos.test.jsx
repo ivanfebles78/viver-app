@@ -27,6 +27,7 @@ vi.mock("../api/api", () => ({
   updateProducto: vi.fn(),
   deleteProducto: vi.fn(),
   importarProductos: vi.fn(),
+  getCategorias: vi.fn().mockResolvedValue([]),
 }));
 
 import * as api from "../api/api";
@@ -87,6 +88,7 @@ beforeEach(() => {
   outletContext.me = { username: "u", rol: "admin" };
   api.getProductos.mockResolvedValue(PRODUCTOS);
   api.deleteProducto.mockResolvedValue({});
+  api.getCategorias.mockResolvedValue([]);
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 

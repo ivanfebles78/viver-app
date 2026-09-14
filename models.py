@@ -93,6 +93,33 @@ class Producto(Base):
     precio = Column(Numeric(10, 2), nullable=True)
 
 
+# =========================
+# CATÁLOGO DE CATEGORÍAS Y SUBCATEGORÍAS (por ayuntamiento)
+# =========================
+# En los productos, categoría/subcategoría siguen siendo texto (se conserva la
+# compatibilidad), pero este catálogo gestionado alimenta los desplegables y
+# permite al admin del ayuntamiento y al superadmin añadir/editar/eliminar.
+class Categoria(Base):
+    __tablename__ = "categorias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True, index=True)
+    nombre = Column(String(100), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Subcategoria(Base):
+    __tablename__ = "subcategorias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True, index=True)
+    categoria_id = Column(Integer, ForeignKey("categorias.id", ondelete="CASCADE"), nullable=False, index=True)
+    nombre = Column(String(100), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    categoria = relationship("Categoria")
+
+
 class CaducidadConfig(Base):
     __tablename__ = "caducidad_reglas"
 

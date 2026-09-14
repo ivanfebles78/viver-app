@@ -39,6 +39,8 @@ from sqlalchemy.orm import Session, with_loader_criteria
 from models import (
     Usuario,
     Producto,
+    Categoria,
+    Subcategoria,
     CaducidadConfig,
     Lote,
     InventarioLote,
@@ -56,6 +58,8 @@ from models import (
 TENANT_MODELS = [
     Usuario,
     Producto,
+    Categoria,
+    Subcategoria,
     CaducidadConfig,
     Lote,
     InventarioLote,

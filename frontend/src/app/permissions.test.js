@@ -32,6 +32,7 @@ import {
   canManageMapaImagen,
   canEditZonas,
   canManageAjustes,
+  canManageCategorias,
   canSeeAnalitica,
 } from "./permissions";
 
@@ -522,6 +523,16 @@ describe("capacidades de la interfaz", () => {
       expect(canManageAjustes({ rol: role })).toBe(false);
     }
     expect(canManageAjustes(null)).toBe(false);
+  });
+
+  it("canManageCategorias: catálogo solo administración (admin y sus alias)", () => {
+    for (const role of ["admin", "admin_vivero", "superadmin"]) {
+      expect(canManageCategorias({ rol: role })).toBe(true);
+    }
+    for (const role of ["manager", "tecnico", "gestor_vivero", "empresa_externa", "proveedor"]) {
+      expect(canManageCategorias({ rol: role })).toBe(false);
+    }
+    expect(canManageCategorias(null)).toBe(false);
   });
 });
 
