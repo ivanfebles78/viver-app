@@ -328,6 +328,17 @@ export function canManageAjustes(me) {
 }
 
 /**
+ * Gestionar el catálogo de categorías y subcategorías de productos.
+ *
+ * Solo administración: `admin` (y por colapso `admin_vivero` y `superadmin`).
+ * Debe coincidir con `require_roles(["admin"])` de los endpoints /categorias y
+ * /subcategorias en main.py.
+ */
+export function canManageCategorias(me) {
+  return rolEfectivo(me) === ROLES.ADMIN;
+}
+
+/**
  * Analítica agregada del panel (productos más demandados, destinos más
  * frecuentes y pedidos por día).
  *

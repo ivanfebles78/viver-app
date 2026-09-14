@@ -27,6 +27,7 @@ vi.mock("../api/api", () => ({
   updateProducto: vi.fn(),
   deleteProducto: vi.fn(),
   importarProductos: vi.fn(),
+  getCategorias: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../utils/plantImages", async (orig) => ({
@@ -72,6 +73,7 @@ beforeEach(() => {
   api.deleteProducto.mockResolvedValue({});
   api.createProducto.mockResolvedValue({});
   api.updateProductoInterno.mockResolvedValue({});
+  api.getCategorias.mockResolvedValue([]);
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
