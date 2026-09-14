@@ -19,7 +19,19 @@ vi.mock("../../api/api", () => ({
   marcarZonaInterna: vi.fn(),
   getZonasConfig: vi.fn(),
   updateZonasConfig: vi.fn(),
+  fetchMapaImagenUrl: vi.fn(),
+  uploadMapaImagen: vi.fn(),
 }));
+
+/**
+ * Zonas del ayuntamiento tal y como las sirve el backend. El panel ya no cae al
+ * fichero estático de Santa Cruz cuando el servidor no trae zonas, así que el
+ * test aporta las suyas por el mock de `getZonasConfig`.
+ */
+const ZONAS_MAPA = [
+  { id: "zona-1", apiId: "1", nombre: "Zona 1", color: "#F4E2C1", puntos: "0,0 100,0 100,100 0,100" },
+  { id: "zona-2", apiId: "2", nombre: "Zona 2", color: "#E8D947", puntos: "200,200 300,200 300,300 200,300" },
+];
 
 import * as api from "../../api/api";
 import ZonaMapDialog from "./ZonaMapDialog";
@@ -57,7 +69,9 @@ const MUCHOS = Array.from({ length: 12 }, (_, i) => ({
 beforeEach(() => {
   api.getZonaItems.mockResolvedValue({ items: ITEMS, todos_internos: false });
   api.marcarZonaInterna.mockResolvedValue({});
-  api.getZonasConfig.mockResolvedValue([]);
+  api.getZonasConfig.mockResolvedValue(ZONAS_MAPA);
+  api.fetchMapaImagenUrl.mockResolvedValue(null);
+  api.uploadMapaImagen.mockResolvedValue({ ok: true });
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });

@@ -26,6 +26,7 @@ import {
   canManageUsuarios,
   canSeeNotifications,
   canOpenMapaVivero,
+  canManageMapaImagen,
   ROLES,
   ROUTES,
 } from "../app/permissions";
@@ -329,6 +330,7 @@ export default function Layout() {
           open={mapOpen}
           onClose={() => setMapOpen(false)}
           isAdmin={userRole === ROLES.ADMIN}
+          canManageMapa={canManageMapaImagen(me)}
         />
       )}
     </ToastProvider>

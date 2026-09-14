@@ -293,6 +293,30 @@ export function canOpenMapaVivero(me) {
 }
 
 /**
+ * Subir / cambiar / eliminar la IMAGEN del mapa del vivero del ayuntamiento.
+ *
+ * Cada ayuntamiento sube la foto de SU propio vivero (se guarda por `cliente_id`
+ * en el backend). Debe coincidir con `require_roles(["admin", "manager"])` de
+ * `POST/DELETE /mapa-imagen` en main.py — `admin_vivero` y `superadmin` colapsan
+ * en `admin` vía `rolEfectivo`.
+ */
+export function canManageMapaImagen(me) {
+  const role = rolEfectivo(me);
+  return role === ROLES.ADMIN || role === ROLES.MANAGER;
+}
+
+/**
+ * Crear / editar / eliminar las ZONAS del mapa (editor visual).
+ *
+ * Solo administración del vivero: `admin` (y por colapso `admin_vivero` y
+ * `superadmin`). Debe coincidir con `require_roles(["admin"])` de
+ * `PUT /zonas-config` en main.py.
+ */
+export function canEditZonas(me) {
+  return rolEfectivo(me) === ROLES.ADMIN;
+}
+
+/**
  * Analítica agregada del panel (productos más demandados, destinos más
  * frecuentes y pedidos por día).
  *

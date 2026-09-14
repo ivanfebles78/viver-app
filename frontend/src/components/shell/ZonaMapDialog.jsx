@@ -1,11 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-import { getZonaItems, marcarZonaInterna } from "../../api/api";
+import {
+  getZonaItems,
+  marcarZonaInterna,
+  fetchMapaImagenUrl,
+  uploadMapaImagen,
+} from "../../api/api";
 import { Badge, Button, Dialog, DialogContent, Skeleton } from "../../ui";
 import { useConfirm } from "../ui/ConfirmDialog";
-import mapaVivero from "../../assets/mapa-vivero.png";
+import mapaViveroFallback from "../../assets/mapa-vivero.png";
 import "../vivero/MapaVivero.css";
-import zonasDefault from "../vivero/zonasConfig";
 import ZoneEditor from "../vivero/ZoneEditor";
 import { loadZonasFromServer, saveZonasToServer } from "../vivero/zonesStorage";
 import { formatCantidad } from "../../utils/numero";
@@ -68,7 +72,7 @@ function ZonePanelLoading() {
 /** Cuántos productos de la zona se muestran por tanda ("Mostrar más"). */
 const ZONA_ITEMS_STEP = 8;
 
-function ZonaMapModal({ open, onClose, isAdmin = false }) {
+function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false }) {
   const [selectedZone, setSelectedZone] = useState(null);
   const [zonaData, setZonaData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -82,13 +86,22 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
     setVisibleCount(ZONA_ITEMS_STEP);
   }, [selectedZone]);
 
-  // Arrancamos con los defaults estáticos para pintar instantáneamente.
-  // El useEffect refresca desde el servidor cuando el modal se abre.
-  const [zonas, setZonas] = useState(zonasDefault);
+  // Arranca vacío: las zonas son propias del ayuntamiento y se cargan del
+  // servidor al abrir el modal (ver useEffect). No se usa el fichero estático
+  // como estado inicial para no mostrar las zonas de Santa Cruz a otro
+  // ayuntamiento aunque sea un instante.
+  const [zonas, setZonas] = useState([]);
   const [editMode, setEditMode] = useState(false);
   const [savingZonas, setSavingZonas] = useState(false);
 
+  // Imagen del mapa DEL AYUNTAMIENTO ACTIVO (servida por el backend desde la BD).
+  // Si el ayuntamiento aún no ha subido su foto, se cae al plano estático.
+  const [mapaUrl, setMapaUrl] = useState(null);
+  const [subiendoMapa, setSubiendoMapa] = useState(false);
+  const [mapaError, setMapaError] = useState("");
+
   const canEdit = ENABLE_ZONE_EDITOR && isAdmin;
+  const imagenMapa = mapaUrl || mapaViveroFallback;
 
   const zonePolygons = useMemo(
     () => (Array.isArray(zonas) ? zonas.filter((z) => !z.disabled) : []),
@@ -106,6 +119,41 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
       cancelled = true;
     };
   }, [open]);
+
+  // Carga la imagen del mapa del ayuntamiento activo al abrir el modal.
+  const cargarMapa = React.useCallback(() => {
+    let objectUrl = null;
+    fetchMapaImagenUrl()
+      .then((url) => {
+        objectUrl = url;
+        setMapaUrl(url);
+      })
+      .catch(() => setMapaUrl(null));
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    return cargarMapa();
+  }, [open, cargarMapa]);
+
+  const handleSubirMapa = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // permite volver a subir el mismo fichero
+    if (!file) return;
+    setSubiendoMapa(true);
+    setMapaError("");
+    try {
+      await uploadMapaImagen(file);
+      cargarMapa();
+    } catch (err) {
+      setMapaError(err?.response?.data?.detail || "No se pudo subir la imagen del mapa.");
+    } finally {
+      setSubiendoMapa(false);
+    }
+  };
 
   const handleEditorSave = async (updatedZonas) => {
     setSavingZonas(true);
@@ -222,6 +270,7 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
               onSave={handleEditorSave}
               onCancel={() => setEditMode(false)}
               saving={savingZonas}
+              mapaUrl={mapaUrl}
             />
           </div>
         </DialogContent>
@@ -253,13 +302,51 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
             `auto` y no encogería. */}
         <div className="grid max-h-[75dvh] min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[1.45fr_0.8fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
           <div className="min-h-0 overflow-y-auto border-b border-border p-4 lg:border-b-0 lg:border-r">
-            {canEdit && (
-              <div className="mb-3 flex justify-end">
-                <Button variant="secondary" size="sm" onClick={() => setEditMode(true)}>
-                  Editar zonas
-                </Button>
+            {(canEdit || canManageMapa) && (
+              <div className="mb-3 flex flex-wrap items-end justify-end gap-3">
+                {canManageMapa && (
+                  /*
+                   * Input de fichero VISIBLE con su `<label htmlFor>`, igual que
+                   * el resto de subidas de la app: se alcanza con el teclado y
+                   * tiene nombre accesible, a diferencia del input escondido
+                   * dentro de un `<label>`.
+                   */
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <label
+                      htmlFor="mapa-vivero-fichero"
+                      className="text-caption uppercase text-muted-foreground"
+                    >
+                      {subiendoMapa
+                        ? "Subiendo…"
+                        : mapaUrl
+                          ? "Cambiar foto del vivero"
+                          : "Subir foto del vivero"}
+                    </label>
+                    <input
+                      id="mapa-vivero-fichero"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      onChange={handleSubirMapa}
+                      disabled={subiendoMapa}
+                      className="text-body-sm"
+                    />
+                  </div>
+                )}
+                {canEdit && (
+                  <Button variant="secondary" size="sm" onClick={() => setEditMode(true)}>
+                    Editar zonas
+                  </Button>
+                )}
               </div>
             )}
+
+            {mapaError ? (
+              <div className="mb-3">
+                <Alert tone="error" onDismiss={() => setMapaError("")}>
+                  {mapaError}
+                </Alert>
+              </div>
+            ) : null}
 
           {/*
             DEFECTOS CORREGIDOS EN EL PLANO:
@@ -285,7 +372,7 @@ function ZonaMapModal({ open, onClose, isAdmin = false }) {
               que el lector anunciara el plano dos veces seguidas.
             */}
             <img
-              src={mapaVivero}
+              src={imagenMapa}
               alt=""
               className="absolute inset-0 h-full w-full object-contain"
             />

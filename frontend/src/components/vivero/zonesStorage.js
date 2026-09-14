@@ -21,22 +21,29 @@ export const pointsToString = (pointsArr) =>
   pointsArr.map(([x, y]) => `${Math.round(x)},${Math.round(y)}`).join(" ");
 
 /**
- * Carga la configuración de zonas desde el servidor.
- * Si el servidor no responde o devuelve una lista vacía, cae al fichero
- * estático zonasConfig.js.
+ * Carga las zonas del mapa DEL AYUNTAMIENTO ACTIVO desde el servidor.
+ *
+ * MULTI-TENANT: NO se cae al fichero estático `zonasConfig.js` cuando el
+ * servidor devuelve una lista vacía. Ese fichero contiene las zonas concretas
+ * de Santa Cruz; usarlo como fallback hacía que un ayuntamiento nuevo (sin
+ * zonas propias) viera —y, si editaba, guardara— las zonas de Santa Cruz. Un
+ * ayuntamiento sin zonas debe empezar VACÍO para dibujar las suyas.
+ *
+ * Las zonas de Santa Cruz viven en su propia BD (se importan con el resto de
+ * sus datos), así que no se pierden.
  *
  * @returns {Promise<Array>} array de zonas {id, apiId, nombre, color, puntos}
  */
 export const loadZonasFromServer = async () => {
   try {
     const data = await getZonasConfig();
-    if (Array.isArray(data) && data.length > 0) {
+    if (Array.isArray(data)) {
       return data;
     }
   } catch (err) {
-    console.warn("[zonesStorage] No se pudo cargar zonas del servidor, usando fallback estático", err);
+    console.warn("[zonesStorage] No se pudo cargar zonas del servidor", err);
   }
-  return zonasDefault;
+  return [];
 };
 
 /**

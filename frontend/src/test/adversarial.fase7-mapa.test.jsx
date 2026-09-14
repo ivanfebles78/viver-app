@@ -307,19 +307,38 @@ describe("adversarial · el grupo no bifurca el sistema de diseño", () => {
     expect(FUENTE_CSS).toMatch(/stroke:\s*var\(--ring\)/);
   });
 
-  it("los dos interruptores del editor siguen como estaban", () => {
+  it("el editor de zonas sólo se abre con permiso de administración del vivero", () => {
     /*
-     * `MapaVivero` lo tiene deshabilitado a propósito («cinturón de
-     * seguridad») y `ZonaMapDialog` habilitado. Cambiar cualquiera alteraría
-     * qué puede hacer un usuario, que no es el objeto de esta migración.
+     * El editor reescribe la geometría del inventario, así que su acceso es una
+     * decisión de permisos. `MapaVivero` usa el permiso centralizado
+     * `canEditZonas(me)`; `ZonaMapDialog` recibe `isAdmin` ya resuelto por el
+     * shell (que también colapsa admin_vivero/superadmin en admin). Ninguna
+     * superficie entra en modo edición sin ese permiso.
      */
-    expect(FUENTE_MAPA).toMatch(/ENABLE_ZONE_EDITOR\s*=\s*false/);
-    expect(FUENTE_DIALOGO).toMatch(/ENABLE_ZONE_EDITOR\s*=\s*true/);
+    expect(FUENTE_MAPA).toMatch(/canEdit\s*=\s*canEditZonas\(me\)/);
+    expect(FUENTE_DIALOGO).toMatch(/canEdit\s*=\s*ENABLE_ZONE_EDITOR\s*&&\s*isAdmin/);
+    for (const [nombre, fuente] of [
+      ["MapaVivero", FUENTE_MAPA],
+      ["ZonaMapDialog", FUENTE_DIALOGO],
+    ]) {
+      expect(fuente, nombre).toMatch(/editMode\s*&&\s*canEdit/);
+    }
   });
 
-  it("el editor sigue exigiendo rol de administrador", () => {
-    for (const fuente of [FUENTE_MAPA, FUENTE_DIALOGO]) {
-      expect(fuente).toMatch(/canEdit\s*=\s*ENABLE_ZONE_EDITOR\s*&&\s*isAdmin/);
+  it("la foto del plano es la del ayuntamiento activo, no un fichero estático fijo", () => {
+    /*
+     * Multi-tenant: cada ayuntamiento ve/edita SU foto del vivero. El editor
+     * pinta el fondo con la imagen recibida por prop (reserva al plano estático
+     * sólo si el ayuntamiento aún no ha subido la suya), y las dos superficies
+     * cargan esa imagen por `cliente_id` y se la pasan al editor.
+     */
+    expect(FUENTE_EDITOR).toMatch(/src=\{mapaUrl\s*\|\|\s*["']\/mapa-vivero\.png["']\}/);
+    for (const [nombre, fuente] of [
+      ["MapaVivero", FUENTE_MAPA],
+      ["ZonaMapDialog", FUENTE_DIALOGO],
+    ]) {
+      expect(fuente, nombre).toMatch(/fetchMapaImagenUrl/);
+      expect(fuente, nombre).toMatch(/mapaUrl=\{mapaUrl\}/);
     }
   });
 });
