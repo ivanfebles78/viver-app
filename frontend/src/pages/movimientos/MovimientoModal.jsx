@@ -121,26 +121,33 @@ const CLASES_TIPO = {
   entrada: {
     icono: "text-[var(--status-success-fg)]",
     borde: "border-l-[var(--status-success-fg)]",
+    // `bordeCompleto`: color oscuro (el -fg del tono) en TODO el borde de la
+    // tarjeta, para que se distinga con claridad de las demás, no solo por el
+    // borde izquierdo.
+    bordeCompleto: "border-[var(--status-success-fg)]",
     seleccion: "bg-[var(--status-success-bg)]",
-    barra: "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-fg)]",
+    barra: "border-[var(--status-success-fg)] bg-[var(--status-success-bg)] text-[var(--status-success-fg)]",
   },
   salida: {
     icono: "text-[var(--status-danger-fg)]",
     borde: "border-l-[var(--status-danger-fg)]",
+    bordeCompleto: "border-[var(--status-danger-fg)]",
     seleccion: "bg-[var(--status-danger-bg)]",
-    barra: "border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger-fg)]",
+    barra: "border-[var(--status-danger-fg)] bg-[var(--status-danger-bg)] text-[var(--status-danger-fg)]",
   },
   traslado_interno: {
     icono: "text-[var(--status-info-fg)]",
     borde: "border-l-[var(--status-info-fg)]",
+    bordeCompleto: "border-[var(--status-info-fg)]",
     seleccion: "bg-[var(--status-info-bg)]",
-    barra: "border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info-fg)]",
+    barra: "border-[var(--status-info-fg)] bg-[var(--status-info-bg)] text-[var(--status-info-fg)]",
   },
   devolucion: {
     icono: "text-[var(--status-pending-fg)]",
     borde: "border-l-[var(--status-pending-fg)]",
+    bordeCompleto: "border-[var(--status-pending-fg)]",
     seleccion: "bg-[var(--status-pending-bg)]",
-    barra: "border-[var(--status-pending-border)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]",
+    barra: "border-[var(--status-pending-fg)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]",
   },
 };
 
@@ -229,13 +236,14 @@ function TipoCard({ tipo, selected, disabled, disabledHint, onClick }) {
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex flex-col gap-1.5 rounded-[var(--radius-md)] border border-border p-3 text-left",
-        // Borde izquierdo del color del tipo también SIN seleccionar, para que los
-        // cuatro se distingan de un vistazo; al seleccionar, se rellena con su tono.
+        "flex flex-col gap-1.5 rounded-[var(--radius-md)] border p-3 text-left",
+        // Borde oscuro del color del tipo (todo el contorno) + franja izquierda
+        // más gruesa, para distinguir bien las cuatro cajas entre sí.
         "border-l-4",
+        clases.bordeCompleto,
         clases.borde,
         "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        selected && cn("border-primary", clases.seleccion),
+        selected && clases.seleccion,
         disabled && "cursor-not-allowed opacity-60 hover:bg-transparent"
       )}
     >

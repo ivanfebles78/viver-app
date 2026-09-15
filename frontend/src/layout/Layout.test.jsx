@@ -210,6 +210,24 @@ describe("super-admin global", () => {
     expect(await screen.findByText("CONTENIDO")).toBeInTheDocument();
   });
 
+  it("sin ayuntamiento seleccionado, una pantalla de datos pide elegir uno", async () => {
+    // getActiveClienteId está mockeado a null (sin ayuntamiento activo).
+    renderShell({ rol: "superadmin" }, "/productos");
+    expect(await screen.findByText(/selecciona un ayuntamiento/i)).toBeInTheDocument();
+    expect(screen.queryByText("CONTENIDO")).not.toBeInTheDocument();
+  });
+
+  it("sin ayuntamiento, /plataforma SÍ se muestra (no necesita ayuntamiento)", async () => {
+    renderShell({ rol: "superadmin" }, "/plataforma");
+    expect(await screen.findByText("CONTENIDO")).toBeInTheDocument();
+    expect(screen.queryByText(/selecciona un ayuntamiento/i)).not.toBeInTheDocument();
+  });
+
+  it("un admin de ayuntamiento SÍ ve el contenido (el bloqueo es solo del super-admin sin ayto)", async () => {
+    renderShell({ rol: "admin" }, "/dashboard");
+    expect(await screen.findByText("CONTENIDO")).toBeInTheDocument();
+  });
+
   it("un admin normal NO ve la sección Plataforma", async () => {
     renderShell({ rol: "admin" }, "/dashboard");
     const links = await waitFor(navLinks);

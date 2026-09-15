@@ -15,6 +15,7 @@ import UserMenu from "../components/shell/UserMenu";
 import ZonaMapDialog from "../components/shell/ZonaMapDialog";
 
 import { AppShell, Badge, Skeleton } from "../ui";
+import { Alert } from "../components/ui/feedback";
 import AppLink from "../app/AppLink";
 import { buildNavSections } from "../app/navigation";
 import { shellLabels, pendingLabel, loadingLabels } from "../app/labels.es";
@@ -106,6 +107,14 @@ export default function Layout() {
   const userRole = rolEfectivo(me);
   const rolMostrado = rolReal(me);
   const esEmpresaExternaRol = userRole === ROLES.EMPRESA_EXTERNA;
+
+  // Super-admin en «Todos los ayuntamientos» (sin uno seleccionado). Todos los
+  // datos de la app pertenecen a un ayuntamiento concreto, así que sin uno
+  // elegido las pantallas de datos no pueden mostrar nada coherente: se pide
+  // seleccionarlo. La única pantalla que NO lo necesita es /plataforma (donde
+  // el super-admin elige o gestiona ayuntamientos).
+  const sinAyuntamiento = esSuperadmin(me) && !getActiveClienteId();
+  const rutaNecesitaAyuntamiento = location.pathname !== ROUTES.PLATAFORMA;
 
   // Recarga los datos que alimentan los avisos del menú. Reutilizable: al
   // cambiar de ruta, al enfocar la ventana, por intervalo y tras cualquier
@@ -325,7 +334,17 @@ export default function Layout() {
           <ErrorBoundary resetKey={location.pathname}>
             {/* El contrato del contexto se conserva intacto: cuatro pantallas
                 llaman a useOutletContext() y todas desestructuran `me`. */}
-            <Outlet context={{ me, isAdmin: userRole === ROLES.ADMIN, collapsed: false }} />
+            {sinAyuntamiento && rutaNecesitaAyuntamiento ? (
+              <div className="flex w-full flex-col gap-4">
+                <Alert tone="info" title="Selecciona un ayuntamiento">
+                  Estás en «Todos los ayuntamientos». Cada ayuntamiento tiene sus propios
+                  productos, movimientos, pedidos e informes. Elige uno en el selector de
+                  la parte superior para trabajar con sus datos.
+                </Alert>
+              </div>
+            ) : (
+              <Outlet context={{ me, isAdmin: userRole === ROLES.ADMIN, collapsed: false }} />
+            )}
           </ErrorBoundary>
         </div>
       </AppShell>
@@ -341,7 +360,7 @@ export default function Layout() {
           canManageMapa={canManageMapaImagen(me)}
           /* Super-admin en «Todos los ayuntamientos»: no hay ayuntamiento activo,
              así que no se pueden ver ni editar zonas de ninguno en concreto. */
-          sinAyuntamiento={esSuperadmin(me) && !getActiveClienteId()}
+          sinAyuntamiento={sinAyuntamiento}
         />
       )}
     </ToastProvider>
