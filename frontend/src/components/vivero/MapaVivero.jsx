@@ -8,7 +8,7 @@ import { formatCantidad } from "../../utils/numero";
 import { getZonaDisplayName } from "../../utils/zonas";
 import { Button, Dialog, DialogContent } from "../../ui";
 import { Alert } from "../ui/feedback";
-import { contarProductosDistintos, nombreItem } from "./zonas.logic";
+import { contarProductosDistintos, nombreItem, MAP_WIDTH, MAP_HEIGHT } from "./zonas.logic";
 import { canEditZonas, canManageMapaImagen } from "../../app/permissions";
 
 const DEBUG_MAPA = false;
@@ -228,17 +228,24 @@ export default function MapaVivero() {
         </Alert>
       ) : null}
 
-      <div className="vivero-map-wrapper">
+      {/* Sin imagen el wrapper toma su altura de la foto; se le da una proporción
+          de reserva para que no colapse. */}
+      <div
+        className="vivero-map-wrapper"
+        style={mapaUrl ? undefined : { aspectRatio: `${MAP_WIDTH} / ${MAP_HEIGHT}` }}
+      >
         {/* Sin foto propia NO se muestra una por defecto (era la de Santa Cruz,
             que se filtraba a otros ayuntamientos): fondo neutro con las zonas. */}
         {mapaUrl ? (
           <img src={mapaUrl} alt="Mapa del vivero" className="vivero-map-image" />
         ) : null}
 
+        {/* `preserveAspectRatio="none"`: el overlay cuadra con la foto sea cual
+            sea su proporción (evita que las zonas salgan desplazadas). */}
         <svg
           className="vivero-map-overlay"
           viewBox="0 0 2048 1365"
-          preserveAspectRatio="xMidYMid meet"
+          preserveAspectRatio="none"
           onClick={DEBUG_MAPA ? debugClick : undefined}
           style={DEBUG_MAPA ? { pointerEvents: "all" } : undefined}
         >

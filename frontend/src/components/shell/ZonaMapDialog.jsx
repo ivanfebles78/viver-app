@@ -454,8 +454,14 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false, s
             enfocable, tiene nombre, y la selección va además por `aria-pressed`
             y por un trazo notablemente más grueso.
           */}
-          <div className="relative overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--muted)]"
-            style={{ aspectRatio: `${MAP_WIDTH} / ${MAP_HEIGHT}` }}
+          {/*
+            Con foto, la caja toma la ALTURA de la propia imagen (así el overlay
+            cuadra exactamente con ella); sin foto, se usa una proporción de
+            reserva para el fondo neutro.
+          */}
+          <div
+            className="relative overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--muted)]"
+            style={tieneMapa ? undefined : { aspectRatio: `${MAP_WIDTH} / ${MAP_HEIGHT}` }}
           >
             {/*
               `alt=""` deliberado: el nombre lo da el `role="group"` del SVG que
@@ -464,11 +470,7 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false, s
               que el lector anunciara el plano dos veces seguidas.
             */}
             {tieneMapa ? (
-              <img
-                src={mapaUrl}
-                alt=""
-                className="absolute inset-0 h-full w-full object-contain"
-              />
+              <img src={mapaUrl} alt="" className="block h-auto w-full" />
             ) : (
               /* Sin foto propia: fondo neutro (no la de otro ayuntamiento) con
                  una pista de que se puede subir el plano. */
@@ -481,9 +483,13 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false, s
               </div>
             )}
 
+            {/* `preserveAspectRatio="none"`: el overlay se estira sobre la caja de
+                la imagen, de modo que las zonas cuadran con la foto sea cual sea
+                su proporción (antes el overlay se ajustaba a 2048×1365 y, si la
+                foto tenía otra proporción, las zonas salían desplazadas). */}
             <svg
               viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
-              preserveAspectRatio="xMidYMid meet"
+              preserveAspectRatio="none"
               className="absolute inset-0 h-full w-full"
               role="group"
               aria-label="Plano del vivero: elige una zona para ver su inventario"
