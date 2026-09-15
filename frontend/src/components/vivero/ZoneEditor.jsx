@@ -306,7 +306,12 @@ export default function ZoneEditor({ zonas, onSave, onCancel, saving = false, ma
         </div>
       ) : null}
 
-      <div className="vivero-map-wrapper zone-editor-canvas">
+      {/* Sin imagen, el wrapper toma su altura de la propia foto; hay que darle
+          una proporción de reserva para que el lienzo no colapse a 0. */}
+      <div
+        className="vivero-map-wrapper zone-editor-canvas"
+        style={mapaUrl ? undefined : { aspectRatio: `${MAP_WIDTH} / ${MAP_HEIGHT}` }}
+      >
         {/* `alt=""`: el nombre lo da el `role="application"` del SVG de encima.
             La foto es la del vivero del ayuntamiento activo (`mapaUrl`). Si aún
             no ha subido ninguna NO se usa una por defecto (era la de Santa Cruz,
@@ -315,11 +320,18 @@ export default function ZoneEditor({ zonas, onSave, onCancel, saving = false, ma
         {mapaUrl ? (
           <img src={mapaUrl} alt="" className="vivero-map-image" />
         ) : null}
+        {/* `preserveAspectRatio="none"`: el overlay se estira EXACTAMENTE sobre
+            la caja de la imagen. Las coordenadas de zona (0..MAP_WIDTH,
+            0..MAP_HEIGHT) se mapean de forma proporcional a la foto, sea cual sea
+            su proporción, así las zonas cuadran con el mapa en vez de quedar
+            desplazadas por el «letterbox» cuando la foto no es 2048×1365.
+            El arrastre sigue siendo correcto porque getSVGPoint usa
+            getScreenCTM(), que ya contempla el preserveAspectRatio. */}
         <svg
           ref={svgRef}
           className="vivero-map-overlay"
           viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
-          preserveAspectRatio="xMidYMid meet"
+          preserveAspectRatio="none"
           onMouseMove={handleMouseMove}
           onMouseUp={endDrag}
           onMouseLeave={endDrag}
