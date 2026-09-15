@@ -2090,10 +2090,8 @@ export default function Informes() {
 
   if (!canAccess) {
     return (
-      <div className="w-full">
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16 }}>
-          <h1 style={{ fontSize: 44, margin: 0, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Informes</h1>
-        </div>
+      <div className="flex w-full flex-col gap-6">
+        <h1 style={{ fontSize: 44, margin: 0, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Informes</h1>
 
         <Alert tone="error" title="Sin permisos">
           No tienes permisos para acceder a esta página.
@@ -2107,10 +2105,8 @@ export default function Informes() {
   // nada (evita además mezclar los datos de todos).
   if (sinAyuntamiento) {
     return (
-      <div className="w-full">
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16 }}>
-          <h1 style={{ fontSize: 44, margin: 0, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Informes</h1>
-        </div>
+      <div className="flex w-full flex-col gap-6">
+        <h1 style={{ fontSize: 44, margin: 0, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Informes</h1>
 
         <Alert tone="info" title="Selecciona un ayuntamiento">
           Los informes son de un ayuntamiento concreto. Elige uno en el selector de
