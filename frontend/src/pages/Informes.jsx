@@ -29,6 +29,7 @@ import { fmtCantInv, fmtEuro, fmtFecha, fmtFechaSolo, fmtMesLabel, fmtNum } from
 import { formatFechaCanaria } from "../utils/fecha";
 import { getZonaLabel } from "../utils/zonas";
 import { rolEfectivo } from "../utils/roles";
+import { esSuperadmin } from "../app/permissions";
 import {
   getDistribucionReporte,
   getMovimientosExternosReporte,
@@ -36,6 +37,8 @@ import {
   getProductos,
   getMovimientos,
   getPedidos,
+  getActiveClienteId,
+  getMiAyuntamiento,
 } from "../api/api";
 
 /**
@@ -838,6 +841,41 @@ function EmptyState({ text = "No hay datos para mostrar." }) {
 
 export default function Informes() {
   const { me } = useOutletContext();
+
+  // Un informe pertenece SIEMPRE a un ayuntamiento concreto. El super-admin en
+  // «Todos los ayuntamientos» (sin uno seleccionado) no puede generar informes:
+  // los datos serían de todos mezclados y la cabecera no tendría a quién
+  // atribuirlos. Los demás roles quedan atados a su ayuntamiento en el backend.
+  const sinAyuntamiento = esSuperadmin(me) && !getActiveClienteId();
+
+  // Nombre del ayuntamiento activo, para la cabecera de los informes. Para un
+  // admin normal es el suyo; para el super-admin, el que tenga seleccionado.
+  // (El nombre de `me` puede no traerlo el super-admin, así que se resuelve con
+  // /mi-ayuntamiento, que atiende la cabecera X-Cliente-Id.)
+  const [ayuntamientoNombre, setAyuntamientoNombre] = useState(me?.cliente_nombre || "");
+  useEffect(() => {
+    if (sinAyuntamiento) {
+      setAyuntamientoNombre("");
+      return;
+    }
+    let cancel = false;
+    getMiAyuntamiento()
+      .then((c) => {
+        if (!cancel) setAyuntamientoNombre(c?.nombre || me?.cliente_nombre || "");
+      })
+      .catch(() => {
+        /* Se mantiene el de `me` como reserva. */
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [sinAyuntamiento, me]);
+
+  // `me` enriquecido con el nombre del ayuntamiento activo, para los informes.
+  const meInforme = useMemo(
+    () => ({ ...me, cliente_nombre: ayuntamientoNombre || me?.cliente_nombre || "" }),
+    [me, ayuntamientoNombre]
+  );
 
   const role = rolEfectivo(me);  // superadmin/admin_vivero cuentan como admin
   // Acceso restringido por rol a informes concretos:
@@ -1769,11 +1807,18 @@ export default function Informes() {
 
   const handleExportPdf = async () => {
     if (!canExportCurrentReport || exporting) return;
+    if (sinAyuntamiento) {
+      showTimedMessage(
+        "Selecciona un ayuntamiento antes de generar un informe.",
+        "error"
+      );
+      return;
+    }
     try {
       setExporting(true);
       await exportReportToPdf({
         activeReport,
-        me,
+        me: meInforme,
         trazabilidadData,
         distribucionData,
         inventarioVivero: inventarioFiltrado,
@@ -2052,6 +2097,24 @@ export default function Informes() {
 
         <Alert tone="error" title="Sin permisos">
           No tienes permisos para acceder a esta página.
+        </Alert>
+      </div>
+    );
+  }
+
+  // Super-admin en «Todos los ayuntamientos»: un informe pertenece a un
+  // ayuntamiento concreto, así que se pide elegir uno antes de ver o generar
+  // nada (evita además mezclar los datos de todos).
+  if (sinAyuntamiento) {
+    return (
+      <div className="w-full">
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16 }}>
+          <h1 style={{ fontSize: 44, margin: 0, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Informes</h1>
+        </div>
+
+        <Alert tone="info" title="Selecciona un ayuntamiento">
+          Los informes son de un ayuntamiento concreto. Elige uno en el selector de
+          la parte superior para ver y generar sus informes.
         </Alert>
       </div>
     );

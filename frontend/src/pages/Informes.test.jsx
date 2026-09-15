@@ -27,6 +27,8 @@ vi.mock("../api/api", () => ({
   getProductos: vi.fn(),
   getMovimientos: vi.fn(),
   getPedidos: vi.fn(),
+  getActiveClienteId: vi.fn(),
+  getMiAyuntamiento: vi.fn(),
 }));
 
 vi.mock("./informes.pdf", () => ({ exportReportToPdf: vi.fn() }));
@@ -61,6 +63,8 @@ beforeEach(() => {
   api.getTrazabilidadReporte.mockResolvedValue(null);
   api.getDistribucionReporte.mockResolvedValue(null);
   api.getMovimientosExternosReporte.mockResolvedValue([]);
+  api.getActiveClienteId.mockReturnValue(null);
+  api.getMiAyuntamiento.mockResolvedValue({ nombre: "Ayuntamiento de Prueba" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -76,6 +80,25 @@ function informesVisibles() {
 describe("Informes · acceso por rol", () => {
   it("un administrador ve los diez informes", async () => {
     conRol("admin");
+    render(<Informes />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(informesVisibles()).toEqual(TODOS);
+  });
+
+  it("el super-admin SIN ayuntamiento seleccionado no puede generar informes", async () => {
+    // Un informe es de un ayuntamiento concreto: sin uno elegido, se pide
+    // seleccionarlo y no se muestra ningún informe.
+    conRol("superadmin");
+    api.getActiveClienteId.mockReturnValue(null);
+    render(<Informes />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.getByText(/selecciona un ayuntamiento/i)).toBeInTheDocument();
+    expect(informesVisibles()).toEqual([]);
+  });
+
+  it("el super-admin CON ayuntamiento seleccionado sí ve los informes", async () => {
+    conRol("superadmin");
+    api.getActiveClienteId.mockReturnValue(3);
     render(<Informes />);
     await screen.findByRole("heading", { level: 1 });
     expect(informesVisibles()).toEqual(TODOS);
@@ -234,6 +257,35 @@ describe("Informes · trazabilidad", () => {
 
     await screen.findByText("Dracaena draco");
     expect(screen.getByRole("button", { name: /exportar/i })).not.toBeDisabled();
+  });
+
+  it("el informe se genera con el NOMBRE del ayuntamiento activo", async () => {
+    // Requisito: el informe debe incluir el nombre del ayuntamiento que lo pide.
+    // Se resuelve con /mi-ayuntamiento y se pasa al generador del PDF.
+    const user = userEvent.setup();
+    api.getMiAyuntamiento.mockResolvedValue({ nombre: "Ayuntamiento de La Laguna" });
+    api.getTrazabilidadReporte.mockResolvedValue({
+      uuid_lote: "lote-aaa",
+      producto_nombre: "Dracaena draco",
+      cantidad_inicial: 100,
+      movimientos: [],
+      inventario_actual: [],
+    });
+
+    render(<Informes />);
+    await screen.findByRole("heading", { level: 1 });
+    const campos = screen.getAllByRole("textbox");
+    await user.type(campos[0], "lote-aaa");
+    await user.click(screen.getByRole("button", { name: /generar informe/i }));
+    await screen.findByText("Dracaena draco");
+
+    // «Exportar» abre un menú; el PDF está en «Exportar a PDF».
+    await user.click(screen.getByRole("button", { name: /^exportar$/i }));
+    await user.click(await screen.findByRole("menuitem", { name: /exportar a pdf/i }));
+
+    await vi.waitFor(() => expect(exportReportToPdf).toHaveBeenCalledTimes(1));
+    const arg = exportReportToPdf.mock.calls[0][0];
+    expect(arg.me.cliente_nombre).toBe("Ayuntamiento de La Laguna");
   });
 });
 

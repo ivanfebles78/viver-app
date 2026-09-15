@@ -26,6 +26,8 @@ vi.mock("../api/api", () => ({
   getProductos: vi.fn(),
   getMovimientos: vi.fn(),
   getPedidos: vi.fn(),
+  getActiveClienteId: vi.fn(),
+  getMiAyuntamiento: vi.fn(),
 }));
 
 vi.mock("../pages/informes.pdf", () => ({ exportReportToPdf: vi.fn() }));
@@ -56,6 +58,8 @@ beforeEach(() => {
   api.getTrazabilidadReporte.mockResolvedValue(null);
   api.getDistribucionReporte.mockResolvedValue(null);
   api.getMovimientosExternosReporte.mockResolvedValue([]);
+  api.getActiveClienteId.mockReturnValue(null);
+  api.getMiAyuntamiento.mockResolvedValue({ nombre: "Ayuntamiento de Prueba" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
