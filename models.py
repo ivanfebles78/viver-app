@@ -392,3 +392,23 @@ class MovimientoLoteDetalle(Base):
 
     movimiento = relationship("Movimiento", back_populates="detalles")
     producto = relationship("Producto")
+
+
+# =========================
+# PRESUPUESTO ANUAL (por ayuntamiento y año)
+# =========================
+# Cada ayuntamiento fija cuánto puede gastar al año en reposición del vivero
+# (compras a proveedores). Es por AÑO NATURAL para poder comparar y planificar
+# el año siguiente. El "consumido" no se guarda aquí: se calcula sumando el
+# coste de las entradas de reposición del año (cantidad × precio del producto).
+class PresupuestoAnual(Base):
+    __tablename__ = "presupuestos_anuales"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True, index=True)
+    anio = Column(Integer, nullable=False, index=True)
+    importe = Column(Numeric(12, 2), nullable=False, default=0)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_by = Column(String(50), nullable=True)

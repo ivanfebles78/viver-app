@@ -36,7 +36,7 @@ vi.mock("../api/api", () => {
   return {
     getProductos: f(), getMovimientos: f(), getPedidos: f(), getZonasConfig: f(),
     getZonaItems: f(), getClientes: f(), getActiveClienteId: vi.fn(), setActiveClienteId: vi.fn(),
-    getMiAyuntamiento: f(),
+    getMiAyuntamiento: f(), getPresupuesto: f(), getDistribucionEconomica: f(),
     getMe: f(), getSuperadminStats: f(), getPrestamosActivos: f(), getLote: f(),
     getDistribucionReporte: f(), getReporteStockBajo: f(), getReporteMovimientosExternos: f(),
     descargarPedidoPdf: vi.fn(), setStoredToken: vi.fn(), getStoredToken: vi.fn(),
@@ -68,6 +68,8 @@ beforeEach(() => {
   api.getMe.mockResolvedValue({ rol: "admin" });
   api.getActiveClienteId.mockReturnValue(null);
   api.getMiAyuntamiento.mockResolvedValue({ nombre: "Ayuntamiento de Prueba" });
+  api.getPresupuesto.mockResolvedValue({ anio: 2026, importe: null, tiene_presupuesto: false, consumido: 0, restante: null, moneda: "EUR" });
+  api.getDistribucionEconomica.mockResolvedValue({ grupos: [], total_valor: 0, total_unidades: 0, moneda: "EUR" });
   api.getStoredToken.mockReturnValue(null);
   api.getDistribucionReporte.mockResolvedValue({ producto: "Drago", zonas: [{ zona: "Zona 1", tamanos: [{ tamano: "C15", cantidad: 4 }] }] });
   api.getReporteStockBajo.mockResolvedValue([]);

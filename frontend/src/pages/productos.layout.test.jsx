@@ -47,6 +47,7 @@ vi.mock("../api/api", () => ({
   deleteProducto: vi.fn(),
   importarProductos: vi.fn(),
   getCategorias: vi.fn().mockResolvedValue([]),
+  getPresupuesto: vi.fn().mockResolvedValue({ anio: 2026, importe: null, tiene_presupuesto: false, consumido: 0, restante: null, moneda: "EUR" }),
 }));
 
 import * as api from "../api/api";
@@ -79,6 +80,7 @@ beforeEach(() => {
   outletContext.me = { username: "admin", rol: "admin" };
   api.getProductos.mockResolvedValue(PRODUCTOS);
   api.getCategorias.mockResolvedValue([]);
+  api.getPresupuesto.mockResolvedValue({ anio: 2026, importe: null, tiene_presupuesto: false, consumido: 0, restante: null, moneda: "EUR" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 

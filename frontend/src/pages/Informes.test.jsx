@@ -29,6 +29,8 @@ vi.mock("../api/api", () => ({
   getPedidos: vi.fn(),
   getActiveClienteId: vi.fn(),
   getMiAyuntamiento: vi.fn(),
+  getPresupuesto: vi.fn(),
+  getDistribucionEconomica: vi.fn(),
 }));
 
 vi.mock("./informes.pdf", () => ({ exportReportToPdf: vi.fn() }));
@@ -49,6 +51,7 @@ const TODOS = [
   "Abastecimiento",
   "Baja vivero",
   "Estadísticas",
+  "Distribución económica",
 ];
 
 function conRol(rol) {
@@ -65,6 +68,8 @@ beforeEach(() => {
   api.getMovimientosExternosReporte.mockResolvedValue([]);
   api.getActiveClienteId.mockReturnValue(null);
   api.getMiAyuntamiento.mockResolvedValue({ nombre: "Ayuntamiento de Prueba" });
+  api.getPresupuesto.mockResolvedValue({ anio: 2026, importe: null, tiene_presupuesto: false, consumido: 0, restante: null, moneda: "EUR" });
+  api.getDistribucionEconomica.mockResolvedValue({ grupos: [], total_valor: 0, total_unidades: 0, moneda: "EUR" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -78,11 +83,33 @@ function informesVisibles() {
 }
 
 describe("Informes · acceso por rol", () => {
-  it("un administrador ve los diez informes", async () => {
+  it("un administrador ve todos los informes (incluida Distribución económica)", async () => {
     conRol("admin");
     render(<Informes />);
     await screen.findByRole("heading", { level: 1 });
     expect(informesVisibles()).toEqual(TODOS);
+  });
+
+  it("«Distribución económica» genera el informe por distrito y barrio", async () => {
+    conRol("admin");
+    api.getDistribucionEconomica.mockResolvedValue({
+      grupos: [
+        { distrito: "Centro", barrio: "Barrio A", valor: 250, unidades: 3, lineas: 2 },
+        { distrito: "Centro", barrio: "Barrio B", valor: 200, unidades: 4, lineas: 1 },
+      ],
+      total_valor: 450,
+      total_unidades: 7,
+      moneda: "EUR",
+    });
+    const user = userEvent.setup();
+    render(<Informes />);
+    await screen.findByRole("heading", { level: 1 });
+    await user.click(screen.getByRole("button", { name: /^Distribución económica$/i }));
+    await user.click(screen.getByRole("button", { name: /generar informe/i }));
+
+    expect(await screen.findByText("Barrio A")).toBeInTheDocument();
+    expect(screen.getByText("Barrio B")).toBeInTheDocument();
+    await vi.waitFor(() => expect(api.getDistribucionEconomica).toHaveBeenCalled());
   });
 
   it("el super-admin SIN ayuntamiento seleccionado no puede generar informes", async () => {

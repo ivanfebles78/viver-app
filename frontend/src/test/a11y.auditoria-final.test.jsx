@@ -47,6 +47,8 @@ vi.mock("../api/api", () => {
     getActiveClienteId: vi.fn(),
     setActiveClienteId: vi.fn(),
     getMiAyuntamiento: vacio(),
+    getPresupuesto: vacio(),
+    getDistribucionEconomica: vacio(),
     getMe: vacio(),
     getSuperadminStats: vacio(),
     getPrestamosActivos: vacio(),
@@ -199,6 +201,8 @@ beforeEach(() => {
   api.getLote.mockResolvedValue(null);
   api.getActiveClienteId.mockReturnValue(null);
   api.getMiAyuntamiento.mockResolvedValue({ nombre: "Ayuntamiento de Prueba" });
+  api.getPresupuesto.mockResolvedValue({ anio: 2026, importe: null, tiene_presupuesto: false, consumido: 0, restante: null, moneda: "EUR" });
+  api.getDistribucionEconomica.mockResolvedValue({ grupos: [], total_valor: 0, total_unidades: 0, moneda: "EUR" });
   api.getStoredToken.mockReturnValue(null);
   api.fetchMapaImagenUrl.mockResolvedValue(null);
   // Nunca resuelve: deja la pantalla en su estado de carga, que es el que se audita.

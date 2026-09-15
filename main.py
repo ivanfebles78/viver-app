@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
 from passlib.context import CryptContext
 from jose import jwt, JWTError
-from sqlalchemy import func, or_, and_, text, inspect as sa_inspect
+from sqlalchemy import func, or_, and_, text, extract, inspect as sa_inspect
 from db import SessionLocal
 
 from db import engine
@@ -36,6 +36,7 @@ from models import (
     CaducidadConfig,
     AccountToken,
     ZonaPolygon,
+    PresupuestoAnual,
     Base,
 )
 from schemas import PedidoActionRequest, PedidoDecidirRequest, PedidoOut
@@ -1820,6 +1821,118 @@ def update_mi_ayuntamiento(
     db.commit()
     db.refresh(c)
     return _cliente_to_dict(c)
+
+
+# =============================
+# PRESUPUESTO ANUAL (por ayuntamiento y año)
+# =============================
+# El ayuntamiento fija cuánto puede gastar al año en reposición del vivero. El
+# "consumido" NO se guarda: se calcula sumando el coste (cantidad × precio) de
+# las entradas de reposición del año. Con eso, al pedir reposición se puede
+# avisar de si el pedido cabe en el presupuesto restante.
+
+class PresupuestoIn(BaseModel):
+    anio: int
+    importe: float
+
+
+def _consumido_reposicion(db: Session, anio: int) -> float:
+    """Coste de la reposición (compras) del ayuntamiento activo en un año.
+
+    Reposición = entradas (tipo_movimiento 'entrada' o sin tipo) ligadas a un
+    pedido cuyo tipo es 'reposicion', excluyendo devoluciones. El coste de cada
+    línea es cantidad × precio del producto (los productos sin precio suman 0).
+    Las consultas van ya acotadas al ayuntamiento activo por tenant.py."""
+    repo_ids = [r[0] for r in db.query(Pedido.id).filter(Pedido.tipo == "reposicion").all()]
+    if not repo_ids:
+        return 0.0
+    total = (
+        db.query(func.coalesce(func.sum(Movimiento.cantidad * Producto.precio), 0))
+        .join(Producto, Producto.id == Movimiento.producto_id)
+        .filter(Movimiento.pedido_id.in_(repo_ids))
+        .filter(or_(Movimiento.tipo_movimiento.is_(None), func.lower(Movimiento.tipo_movimiento) == "entrada"))
+        .filter(or_(Movimiento.es_devolucion.is_(False), Movimiento.es_devolucion.is_(None)))
+        .filter(extract("year", Movimiento.fecha_movimiento) == anio)
+        .scalar()
+    )
+    return round(float(total or 0), 2)
+
+
+def _presupuesto_resumen(db: Session, anio: int) -> dict:
+    """Resumen del presupuesto del ayuntamiento activo para un año: importe
+    fijado (o null si no hay), consumido en reposición y restante."""
+    fila = db.query(PresupuestoAnual).filter(PresupuestoAnual.anio == anio).first()
+    importe = float(fila.importe) if fila is not None else None
+    consumido = _consumido_reposicion(db, anio)
+    restante = round(importe - consumido, 2) if importe is not None else None
+    return {
+        "anio": anio,
+        "importe": importe,
+        "tiene_presupuesto": importe is not None,
+        "consumido": consumido,
+        "restante": restante,
+        "moneda": "EUR",
+    }
+
+
+@app.get("/presupuesto")
+def get_presupuesto(
+    anio: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Presupuesto del ayuntamiento activo para un año (por defecto, el actual):
+    importe, consumido en reposición y restante."""
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    year = anio or datetime.utcnow().year
+    return _presupuesto_resumen(db, year)
+
+
+@app.get("/presupuestos")
+def list_presupuestos(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Presupuestos fijados del ayuntamiento activo (todos los años con importe)
+    más el año en curso, cada uno con su consumido y restante."""
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    anios = {p.anio for p in db.query(PresupuestoAnual).all()}
+    anios.add(datetime.utcnow().year)
+    return [_presupuesto_resumen(db, a) for a in sorted(anios, reverse=True)]
+
+
+@app.put("/presupuesto")
+def put_presupuesto(
+    payload: PresupuestoIn,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    """Fija/actualiza el presupuesto anual del ayuntamiento activo. Admin del
+    ayuntamiento y superadmin."""
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(status_code=400, detail="No hay ayuntamiento seleccionado")
+    anio = int(payload.anio)
+    if anio < 2000 or anio > 2100:
+        raise HTTPException(status_code=400, detail="Año fuera de rango.")
+    importe = float(payload.importe)
+    if importe < 0:
+        raise HTTPException(status_code=400, detail="El presupuesto no puede ser negativo.")
+    fila = db.query(PresupuestoAnual).filter(PresupuestoAnual.anio == anio).first()
+    if fila is None:
+        # cliente_id lo estampa tenant.py (before_flush) con el ayuntamiento activo.
+        fila = PresupuestoAnual(anio=anio, importe=importe, updated_by=current_user.username)
+        db.add(fila)
+    else:
+        fila.importe = importe
+        fila.updated_by = current_user.username
+        db.add(fila)
+    db.commit()
+    return _presupuesto_resumen(db, anio)
 
 
 # =============================
@@ -4623,8 +4736,85 @@ def reporte_movimientos_externos(
         }
         for mov, prod in rows
     ]
-    
-    
+
+
+@app.get("/reportes/distribucion-economica")
+def reporte_distribucion_economica(
+    fecha_desde: str | None = None,
+    fecha_hasta: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "gestor_vivero"])),
+):
+    """Distribución económica de lo que SALE del vivero, agrupada por distrito y
+    barrio de destino. Valor = cantidad × precio del producto. Permite ver cuánto
+    dinero se ha destinado a cada zona/barrio y comparar entre ellos para
+    planificar el gasto del año siguiente.
+
+    Salida = movimiento con origen 'vivero' hacia un destino externo (con
+    distrito/barrio/dirección o destino_tipo distinto de 'vivero'), excluyendo
+    préstamos y devoluciones (no son reparto definitivo)."""
+    valor = func.coalesce(func.sum(Movimiento.cantidad * Producto.precio), 0)
+    uds = func.coalesce(func.sum(Movimiento.cantidad), 0)
+
+    q = (
+        db.query(
+            Movimiento.distrito_destino.label("distrito"),
+            Movimiento.barrio_destino.label("barrio"),
+            valor.label("valor"),
+            uds.label("unidades"),
+            func.count(Movimiento.id).label("lineas"),
+        )
+        .join(Producto, Producto.id == Movimiento.producto_id)
+        .filter(func.lower(Movimiento.origen_tipo) == "vivero")
+        .filter(
+            or_(
+                func.lower(Movimiento.destino_tipo) != "vivero",
+                Movimiento.distrito_destino.isnot(None),
+                Movimiento.barrio_destino.isnot(None),
+                Movimiento.direccion_destino.isnot(None),
+            )
+        )
+        .filter(or_(Movimiento.es_prestamo.is_(False), Movimiento.es_prestamo.is_(None)))
+        .filter(or_(Movimiento.es_devolucion.is_(False), Movimiento.es_devolucion.is_(None)))
+    )
+
+    if fecha_desde:
+        try:
+            dt_desde = datetime.strptime(fecha_desde, "%Y-%m-%d")
+            q = q.filter(Movimiento.fecha_movimiento >= dt_desde)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="fecha_desde inválida")
+    if fecha_hasta:
+        try:
+            dt_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            q = q.filter(Movimiento.fecha_movimiento <= dt_hasta)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="fecha_hasta inválida")
+
+    q = q.group_by(Movimiento.distrito_destino, Movimiento.barrio_destino)
+    filas = q.all()
+
+    grupos = [
+        {
+            "distrito": r.distrito or "—",
+            "barrio": r.barrio or "—",
+            "valor": round(float(r.valor or 0), 2),
+            "unidades": float(r.unidades or 0),
+            "lineas": int(r.lineas or 0),
+        }
+        for r in filas
+    ]
+    grupos.sort(key=lambda g: g["valor"], reverse=True)
+    total_valor = round(sum(g["valor"] for g in grupos), 2)
+    total_uds = sum(g["unidades"] for g in grupos)
+    return {
+        "grupos": grupos,
+        "total_valor": total_valor,
+        "total_unidades": total_uds,
+        "moneda": "EUR",
+    }
+
+
 # =========================
 # INVENTARIO POR ZONA
 # =========================
@@ -5490,6 +5680,7 @@ _BACKUP_MODELS = [
     PedidoItem,
     Movimiento,
     MovimientoLoteDetalle,
+    PresupuestoAnual,
     AccountToken,
 ]
 

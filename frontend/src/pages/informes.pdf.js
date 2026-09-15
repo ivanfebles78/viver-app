@@ -169,6 +169,7 @@ export async function exportReportToPdf({
   abastecimientoExportData,
   bajasExportData,
   estadisticasExportData,
+  distribucionEconomicaExportData,
 }) {
   const doc = new jsPDF("p", "mm", "a4");
   let y = await addDocHeader(
@@ -191,6 +192,8 @@ export async function exportReportToPdf({
       ? "Reporte de Baja vivero"
       : activeReport === "estadisticas"
       ? "Estadísticas de reposición"
+      : activeReport === "distribucion-economica"
+      ? "Distribución económica por distrito y barrio"
       : "Reporte de movimientos externos",
     me
   );
@@ -536,6 +539,14 @@ export async function exportReportToPdf({
         ["Coste total reposición", fmtEuro(d.totalCoste)],
         ["Unidades recibidas", fmtNum(d.totalUds)],
         ["Movimientos", fmtNum((d.rows || []).length)],
+        // Presupuesto anual (año completo): importe, consumido y restante.
+        ...(d.presupuesto
+          ? [
+              [`Presupuesto ${d.presupuesto.anio}`, d.presupuesto.importe != null ? fmtEuro(d.presupuesto.importe) : "Sin fijar"],
+              [`Consumido ${d.presupuesto.anio} (reposición)`, fmtEuro(d.presupuesto.consumido)],
+              ["Restante del presupuesto", d.presupuesto.restante != null ? fmtEuro(d.presupuesto.restante) : "—"],
+            ]
+          : []),
         ...(d.simulado ? [["Origen de los datos", "SIMULADOS (no reales)"]] : []),
       ],
       styles: { fontSize: 10, cellPadding: 2.5 },
@@ -579,6 +590,40 @@ export async function exportReportToPdf({
     });
   }
 
+  if (activeReport === "distribucion-economica" && distribucionEconomicaExportData) {
+    const d = distribucionEconomicaExportData;
+    autoTable(doc, {
+      startY: y,
+      theme: "grid",
+      head: [["Rango", "Valor total", "Unidades"]],
+      body: [[
+        `${d.filters?.desde || "—"} a ${d.filters?.hasta || "—"}`,
+        fmtEuro(d.total_valor),
+        fmtNum(d.total_unidades),
+      ]],
+      styles: { fontSize: 10, cellPadding: 2.5 },
+      headStyles: { fillColor: [14, 165, 233] },
+    });
+
+    const totalValor = Number(d.total_valor) || 0;
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 8,
+      theme: "grid",
+      head: [["Distrito", "Barrio", "Unidades", "Valor", "% del total"]],
+      body: (d.grupos || []).map((g) => [
+        g.distrito,
+        g.barrio,
+        fmtNum(g.unidades),
+        fmtEuro(g.valor),
+        totalValor > 0 ? `${((g.valor / totalValor) * 100).toFixed(1)}%` : "—",
+      ]),
+      foot: [["TOTAL", "", fmtNum(d.total_unidades), fmtEuro(d.total_valor), ""]],
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [51, 65, 85] },
+      footStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: "bold" },
+    });
+  }
+
   const fileName = `${sanitizeFileName(
     activeReport === "trazabilidad"
       ? "reporte_trazabilidad"
@@ -598,6 +643,8 @@ export async function exportReportToPdf({
       ? "reporte_baja_vivero"
       : activeReport === "estadisticas"
       ? "estadisticas_reposicion"
+      : activeReport === "distribucion-economica"
+      ? "distribucion_economica"
       : "reporte_movimientos_externos"
   )}_${new Date().toISOString().slice(0, 10)}.pdf`;
 
