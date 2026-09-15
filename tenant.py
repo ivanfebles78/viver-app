@@ -49,6 +49,7 @@ from models import (
     Movimiento,
     ZonaPolygon,
     MovimientoLoteDetalle,
+    PresupuestoAnual,
 )
 
 # Modelos que llevan cliente_id y deben aislarse por ayuntamiento.
@@ -68,6 +69,7 @@ TENANT_MODELS = [
     Movimiento,
     ZonaPolygon,
     MovimientoLoteDetalle,
+    PresupuestoAnual,
 ]
 _TENANT_TUPLE = tuple(TENANT_MODELS)
 

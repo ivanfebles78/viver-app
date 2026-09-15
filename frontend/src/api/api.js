@@ -627,6 +627,33 @@ export const updateMiAyuntamiento = async (nombre) => {
 };
 
 // =========================
+// PRESUPUESTO ANUAL (por ayuntamiento)
+// =========================
+// Resumen del presupuesto del ayuntamiento activo para un año: importe fijado,
+// consumido en reposición y restante.
+export const getPresupuesto = async (anio) => {
+  const { data } = await api.get("/presupuesto", anio ? { params: { anio } } : undefined);
+  return data;
+};
+
+export const listPresupuestos = async () => {
+  const { data } = await api.get("/presupuestos");
+  return data;
+};
+
+// Fija/actualiza el presupuesto anual. Solo administración.
+export const setPresupuesto = async (anio, importe) => {
+  const { data } = await api.put("/presupuesto", { anio, importe });
+  return data;
+};
+
+// Distribución económica de lo que SALE del vivero, por distrito/barrio.
+export const getDistribucionEconomica = async (params = {}) => {
+  const { data } = await api.get("/reportes/distribucion-economica", { params });
+  return data;
+};
+
+// =========================
 // CATÁLOGO DE CATEGORÍAS / SUBCATEGORÍAS (por ayuntamiento)
 // =========================
 // Todas las mutaciones devuelven el catálogo completo actualizado.

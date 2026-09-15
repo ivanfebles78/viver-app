@@ -9,6 +9,7 @@ import {
   deleteProducto,
   importarProductos,
   getCategorias,
+  getPresupuesto,
 } from "../api/api";
 import { formatCantidad, formatCantidadConUnidad, formatEnteroConUnidad } from "../utils/numero";
 import { rolEfectivo } from "../utils/roles";
@@ -444,15 +445,40 @@ function PedirMasModal({ open, producto, onClose, onAddToCart, saving }) {
 }
 
 
-function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAddMore, saving, errorMsg }) {
+function CartModal({ open, cart, precioById, onClose, onRemove, onUpdate, onFinalizar, onAddMore, saving, errorMsg }) {
   // La nota arranca vacía en cada apertura porque el padre remonta el modal con
   // una `key`; antes era un efecto que hacía `setState` justo al abrirse.
   const [nota, setNota] = useState("");
+  // Presupuesto del año en curso, para avisar de si el pedido cabe. Se carga al
+  // abrir la cesta.
+  const [presupuesto, setPresupuestoData] = useState(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    let cancel = false;
+    getPresupuesto()
+      .then((p) => { if (!cancel) setPresupuestoData(p); })
+      .catch(() => { if (!cancel) setPresupuestoData(null); });
+    return () => { cancel = true; };
+  }, [open]);
 
   if (!open) return null;
 
   const total = cart.reduce((sum, it) => sum + Number(it.cantidad || 0), 0);
   const lineCount = cart.length;
+
+  // Coste estimado del pedido = Σ cantidad × precio unitario del producto.
+  const precioDe = (id) => Number(precioById?.[String(id)] ?? NaN);
+  const costePedido = cart.reduce((sum, it) => {
+    const p = precioDe(it.producto_id);
+    return sum + (Number.isFinite(p) ? Number(it.cantidad || 0) * p : 0);
+  }, 0);
+  const faltanPrecios = cart.some((it) => !Number.isFinite(precioDe(it.producto_id)));
+  const restante = presupuesto?.importe != null ? Number(presupuesto.restante) : null;
+  const superaPresupuesto = restante != null && costePedido > restante;
+  const eur = (n) =>
+    n == null || Number.isNaN(n)
+      ? "—"
+      : new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(n);
 
   /*
    * Mismo defecto que en «Pedir más», corregido en la auditoría final: era un
@@ -582,6 +608,46 @@ function CartModal({ open, cart, onClose, onRemove, onUpdate, onFinalizar, onAdd
                 boxSizing: "border-box",
               }}
             />
+          </div>
+        ) : null}
+
+        {/* Resumen económico del pedido frente al presupuesto anual. */}
+        {cart.length > 0 ? (
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              background: superaPresupuesto ? "var(--warning-subtle)" : "var(--muted)",
+            }}
+          >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "space-between" }}>
+              <span style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>
+                Coste estimado del pedido: {eur(costePedido)}
+              </span>
+              {presupuesto?.importe != null ? (
+                <span style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
+                  Presupuesto restante {presupuesto.anio}: {eur(restante)}
+                </span>
+              ) : (
+                <span style={{ color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
+                  Sin presupuesto anual fijado
+                </span>
+              )}
+            </div>
+            {superaPresupuesto ? (
+              <div style={{ marginTop: 8, color: "var(--warning-subtle-foreground)", fontWeight: "var(--font-weight-semibold)" }}>
+                ⚠ Este pedido ({eur(costePedido)}) supera el presupuesto restante ({eur(restante)}). Puedes continuar,
+                pero excederás el presupuesto anual.
+              </div>
+            ) : null}
+            {faltanPrecios ? (
+              <div style={{ marginTop: 8, color: "var(--muted-foreground)", fontWeight: "var(--font-weight-medium)" }}>
+                Algún producto no tiene precio unitario, así que el coste mostrado puede quedarse corto. Añade el
+                precio en la ficha del producto para un cálculo exacto.
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -1486,6 +1552,16 @@ export default function Productos() {
   // Ids de productos cuya imagen existe (sondeo asíncrono con caché).
   const idsConImagen = usePlantsWithImage(productos);
 
+  // Precio unitario por id de producto, para estimar el coste del pedido de
+  // reposición en la cesta.
+  const precioById = useMemo(() => {
+    const m = {};
+    for (const p of productos) {
+      if (p?.precio != null && p.precio !== "") m[String(p.id)] = Number(p.precio);
+    }
+    return m;
+  }, [productos]);
+
   const productosFiltrados = useMemo(() => {
     const qn = norm(q);
 
@@ -1967,6 +2043,7 @@ export default function Productos() {
         key={cartOpen ? "cesta-abierta" : "cesta-cerrada"}
         open={cartOpen}
         cart={cart}
+        precioById={precioById}
         onClose={() => { setCartOpen(false); setCartError(""); }}
         onAddMore={() => { setCartOpen(false); setCartError(""); }}
         onRemove={handleRemoveCartItem}

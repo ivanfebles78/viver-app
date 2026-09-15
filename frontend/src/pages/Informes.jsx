@@ -39,6 +39,8 @@ import {
   getPedidos,
   getActiveClienteId,
   getMiAyuntamiento,
+  getPresupuesto,
+  getDistribucionEconomica,
 } from "../api/api";
 
 /**
@@ -48,7 +50,7 @@ import {
  * decidir si se pinta la opción y otra para elegir qué función llamar—, de modo
  * que añadir un informe exigía acordarse de tocar las dos.
  */
-const PUEDEN_EXCEL = new Set(["inventario", "externos", "distribucion", "stock", "estadisticas"]);
+const PUEDEN_EXCEL = new Set(["inventario", "externos", "distribucion", "stock", "estadisticas", "distribucion-economica"]);
 
 const REPORTS = [
   { key: "trazabilidad", label: "Trazabilidad", desc: "Sigue el recorrido completo de un lote (por su UUID): entradas, traslados, salidas y devoluciones, con fechas, zonas y cantidades." },
@@ -61,6 +63,7 @@ const REPORTS = [
   { key: "abastecimiento", label: "Abastecimiento", desc: "Necesidades de reposición: productos por debajo del stock mínimo y cuánto haría falta reponer." },
   { key: "bajas", label: "Baja vivero", desc: "Productos dados de baja en el vivero (descartes), con fecha, producto y cantidad." },
   { key: "estadisticas", label: "Estadísticas", desc: "Entradas de reposición (compras a proveedores) en un rango de fechas, con su coste asociado, coste mensual y productos más solicitados. Solo administrador." },
+  { key: "distribucion-economica", label: "Distribución económica", desc: "Valor (cantidad × precio) de lo que SALE del vivero, agrupado por distrito y barrio de destino. Permite ver cuánto se ha destinado a cada zona/barrio y planificar el gasto." },
 ];
 
 // Orden de tamaños de maceta para las columnas del inventario por zona.
@@ -1545,6 +1548,18 @@ export default function Informes() {
   // de los 3 últimos meses) SOLO en memoria, para previsualizar el informe. No
   // se guarda nada en la base de datos.
   const [estadSimular, setEstadSimular] = useState(false);
+  // Presupuesto anual (del año del informe), para contrastar el coste de
+  // reposición con el tope y ver el restante. Se recarga al cambiar el año.
+  const [estadPresupuesto, setEstadPresupuesto] = useState(null);
+  const estadAnio = Number((estadHasta || "").slice(0, 4)) || new Date().getFullYear();
+  useEffect(() => {
+    if (sinAyuntamiento) { setEstadPresupuesto(null); return undefined; }
+    let cancel = false;
+    getPresupuesto(estadAnio)
+      .then((p) => { if (!cancel) setEstadPresupuesto(p); })
+      .catch(() => { if (!cancel) setEstadPresupuesto(null); });
+    return () => { cancel = true; };
+  }, [estadAnio, sinAyuntamiento]);
   useEffect(() => { setEstadSubcategoria(""); }, [estadCategoria]);
   // Al activar la simulación ampliamos el rango a los 3 últimos meses (los datos
   // simulados cubren ese periodo); al desactivarla volvemos al último mes.
@@ -1716,7 +1731,45 @@ export default function Informes() {
     totalUds: estadTotalUds,
     costesMensuales: estadCostesMensuales,
     topProductos: estadTopProductos,
-  }), [estadSimular, estadDesde, estadHasta, estadProducto, estadCategoria, estadSubcategoria, estadFiltrado, estadTotalCoste, estadTotalUds, estadCostesMensuales, estadTopProductos]);
+    // Presupuesto anual del año del informe (importe/consumido/restante). El
+    // "consumido" que trae el backend es del AÑO completo, no del rango filtrado.
+    presupuesto: estadPresupuesto,
+    anio: estadAnio,
+  }), [estadSimular, estadDesde, estadHasta, estadProducto, estadCategoria, estadSubcategoria, estadFiltrado, estadTotalCoste, estadTotalUds, estadCostesMensuales, estadTopProductos, estadPresupuesto, estadAnio]);
+
+  // ── Distribución económica (valor de las salidas por distrito/barrio) ──────
+  const [distEcoDesde, setDistEcoDesde] = useState(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 1);
+    return d.toISOString().slice(0, 10);
+  });
+  const [distEcoHasta, setDistEcoHasta] = useState(() => new Date().toISOString().slice(0, 10));
+  const [distEcoData, setDistEcoData] = useState(null);
+
+  const onGenerarDistEco = async () => {
+    setLoading(true);
+    try {
+      const data = await getDistribucionEconomica({
+        fecha_desde: distEcoDesde || undefined,
+        fecha_hasta: distEcoHasta || undefined,
+      });
+      setDistEcoData(data);
+      showTimedMessage("Informe de distribución económica generado.", "success");
+    } catch (e) {
+      setDistEcoData(null);
+      showTimedMessage(
+        e?.response?.data?.detail || e?.message || "Error generando la distribución económica",
+        "error"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const distEcoExportData = useMemo(
+    () => ({ filters: { desde: distEcoDesde, hasta: distEcoHasta }, ...(distEcoData || { grupos: [], total_valor: 0, total_unidades: 0 }) }),
+    [distEcoDesde, distEcoHasta, distEcoData]
+  );
 
   const exportarEstadisticasExcel = () => {
     const esc = (v) => {
@@ -1790,9 +1843,11 @@ export default function Informes() {
     if (activeReport === "abastecimiento") return abastecimientoItems.length > 0;
     if (activeReport === "bajas") return bajasItems.length > 0;
     if (activeReport === "estadisticas") return estadFiltrado.length > 0;
+    if (activeReport === "distribucion-economica") return (distEcoData?.grupos?.length || 0) > 0;
     return false;
   }, [
     activeReport,
+    distEcoData,
     trazabilidadData,
     distribucionData,
     stockFilteredItems,
@@ -1829,6 +1884,7 @@ export default function Informes() {
         abastecimientoExportData,
         bajasExportData,
         estadisticasExportData: estadExportData,
+        distribucionEconomicaExportData: distEcoExportData,
       });
       showTimedMessage("PDF exportado correctamente.", "success");
     } catch (e) {
@@ -2001,7 +2057,27 @@ export default function Informes() {
     if (informe === "distribucion") return exportarDistribucionExcel();
     if (informe === "stock") return exportarStockExcel();
     if (informe === "estadisticas") return exportarEstadisticasExcel();
+    if (informe === "distribucion-economica") return exportarDistEcoExcel();
     return undefined;
+  };
+
+  const exportarDistEcoExcel = () => {
+    const esc = (v) => {
+      const s = String(v ?? "");
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const filas = [["Distrito", "Barrio", "Unidades", "Valor (EUR)"]];
+    for (const g of distEcoData?.grupos || []) {
+      filas.push([g.distrito, g.barrio, g.unidades, g.valor]);
+    }
+    filas.push(["TOTAL", "", distEcoData?.total_unidades || 0, distEcoData?.total_valor || 0]);
+    const csv = filas.map((f) => f.map(esc).join(";")).join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `distribucion_economica_${distEcoDesde}_a_${distEcoHasta}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
   };
 
   const exportarInventarioExcel = () => {
@@ -3592,6 +3668,38 @@ Productos con fecha de caducidad
               </Alert>
             )}
 
+            {/* Presupuesto anual: importe / consumido / restante del AÑO del informe. */}
+            {estadPresupuesto ? (
+              <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: 12 }}>
+                {[
+                  { l: `Presupuesto ${estadPresupuesto.anio}`, v: estadPresupuesto.importe != null ? fmtEuro(estadPresupuesto.importe) : "Sin fijar" },
+                  { l: `Consumido ${estadPresupuesto.anio} (reposición)`, v: fmtEuro(estadPresupuesto.consumido) },
+                  {
+                    l: "Restante",
+                    v: estadPresupuesto.restante != null ? fmtEuro(estadPresupuesto.restante) : "—",
+                    danger: estadPresupuesto.restante != null && estadPresupuesto.restante < 0,
+                  },
+                ].map((s) => (
+                  <div key={s.l} className={cn(CARD_CLS, "min-w-40")}>
+                    <div className="text-caption uppercase text-muted-foreground">{s.l}</div>
+                    <div
+                      className="tabular text-h4 font-[var(--font-weight-semibold)]"
+                      style={s.danger ? { color: "var(--destructive-emphasis)" } : undefined}
+                    >
+                      {s.v}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {estadPresupuesto?.importe != null && estadPresupuesto.restante != null && estadPresupuesto.restante < 0 ? (
+              <Alert tone="warning">
+                La reposición del año ({fmtEuro(estadPresupuesto.consumido)}) ha superado el presupuesto anual
+                ({fmtEuro(estadPresupuesto.importe)}).
+              </Alert>
+            ) : null}
+
             {/* Gráficas */}
             <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(340px, 100%), 1fr))", gap: 18 }}>
               <div className={CARD_CLS}>
@@ -3646,6 +3754,84 @@ Productos con fecha de caducidad
                   </table>
                 </div>
               </div>
+            )}
+          </>
+        )}
+
+        {activeReport === "distribucion-economica" && (
+          <>
+            <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: 12, alignItems: "end" }}>
+              <div>
+                <label htmlFor="deco-desde" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Desde</label>
+                <input id="deco-desde" type="date" value={distEcoDesde} onChange={(e) => setDistEcoDesde(e.target.value)} className={INPUT_CLS} />
+              </div>
+              <div>
+                <label htmlFor="deco-hasta" style={{ marginBottom: 8, fontWeight: "var(--font-weight-semibold)", color: "var(--foreground)" }}>Hasta</label>
+                <input id="deco-hasta" type="date" value={distEcoHasta} onChange={(e) => setDistEcoHasta(e.target.value)} className={INPUT_CLS} />
+              </div>
+              <div>
+                <Button type="button" variant="primary" onClick={onGenerarDistEco} disabled={loading}>
+                  {loading ? "Generando…" : "Generar informe"}
+                </Button>
+              </div>
+            </div>
+
+            {!distEcoData ? (
+              <EmptyState text="Elige un rango de fechas y pulsa «Generar informe» para ver cuánto dinero (cantidad × precio) ha salido del vivero a cada distrito y barrio." />
+            ) : (distEcoData.grupos || []).length === 0 ? (
+              <EmptyState text="No hay salidas del vivero a destinos externos en el rango seleccionado." />
+            ) : (
+              <>
+                <div style={{ marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <div className={cn(CARD_CLS, "min-w-40")}>
+                    <div className="text-caption uppercase text-muted-foreground">Valor total distribuido</div>
+                    <div className="tabular text-h4 font-[var(--font-weight-semibold)]">{fmtEuro(distEcoData.total_valor)}</div>
+                  </div>
+                  <div className={cn(CARD_CLS, "min-w-40")}>
+                    <div className="text-caption uppercase text-muted-foreground">Unidades salidas</div>
+                    <div className="tabular text-h4 font-[var(--font-weight-semibold)]">{fmtNum(distEcoData.total_unidades)}</div>
+                  </div>
+                  <div className={cn(CARD_CLS, "min-w-40")}>
+                    <div className="text-caption uppercase text-muted-foreground">Destinos (distrito·barrio)</div>
+                    <div className="tabular text-h4 font-[var(--font-weight-semibold)]">{fmtNum(distEcoData.grupos.length)}</div>
+                  </div>
+                </div>
+
+                <div className={cn(CARD_CLS, "mt-4 overflow-hidden p-0")}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr>
+                          <th className={TH}>Distrito</th>
+                          <th className={TH}>Barrio</th>
+                          <th className={cn(TH, "text-right")}>Unidades</th>
+                          <th className={cn(TH, "text-right")}>Valor</th>
+                          <th className={cn(TH, "text-right")}>% del total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {distEcoData.grupos.map((g, i) => (
+                          <tr key={`${g.distrito}-${g.barrio}-${i}`}>
+                            <td className={TD}>{g.distrito}</td>
+                            <td className={TD}>{g.barrio}</td>
+                            <td className={cn(TD, "tabular text-right")}>{fmtNum(g.unidades)}</td>
+                            <td className={cn(TD, "tabular text-right font-[var(--font-weight-medium)]")}>{fmtEuro(g.valor)}</td>
+                            <td className={cn(TD, "tabular text-right")}>
+                              {distEcoData.total_valor > 0 ? `${((g.valor / distEcoData.total_valor) * 100).toFixed(1)}%` : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="bg-muted">
+                          <td className={cn(TD, "font-[var(--font-weight-medium)]")} colSpan={2}>TOTAL</td>
+                          <td className={cn(TD, "tabular text-right font-[var(--font-weight-medium)]")}>{fmtNum(distEcoData.total_unidades)}</td>
+                          <td className={cn(TD, "tabular text-right font-[var(--font-weight-medium)]")}>{fmtEuro(distEcoData.total_valor)}</td>
+                          <td className={TD}></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
             )}
           </>
         )}

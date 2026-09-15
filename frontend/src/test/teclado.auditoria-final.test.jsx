@@ -36,6 +36,7 @@ vi.mock("../api/api", () => {
   return {
     getProductos: f(), getMovimientos: f(), getPedidos: f(), getZonasConfig: f(),
     getZonaItems: f(), getClientes: f(), getActiveClienteId: vi.fn(), setActiveClienteId: vi.fn(),
+    getCategorias: f(), getPresupuesto: f(),
     getMe: f(), getSuperadminStats: f(), getPrestamosActivos: f(), getLote: f(),
     validateAccountToken: f(), login: vi.fn(), authLogin: vi.fn(), forgotPassword: vi.fn(),
     changePassword: vi.fn(), marcarZonaInterna: vi.fn(), updateZonasConfig: vi.fn(),
@@ -66,6 +67,8 @@ beforeEach(() => {
   api.getClientes.mockResolvedValue([]);
   api.getPrestamosActivos.mockResolvedValue([]);
   api.getZonaItems.mockResolvedValue({ items: [] });
+  api.getCategorias.mockResolvedValue([]);
+  api.getPresupuesto.mockResolvedValue({ anio: 2026, importe: null, tiene_presupuesto: false, consumido: 0, restante: null, moneda: "EUR" });
   api.getMe.mockResolvedValue({ rol: "admin" });
   api.getActiveClienteId.mockReturnValue(null);
   api.getStoredToken.mockReturnValue(null);

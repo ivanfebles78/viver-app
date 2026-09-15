@@ -28,6 +28,8 @@ vi.mock("../api/api", () => ({
   getPedidos: vi.fn(),
   getActiveClienteId: vi.fn(),
   getMiAyuntamiento: vi.fn(),
+  getPresupuesto: vi.fn(),
+  getDistribucionEconomica: vi.fn(),
 }));
 
 vi.mock("../pages/informes.pdf", () => ({ exportReportToPdf: vi.fn() }));
@@ -60,6 +62,8 @@ beforeEach(() => {
   api.getMovimientosExternosReporte.mockResolvedValue([]);
   api.getActiveClienteId.mockReturnValue(null);
   api.getMiAyuntamiento.mockResolvedValue({ nombre: "Ayuntamiento de Prueba" });
+  api.getPresupuesto.mockResolvedValue({ anio: 2026, importe: null, tiene_presupuesto: false, consumido: 0, restante: null, moneda: "EUR" });
+  api.getDistribucionEconomica.mockResolvedValue({ grupos: [], total_valor: 0, total_unidades: 0, moneda: "EUR" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
