@@ -84,26 +84,67 @@ const TIPOS = [
     label: "Entrada al vivero",
     desc: "Material que llega al vivero desde un proveedor externo u otra entidad.",
     icon: Package,
+    tono: "success",
   },
   {
     value: "salida",
     label: "Salida del vivero",
     desc: "Material que sale del vivero hacia un destino externo.",
     icon: PackageOpen,
+    tono: "danger",
   },
   {
     value: "traslado_interno",
     label: "Traslado interno",
     desc: "Movimiento entre zonas del vivero, con posible cambio de tamaño.",
     icon: Repeat,
+    tono: "info",
   },
   {
     value: "devolucion",
     label: "Devolución",
     desc: "Planta prestada que regresa al vivero desde una entidad externa.",
     icon: Undo2,
+    tono: "pending",
   },
 ];
+
+/*
+ * Color por tipo de movimiento. Los cuatro tipos compartían el mismo azul de
+ * `--primary`, así que entrada, salida, traslado y devolución se veían iguales.
+ * Cada uno usa ahora su propio tono del sistema de estados (el MISMO que la
+ * insignia de la tabla de movimientos): verde=entrada, rojo=salida, azul=traslado,
+ * ámbar=devolución. Son clases ESTÁTICAS (no interpoladas) para que Tailwind las
+ * incluya en el build.
+ */
+const CLASES_TIPO = {
+  entrada: {
+    icono: "text-[var(--status-success-fg)]",
+    borde: "border-l-[var(--status-success-fg)]",
+    seleccion: "bg-[var(--status-success-bg)]",
+    barra: "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-fg)]",
+  },
+  salida: {
+    icono: "text-[var(--status-danger-fg)]",
+    borde: "border-l-[var(--status-danger-fg)]",
+    seleccion: "bg-[var(--status-danger-bg)]",
+    barra: "border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger-fg)]",
+  },
+  traslado_interno: {
+    icono: "text-[var(--status-info-fg)]",
+    borde: "border-l-[var(--status-info-fg)]",
+    seleccion: "bg-[var(--status-info-bg)]",
+    barra: "border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info-fg)]",
+  },
+  devolucion: {
+    icono: "text-[var(--status-pending-fg)]",
+    borde: "border-l-[var(--status-pending-fg)]",
+    seleccion: "bg-[var(--status-pending-bg)]",
+    barra: "border-[var(--status-pending-border)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]",
+  },
+};
+
+const clasesTipo = (tipo) => CLASES_TIPO[tipo] || {};
 
 const PASOS = ["Tipo", "Producto", "Destino"];
 
@@ -178,6 +219,7 @@ function Pasos({ step }) {
 /** Tarjeta de tipo de movimiento. Un radio de verdad, no un div clicable. */
 function TipoCard({ tipo, selected, disabled, disabledHint, onClick }) {
   const Icono = tipo.icon;
+  const clases = clasesTipo(tipo.value);
   return (
     <button
       type="button"
@@ -188,13 +230,17 @@ function TipoCard({ tipo, selected, disabled, disabledHint, onClick }) {
       onClick={onClick}
       className={cn(
         "flex flex-col gap-1.5 rounded-[var(--radius-md)] border border-border p-3 text-left",
+        // Borde izquierdo del color del tipo también SIN seleccionar, para que los
+        // cuatro se distingan de un vistazo; al seleccionar, se rellena con su tono.
+        "border-l-4",
+        clases.borde,
         "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        selected && "border-primary bg-[var(--primary-subtle)]",
+        selected && cn("border-primary", clases.seleccion),
         disabled && "cursor-not-allowed opacity-60 hover:bg-transparent"
       )}
     >
       <span className="flex items-center gap-2">
-        <Icono aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+        <Icono aria-hidden="true" className={cn("size-4 shrink-0", clases.icono || "text-muted-foreground")} />
         <span className="text-body-sm font-[var(--font-weight-medium)]">{tipo.label}</span>
       </span>
       <span className="text-caption text-muted-foreground">{tipo.desc}</span>
@@ -1132,6 +1178,26 @@ export default function MovimientoModal({
         >
           <div className="flex flex-col gap-4">
             <Pasos step={step} />
+
+            {/* Banda del color del tipo elegido: acompaña a TODO el asistente
+                (pasos 2 y 3), no solo al paso 1, para que se sepa siempre de qué
+                tipo de movimiento se trata por su color. */}
+            {form.tipo_elegido && (() => {
+              const t = TIPOS.find((x) => x.value === form.tipo_elegido);
+              if (!t) return null;
+              const Icono = t.icon;
+              return (
+                <div
+                  className={cn(
+                    "flex items-center gap-2 rounded-[var(--radius-md)] border p-2.5",
+                    clasesTipo(t.value).barra
+                  )}
+                >
+                  <Icono aria-hidden="true" className="size-4 shrink-0" />
+                  <span className="text-body-sm font-[var(--font-weight-semibold)]">{t.label}</span>
+                </div>
+              );
+            })()}
 
             {errors.length > 0 && (
               <Alert tone="error" title="Revisa lo siguiente">
