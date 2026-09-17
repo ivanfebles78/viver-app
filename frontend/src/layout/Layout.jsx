@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import logoViverApp from "../assets/logo.png";
+import marcaViverApp from "../assets/viverapp-mark.png";
 
 import { clearStoredToken, getMe, getProductos, getPedidos, getActiveClienteId } from "../api/api";
 import ClienteSelector from "../components/common/ClienteSelector";
@@ -379,7 +379,7 @@ export default function Layout() {
 function Brand() {
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <img src={logoViverApp} alt="" className="size-7 shrink-0 object-contain" />
+      <img src={marcaViverApp} alt="" className="size-7 shrink-0 object-contain" />
       <span className="flex min-w-0 flex-col leading-none">
         <span className="truncate text-body-sm font-[var(--font-weight-semibold)]">ViverApp</span>
         <span className="truncate text-caption text-muted-foreground">Gestión del vivero</span>
