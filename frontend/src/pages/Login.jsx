@@ -296,23 +296,15 @@ export default function Login() {
         */}
         <aside aria-hidden="true" className="relative hidden lg:block">
           {/*
-            `object-contain`, no `object-cover`.
-
-            El archivo no es una fotografía: es una composición de marketing con
-            el logotipo centrado. `object-cover` lo recorta por los lados y el
-            logotipo queda partido —se lee «…rApp»—, que se ve roto, no
-            recortado. Y el recorte es horizontal, así que `object-position` no
-            lo arregla: el texto está en el centro, se mueva hacia donde se
-            mueva.
-
-            Con `contain` la composición se ve entera a cualquier proporción. El
-            fondo va en color de superficie para que el espacio sobrante no
-            parezca un hueco.
+            `object-cover`: la imagen llena TODO el alto del panel derecho,
+            recortando lo que sobre por los lados. (Prueba a petición del usuario;
+            antes era `object-contain`, que dejaba franjas arriba/abajo.)
+            `object-center` mantiene a la vista el centro de la composición.
           */}
           <img
             src={viveroImg}
             alt=""
-            className="absolute inset-0 size-full bg-muted object-contain"
+            className="absolute inset-0 size-full bg-muted object-cover object-center"
           />
         </aside>
       </div>
