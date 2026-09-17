@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Sprout } from "lucide-react";
+import logoViverApp from "../assets/logo.png";
 
 import { clearStoredToken, getMe, getProductos, getPedidos, getActiveClienteId } from "../api/api";
 import ClienteSelector from "../components/common/ClienteSelector";
@@ -210,9 +210,17 @@ export default function Layout() {
    */
   useEffect(() => {
     if (!userRole) return;
+    // Super-admin al entrar (aterriza en /dashboard): su sitio es el panel de
+    // plataforma, no una pantalla de datos que le pida elegir ayuntamiento. Se
+    // le lleva directo. (Si navega a propósito a otra pantalla de datos sin
+    // ayuntamiento, verá el aviso para elegir uno.)
+    if (sinAyuntamiento && location.pathname === ROUTES.DASHBOARD) {
+      navigate(ROUTES.PLATAFORMA, { replace: true });
+      return;
+    }
     if (canAccessRoute(location.pathname, me)) return;
     navigate(resolveLandingRoute(me), { replace: true });
-  }, [location.pathname, userRole, me, navigate]);
+  }, [location.pathname, userRole, me, navigate, sinAyuntamiento]);
 
   const navSections = useMemo(
     () =>
@@ -371,7 +379,7 @@ export default function Layout() {
 function Brand() {
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <Sprout aria-hidden="true" className="size-5 shrink-0 text-primary" />
+      <img src={logoViverApp} alt="" className="size-7 shrink-0 object-contain" />
       <span className="flex min-w-0 flex-col leading-none">
         <span className="truncate text-body-sm font-[var(--font-weight-semibold)]">ViverApp</span>
         <span className="truncate text-caption text-muted-foreground">Gestión del vivero</span>

@@ -55,6 +55,15 @@ const CLASE_CONTROL =
 
 /* ── Gráfica ───────────────────────────────────────────────────────────── */
 
+/** "2026-09" → "sep 26". Etiqueta corta para el eje. */
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+function mesCorto(mes) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(mes || ""));
+  if (!m) return String(mes || "");
+  const idx = Number(m[2]) - 1;
+  return `${MESES_CORTOS[idx] || m[2]} ${m[1].slice(2)}`;
+}
+
 function EvolucionChart({ data }) {
   const g = geometriaEvolucion(data);
   const { W, H, P } = CHART;
@@ -63,18 +72,31 @@ function EvolucionChart({ data }) {
     return <p className="text-muted-foreground">Aún no hay altas registradas.</p>;
   }
 
+  const filas = Array.isArray(data) ? data : [];
+  const n = g.pts.length;
+  const innerW = W - 2 * P;
+  const banda = innerW / n;
+  const barW = Math.min(banda * 0.62, 56);
+  const cx = (i) => P + banda * (i + 0.5);
+  const ultimo = g.pts[n - 1]?.y ?? 0;
+
   return (
     <div className="overflow-x-auto">
       {/*
-       * `role="img"` con nombre: sin él, el SVG llega al lector de pantalla
-       * como un montón de trazados sin significado.
+       * Diagrama de BARRAS del total acumulado de ayuntamientos mes a mes. Antes
+       * era una línea que, con un solo mes de datos, se veía como un punto suelto
+       * («muerta»). Las barras se leen bien incluso con pocos meses, y el backend
+       * rellena la serie hasta el mes actual.
+       *
+       * `role="img"` con nombre: sin él, el SVG llega al lector de pantalla como
+       * un montón de trazados sin significado.
        */}
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
         role="img"
-        aria-label={`Altas acumuladas de ayuntamientos por mes. Último valor: ${g.pts[g.pts.length - 1].y}.`}
-        className="max-w-[640px] min-w-[320px]"
+        aria-label={`Ayuntamientos dados de alta (acumulado) por mes. Último valor: ${ultimo}.`}
+        className="min-w-[320px] max-w-[820px]"
       >
         {[0, 0.5, 1].map((f, i) => {
           const y = H - P - f * (H - 2 * P);
@@ -87,24 +109,33 @@ function EvolucionChart({ data }) {
             </g>
           );
         })}
-        {/* El área se pintaba con un degradado a mano; ahora es el color del
-            sistema con opacidad, sin introducir ningún valor en crudo. */}
-        <path d={g.areaPath} fill="var(--primary)" fillOpacity="0.12" />
-        <path d={g.linePath} fill="none" stroke="var(--primary)" strokeWidth="2.5" strokeLinejoin="round" />
-        {g.pts.map((p, i) => (
-          <g key={p.x}>
-            <circle cx={g.px(i)} cy={g.py(p.y)} r="4" fill="var(--primary)" />
-            <text
-              x={g.px(i)}
-              y={H - P + 16}
-              fontSize="10"
-              fill="var(--muted-foreground)"
-              textAnchor="middle"
-            >
-              {p.x}
-            </text>
-          </g>
-        ))}
+        {g.pts.map((p, i) => {
+          const top = g.py(p.y);
+          const alto = Math.max(0, H - P - top);
+          const altasMes = filas[i]?.altas ?? 0;
+          return (
+            <g key={p.x}>
+              <rect
+                x={cx(i) - barW / 2}
+                y={top}
+                width={barW}
+                height={alto}
+                rx="4"
+                fill="var(--primary)"
+                fillOpacity={altasMes > 0 ? 0.95 : 0.45}
+              >
+                <title>{`${mesCorto(p.x)}: ${p.y} acumulados (${altasMes} nuevo${altasMes === 1 ? "" : "s"})`}</title>
+              </rect>
+              {/* Valor acumulado encima de la barra. */}
+              <text x={cx(i)} y={top - 6} fontSize="11" fill="var(--foreground)" textAnchor="middle" fontWeight="600">
+                {p.y}
+              </text>
+              <text x={cx(i)} y={H - P + 16} fontSize="10" fill="var(--muted-foreground)" textAnchor="middle">
+                {mesCorto(p.x)}
+              </text>
+            </g>
+          );
+        })}
       </svg>
     </div>
   );
