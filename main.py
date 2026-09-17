@@ -2392,18 +2392,42 @@ def superadmin_stats(
     ingreso_mensual = round(ingreso_mensual, 2)
 
     # --- Evolución de altas por mes (acumulado) ---
+    # Se rellena la serie MES A MES desde la primera alta hasta el mes ACTUAL,
+    # incluyendo meses con 0 altas (y el mes en curso aunque no haya altas), para
+    # que la gráfica muestre una evolución continua en vez de un único punto.
     por_mes: dict[str, int] = {}
     for c in clientes:
         if not c.created_at:
             continue
         key = c.created_at.strftime("%Y-%m")
         por_mes[key] = por_mes.get(key, 0) + 1
+
     evolucion = []
+    if por_mes:
+        primero = min(por_mes.keys())
+        y0, m0 = int(primero[:4]), int(primero[5:7])
+    else:
+        # Sin altas con fecha: arrancamos el año en curso para no dejar la
+        # gráfica vacía (mostrará el mes actual con acumulado 0).
+        hoy0 = datetime.utcnow()
+        y0, m0 = hoy0.year, hoy0.month
+    hoy = datetime.utcnow()
+    y, m = y0, m0
     acumulado = 0
-    for mes in sorted(por_mes.keys()):
-        altas = por_mes[mes]
+    # Tope de seguridad por si hubiera fechas futuras raras: máximo 120 meses.
+    for _ in range(120):
+        mes = f"{y:04d}-{m:02d}"
+        altas = por_mes.get(mes, 0)
         acumulado += altas
         evolucion.append({"mes": mes, "altas": altas, "acumulado": acumulado})
+        if y == hoy.year and m == hoy.month:
+            break
+        if (y, m) >= (hoy.year, hoy.month):
+            break
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
 
     return {
         "resumen": {

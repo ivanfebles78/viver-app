@@ -223,6 +223,26 @@ describe("super-admin global", () => {
     expect(screen.queryByText(/selecciona un ayuntamiento/i)).not.toBeInTheDocument();
   });
 
+  it("al entrar sin ayuntamiento (aterriza en /dashboard) va directo a Plataforma", async () => {
+    mockGetMe.mockResolvedValue({ rol: "superadmin" });
+    mockGetProductos.mockResolvedValue([]);
+    mockGetPedidos.mockResolvedValue([]);
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/dashboard" element={<div>PANEL DASHBOARD</div>} />
+            <Route path="/plataforma" element={<div>PANEL PLATAFORMA</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+    // El super-admin sin ayuntamiento no ve el dashboard ni un aviso: se le lleva
+    // al panel de plataforma.
+    expect(await screen.findByText("PANEL PLATAFORMA")).toBeInTheDocument();
+    expect(screen.queryByText("PANEL DASHBOARD")).not.toBeInTheDocument();
+  });
+
   it("un admin de ayuntamiento SÍ ve el contenido (el bloqueo es solo del super-admin sin ayto)", async () => {
     renderShell({ rol: "admin" }, "/dashboard");
     expect(await screen.findByText("CONTENIDO")).toBeInTheDocument();
