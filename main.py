@@ -3522,6 +3522,47 @@ def cancelar_pedido_endpoint(
     return _pedido_to_dict(pedido)
 
 
+@app.delete("/pedidos/{pedido_id}")
+def eliminar_pedido(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    """Elimina un pedido por completo (para limpiar pedidos de prueba). Solo
+    admin. No revierte stock: borra el pedido, sus líneas (cascade), sus
+    movimientos asociados y el detalle de lote de esos movimientos.
+
+    El pedido se busca ya acotado al ayuntamiento activo (auto-filtro de
+    tenant.py). Los borrados en bloque NO pasan por ese auto-filtro, así que se
+    acotan a mano por cliente_id."""
+    pedido = db.query(Pedido).filter(Pedido.id == pedido_id).first()
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    cid = tenant.get_session_cliente(db)
+
+    # 1) Detalle de lote de los movimientos del pedido, luego los movimientos.
+    movs = db.query(Movimiento).filter(Movimiento.pedido_id == pedido_id).all()
+    mov_ids = [m.id for m in movs]
+    if mov_ids:
+        det_q = db.query(MovimientoLoteDetalle).filter(
+            MovimientoLoteDetalle.movimiento_id.in_(mov_ids)
+        )
+        if cid is not None:
+            det_q = det_q.filter(MovimientoLoteDetalle.cliente_id == cid)
+        det_q.delete(synchronize_session=False)
+
+    mov_q = db.query(Movimiento).filter(Movimiento.pedido_id == pedido_id)
+    if cid is not None:
+        mov_q = mov_q.filter(Movimiento.cliente_id == cid)
+    mov_q.delete(synchronize_session=False)
+
+    # 2) El pedido (sus items —y modificaciones, si las hubiera— por cascade ORM).
+    db.delete(pedido)
+    db.commit()
+    return {"ok": True, "deleted": pedido_id}
+
+
 def _select_items_for_action(pedido: Pedido, item_ids):
     """
     Resolve which items the action targets.
