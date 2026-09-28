@@ -183,6 +183,54 @@ async function renderPedidoEnPdf(doc, pedido, mapProdName, isFirst, logoDataUrl)
     });
     yPos = doc.lastAutoTable.finalY + 5;
   });
+
+  // ── Devoluciones registradas ────────────────────────────────────────────
+  // Material que la empresa externa reintegró de este pedido servido.
+  const devoluciones = [];
+  for (const it of pedido.items || []) {
+    const nombre =
+      it.producto_nombre_cientifico ||
+      it.producto_nombre ||
+      it.producto_nombre_natural ||
+      (mapProdName && mapProdName.get(it.producto_id)) ||
+      `Producto #${it.producto_id}`;
+    for (const mov of it.movimientos_servicio || []) {
+      if (!mov.es_devolucion_pedido) continue;
+      const fecha = mov.fecha_movimiento
+        ? new Date(mov.fecha_movimiento).toLocaleDateString("es-ES")
+        : "—";
+      devoluciones.push([
+        fecha,
+        nombre,
+        it.tamano || "—",
+        String(Number(mov.cantidad || 0)),
+        mov.zona_destino || "—",
+        mov.created_by || "—",
+      ]);
+    }
+  }
+  if (devoluciones.length > 0) {
+    const totalDev = devoluciones.reduce((s, r) => s + Number(r[3] || 0), 0);
+    autoTable(doc, {
+      startY: yPos,
+      theme: "plain",
+      body: [["Devoluciones registradas"]],
+      styles: { fontSize: 10, fontStyle: "bold", textColor: [255, 255, 255], fillColor: [217, 119, 6], cellPadding: 2.5 },
+      margin: { left: 14, right: 14 },
+    });
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY,
+      theme: "grid",
+      head: [["Fecha", "Producto", "Tamaño", "Cantidad", "Zona destino", "Registró"]],
+      body: devoluciones,
+      foot: [["", "", "", `Total devuelto: ${totalDev}`, "", ""]],
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [217, 119, 6] },
+      footStyles: { fillColor: [253, 230, 138], textColor: [69, 26, 3], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+    });
+    yPos = doc.lastAutoTable.finalY + 5;
+  }
 }
 
 function addFootersToAllPages(doc) {
