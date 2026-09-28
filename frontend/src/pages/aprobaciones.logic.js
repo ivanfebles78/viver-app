@@ -51,6 +51,10 @@ export const puedeDecidir = (me) => {
  */
 export const puedeAtajoDeFila = (pedido, me) => {
   if (!puedeDecidir(me)) return false;
+  // Un pedido congelado por una modificación pendiente NO se decide con el atajo
+  // de fila (aprobar/denegar el pedido entero): hay que resolver la modificación
+  // en el detalle, línea a línea.
+  if (pedido?.modificacion_pendiente) return false;
   if (estadoNormalizado(pedido?.estado) !== "RESERVA") return false;
   return safeArray(pedido?.items).length === 1;
 };

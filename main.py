@@ -33,6 +33,8 @@ from models import (
     MovimientoLoteDetalle,
     Pedido,
     PedidoItem,
+    PedidoModificacion,
+    PedidoModificacionItem,
     CaducidadConfig,
     AccountToken,
     ZonaPolygon,
@@ -1304,6 +1306,44 @@ def _has_any_approved_item(pedido: Pedido) -> bool:
     return False
 
 
+def _modificacion_pendiente(pedido: Pedido):
+    """Devuelve la modificación en estado PENDIENTE del pedido (o None).
+    Mientras exista, el pedido está "congelado" y no se puede servir."""
+    for m in (getattr(pedido, "modificaciones", None) or []):
+        if str(getattr(m, "estado", "") or "").upper() == "PENDIENTE":
+            return m
+    return None
+
+
+def _serialize_modificacion(mod) -> Optional[dict]:
+    if mod is None:
+        return None
+    return {
+        "id": getattr(mod, "id", None),
+        "estado": getattr(mod, "estado", None),
+        "nota": getattr(mod, "nota", None),
+        "created_by": getattr(mod, "created_by", None),
+        "created_at": getattr(mod, "created_at", None),
+        "resolved_by": getattr(mod, "resolved_by", None),
+        "resolved_at": getattr(mod, "resolved_at", None),
+        "cambios": [
+            {
+                "id": getattr(ci, "id", None),
+                "tipo": getattr(ci, "tipo", None),
+                "pedido_item_id": getattr(ci, "pedido_item_id", None),
+                "producto_id": getattr(ci, "producto_id", None),
+                "tamano": getattr(ci, "tamano", None),
+                "cantidad_actual": float(getattr(ci, "cantidad_actual", 0) or 0),
+                "cantidad_propuesta": float(getattr(ci, "cantidad_propuesta", 0) or 0),
+                "estado": getattr(ci, "estado", "RESERVA"),
+                "producto_nombre_cientifico": getattr(getattr(ci, "producto", None), "nombre_cientifico", None),
+                "producto_nombre_natural": getattr(getattr(ci, "producto", None), "nombre_natural", None),
+            }
+            for ci in (getattr(mod, "items", None) or [])
+        ],
+    }
+
+
 def _pedido_to_dict(
     pedido: Pedido,
     viewer_role: Optional[str] = None,
@@ -1354,6 +1394,8 @@ def _pedido_to_dict(
         "motivo_denegacion": None if ocultar_motivo else getattr(pedido, "motivo_denegacion", None),
         "served_at": getattr(pedido, "served_at", None),
         "served_by": getattr(pedido, "served_by", None),
+        # Modificación pendiente (si la hay): congela el pedido hasta decidirse.
+        "modificacion_pendiente": _serialize_modificacion(_modificacion_pendiente(pedido)),
         "items": [
             {
                 "id": getattr(item, "id", None),
@@ -3070,7 +3112,10 @@ def eliminar_producto(
     # Si tiene movimientos históricos, bloquear delete real y sugerir ocultar/inactivo
     mov_count = db.query(Movimiento).filter(Movimiento.producto_id == producto_id).count()
     ped_items_count = db.query(PedidoItem).filter(PedidoItem.producto_id == producto_id).count()
-    if mov_count > 0 or ped_items_count > 0:
+    # Una solicitud de modificación "add" puede referenciar un producto que aún no
+    # tiene línea de pedido; también bloquea el borrado para no dejar FK colgando.
+    pmi_count = db.query(PedidoModificacionItem).filter(PedidoModificacionItem.producto_id == producto_id).count()
+    if mov_count > 0 or ped_items_count > 0 or pmi_count > 0:
         raise HTTPException(
             status_code=400,
             detail="No se puede eliminar: el producto tiene historial de movimientos o pedidos. Márcalo como interno para ocultarlo a la empresa externa.",
@@ -3237,6 +3282,7 @@ def get_pedidos(
     q = db.query(Pedido).options(
         selectinload(Pedido.items).selectinload(PedidoItem.producto),
         selectinload(Pedido.items).selectinload(PedidoItem.movimientos),
+        selectinload(Pedido.modificaciones).selectinload(PedidoModificacion.items).selectinload(PedidoModificacionItem.producto),
     )
 
     # Empresa externa: ve dos tipos de pedidos.
@@ -3752,6 +3798,221 @@ def devolver_material_pedido(
     return {"ok": True, "pedido_id": pedido_id, "devoluciones": resultados}
 
 
+# =============================
+# MODIFICACIONES DE PEDIDO
+# =============================
+# Un técnico/gestor solicita cambios sobre un pedido YA aprobado. Cada cambio
+# (add/update/remove) queda en RESERVA hasta que el responsable lo decide.
+# Mientras haya una modificación PENDIENTE el pedido se "congela" (no servible).
+class PedidoModCambioIn(BaseModel):
+    tipo: str                              # add | update | remove
+    pedido_item_id: Optional[int] = None   # línea afectada (update/remove)
+    producto_id: int
+    tamano: Optional[str] = None
+    cantidad_propuesta: float = 0
+
+
+class PedidoModificacionCreate(BaseModel):
+    nota: Optional[str] = None
+    cambios: list[PedidoModCambioIn]
+
+
+class PedidoModDecidirRequest(BaseModel):
+    approved_item_ids: Optional[list[int]] = None
+    denied_item_ids: Optional[list[int]] = None
+    motivo_denegacion: Optional[str] = None
+
+
+@app.post("/pedidos/{pedido_id}/modificaciones")
+def solicitar_modificacion_pedido(
+    pedido_id: int,
+    payload: PedidoModificacionCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin", "tecnico", "gestor_vivero"])),
+):
+    """El técnico (o gestor/admin) solicita cambios sobre un pedido aprobado.
+    Cada cambio (add/update/remove) queda en RESERVA hasta que el responsable lo
+    decide. Mientras haya una modificación PENDIENTE el pedido no se puede servir."""
+    pedido = db.query(Pedido).filter(Pedido.id == pedido_id).first()
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado.")
+    _asegurar_no_caducado(pedido, db)
+
+    estado = (pedido.estado or "").upper()
+    if estado not in ("APROBADO", "APROBADO_PARCIAL", "SERVIDO"):
+        raise HTTPException(status_code=400, detail="Solo se puede modificar un pedido aprobado o en servicio.")
+    if _modificacion_pendiente(pedido) is not None:
+        raise HTTPException(status_code=400, detail="Este pedido ya tiene una modificación pendiente de decidir.")
+
+    items_by_id = {it.id: it for it in (pedido.items or [])}
+    cambios_orm: list[PedidoModificacionItem] = []
+
+    for c in (payload.cambios or []):
+        tipo = (c.tipo or "").strip().lower()
+        if tipo not in ("add", "update", "remove"):
+            raise HTTPException(status_code=400, detail=f"Tipo de cambio no válido: {c.tipo}")
+
+        if tipo in ("update", "remove"):
+            item = items_by_id.get(c.pedido_item_id)
+            if not item:
+                raise HTTPException(status_code=400, detail="Una de las líneas a modificar no pertenece al pedido.")
+            actual = float(item.cantidad or 0)
+            servida = float(item.cantidad_servida or 0)
+            propuesta = 0.0 if tipo == "remove" else float(c.cantidad_propuesta or 0)
+            if tipo == "update":
+                if propuesta < 0:
+                    raise HTTPException(status_code=400, detail="La cantidad propuesta no puede ser negativa.")
+                if propuesta == actual:
+                    continue  # sin cambio real
+            if propuesta < servida:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No puedes dejar una línea por debajo de lo ya servido ({servida:g}).",
+                )
+            cambios_orm.append(PedidoModificacionItem(
+                tipo=tipo, pedido_item_id=item.id, producto_id=item.producto_id,
+                tamano=item.tamano, cantidad_actual=actual, cantidad_propuesta=propuesta,
+                estado="RESERVA",
+            ))
+        else:  # add
+            producto = db.query(Producto).filter(Producto.id == c.producto_id).first()
+            if not producto:
+                raise HTTPException(status_code=404, detail="Producto a añadir no encontrado.")
+            propuesta = float(c.cantidad_propuesta or 0)
+            if propuesta <= 0:
+                raise HTTPException(status_code=400, detail="La cantidad del producto a añadir debe ser mayor que 0.")
+            cambios_orm.append(PedidoModificacionItem(
+                tipo="add", pedido_item_id=None, producto_id=producto.id,
+                tamano=(c.tamano or None), cantidad_actual=0, cantidad_propuesta=propuesta,
+                estado="RESERVA",
+            ))
+
+    if not cambios_orm:
+        raise HTTPException(status_code=400, detail="No has indicado ningún cambio.")
+
+    mod = PedidoModificacion(
+        pedido_id=pedido.id, estado="PENDIENTE",
+        nota=(payload.nota or None), created_by=current_user.username,
+    )
+    mod.items = cambios_orm
+    db.add(mod)
+    # El pedido vuelve a RESERVA (pendiente de decidir): así desaparece de la
+    # lista del técnico (que solo ve APROBADO/APROBADO_PARCIAL) y reaparece en
+    # Aprobaciones. Las líneas conservan su estado_item; al resolver la
+    # modificación, recompute_pedido_estado restaura el estado real.
+    pedido.estado = "RESERVA"
+    db.commit()
+    db.refresh(pedido)
+    return _pedido_to_dict(pedido)
+
+
+@app.post("/pedidos/modificaciones/{mod_id}/decidir")
+def decidir_modificacion_pedido(
+    mod_id: int,
+    payload: PedidoModDecidirRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin", "manager"])),
+):
+    """El responsable aprueba o deniega cada cambio de la modificación. Los
+    cambios aprobados se aplican al pedido; el pedido se descongela."""
+    mod = db.query(PedidoModificacion).filter(PedidoModificacion.id == mod_id).first()
+    if not mod:
+        raise HTTPException(status_code=404, detail="Modificación no encontrada.")
+    if (mod.estado or "").upper() != "PENDIENTE":
+        raise HTTPException(status_code=400, detail="Esta modificación ya ha sido resuelta.")
+
+    pedido = mod.pedido
+    cambios_by_id = {ci.id: ci for ci in (mod.items or [])}
+    reserva_ids = {ci.id for ci in (mod.items or []) if (ci.estado or "").upper() == "RESERVA"}
+
+    approved = list(payload.approved_item_ids or [])
+    denied = list(payload.denied_item_ids or [])
+    referenced = set(approved) | set(denied)
+
+    bogus = [i for i in referenced if i not in cambios_by_id]
+    if bogus:
+        raise HTTPException(status_code=400, detail=f"Cambios {bogus} no pertenecen a la modificación.")
+    overlap = set(approved) & set(denied)
+    if overlap:
+        raise HTTPException(status_code=400, detail=f"Cambios {sorted(overlap)} aparecen como aprobados y denegados a la vez.")
+    missing = reserva_ids - referenced
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Debes decidir sobre todos los cambios. Te faltan: {sorted(missing)}.")
+
+    items_by_id = {it.id: it for it in (pedido.items or [])}
+    hubo_aprobado = False
+
+    for cid in approved:
+        ci = cambios_by_id[cid]
+        tipo = (ci.tipo or "").lower()
+        propuesta = float(ci.cantidad_propuesta or 0)
+        if tipo == "add":
+            # Se añade a la relación para que recompute_pedido_estado lo vea.
+            pedido.items.append(PedidoItem(
+                producto_id=ci.producto_id, tamano=ci.tamano,
+                cantidad=propuesta, cantidad_servida=0, estado_item="APROBADO",
+            ))
+        elif tipo == "update":
+            item = items_by_id.get(ci.pedido_item_id)
+            if item is not None:
+                servida = float(item.cantidad_servida or 0)
+                item.cantidad = max(propuesta, servida)
+                item.estado_item = "APROBADO"
+        elif tipo == "remove":
+            item = items_by_id.get(ci.pedido_item_id)
+            if item is not None:
+                servida = float(item.cantidad_servida or 0)
+                if servida <= 0:
+                    db.delete(item)
+                else:
+                    item.cantidad = servida  # deja solo lo ya servido
+        ci.estado = "APROBADO"
+        hubo_aprobado = True
+
+    for cid in denied:
+        cambios_by_id[cid].estado = "DENEGADO"
+
+    now = datetime.utcnow()
+    mod.estado = "RESUELTA"
+    mod.resolved_by = current_user.username
+    mod.resolved_at = now
+
+    # Si el pedido estaba SERVIDO y ahora hay líneas nuevas/ampliadas sin servir,
+    # lo reabrimos para que vuelva a ser servible.
+    if hubo_aprobado and (pedido.estado or "").upper() == "SERVIDO":
+        pedido.estado = "APROBADO"
+
+    # Sincroniza altas/bajas de líneas en memoria antes de recalcular el estado.
+    db.flush()
+    recompute_pedido_estado(pedido)
+    db.commit()
+    db.refresh(pedido)
+    return _pedido_to_dict(pedido)
+
+
+@app.post("/pedidos/modificaciones/{mod_id}/cancelar")
+def cancelar_modificacion_pedido(
+    mod_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "gestor_vivero"])),
+):
+    """Cancela una modificación pendiente (la retira quien la pidió o un
+    responsable). El pedido se descongela sin cambios."""
+    mod = db.query(PedidoModificacion).filter(PedidoModificacion.id == mod_id).first()
+    if not mod:
+        raise HTTPException(status_code=404, detail="Modificación no encontrada.")
+    if (mod.estado or "").upper() != "PENDIENTE":
+        raise HTTPException(status_code=400, detail="Esta modificación ya ha sido resuelta.")
+    mod.estado = "CANCELADA"
+    mod.resolved_by = current_user.username
+    mod.resolved_at = datetime.utcnow()
+    # Restaura el estado real del pedido (deshace el paso a RESERVA al congelarlo).
+    recompute_pedido_estado(mod.pedido)
+    db.commit()
+    db.refresh(mod.pedido)
+    return _pedido_to_dict(mod.pedido)
+
+
 def _select_items_for_action(pedido: Pedido, item_ids):
     """
     Resolve which items the action targets.
@@ -4177,6 +4438,14 @@ def crear_movimiento(
             raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
         _asegurar_no_caducado(pedido, db)
+
+        # Pedido congelado por una modificación pendiente: no se puede servir
+        # hasta que el responsable la apruebe o deniegue.
+        if _modificacion_pendiente(pedido) is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Este pedido tiene una solicitud de modificación pendiente de aprobación. No se puede servir hasta que se resuelva.",
+            )
 
         # Se admite asociar movimientos a pedidos que ya tienen líneas aprobadas
         # (APROBADO o APROBADO_PARCIAL). El control real de no exceder lo pedido
@@ -5948,6 +6217,8 @@ _BACKUP_MODELS = [
     InventarioLote,
     Pedido,
     PedidoItem,
+    PedidoModificacion,
+    PedidoModificacionItem,
     Movimiento,
     MovimientoLoteDetalle,
     PresupuestoAnual,
