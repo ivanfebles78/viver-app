@@ -51,6 +51,7 @@ import {
   descargarPedidoPdf,
 } from "../api/api";
 import { CARD_CLS, INPUT_CLS, TD, TH } from "../components/ui/tableStyles";
+import DevolucionPedidoModal from "./pedidos/DevolucionPedidoModal";
 
 /** Fecha corta en formato canario, tal y como la mostraba main. */
 const fmtFechaES = (value) => formatFechaCanaria(value);
@@ -1898,6 +1899,8 @@ export default function Pedidos() {
   const [modalOpen, setModalOpen] = useState(false);
   const [imprimirOpen, setImprimirOpen] = useState(false);
   const [expandedRows, setExpandedRows] = useState({});
+  // Pedido cuyo modal de devolución de material está abierto (o null).
+  const [devolucionPedido, setDevolucionPedido] = useState(null);
 
   // Confirmación de acciones destructivas. Devuelve una promesa: ver `onCancelar`.
   const { confirmar, dialogo: dialogoConfirmacion } = useConfirm();
@@ -1906,6 +1909,15 @@ export default function Pedidos() {
   // Proveedor es estrictamente de lectura: no edita ni cancela ni crea.
   const isProveedor = role === "proveedor";
   const isReadOnly = role === "tecnico" || role === "gestor_vivero" || isProveedor;
+
+  // Devolución de material de un pedido servido: roles operativos del vivero,
+  // sobre pedidos de salida ya servidos (total o parcialmente) con algo devolvible.
+  const puedeDevolverRol = ["admin", "manager", "tecnico", "gestor_vivero"].includes(role);
+  const puedeDevolver = (p) =>
+    puedeDevolverRol &&
+    (p?.tipo || "salida") !== "reposicion" &&
+    ["SERVIDO", "APROBADO_PARCIAL"].includes((p?.estado || "").toUpperCase()) &&
+    (p?.items || []).some((it) => Number(it.devolvible || 0) > 0);
 
   const clearMsgTimer = () => {
     if (msgTimerRef.current) {
@@ -2503,6 +2515,13 @@ export default function Pedidos() {
                             </>
                           ) : null}
 
+                          {/* Devolución de material de un pedido servido. */}
+                          {puedeDevolver(p) && editingId !== p.id ? (
+                            <Button type="button" variant="secondary" size="sm" onClick={() => setDevolucionPedido(p)}>
+                              ↩ Devolución
+                            </Button>
+                          ) : null}
+
                           {/* Eliminar: solo admin. Disponible en cualquier estado
                               (sirve para limpiar pedidos de prueba). */}
                           {role === "admin" && editingId !== p.id ? (
@@ -2600,6 +2619,16 @@ export default function Pedidos() {
       />
 
       {dialogoConfirmacion}
+
+      <DevolucionPedidoModal
+        open={!!devolucionPedido}
+        pedido={devolucionPedido}
+        onClose={() => setDevolucionPedido(null)}
+        onDone={async () => {
+          await refrescar();
+          showTimedMessage("Devolución registrada.", "success");
+        }}
+      />
     </div>
   );
 }

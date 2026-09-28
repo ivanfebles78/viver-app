@@ -238,6 +238,9 @@ class PedidoItem(Base):
     tamano = Column(String(30), nullable=True)
     cantidad = Column(Numeric(12, 3), nullable=False)
     cantidad_servida = Column(Numeric(12, 3), nullable=False, default=0)
+    # Cantidad que la empresa externa ha DEVUELTO de esta línea ya servida
+    # (devolución de material de un pedido servido). Tope: cantidad_servida.
+    cantidad_devuelta = Column(Numeric(12, 3), nullable=False, default=0, server_default="0")
 
     # Destino por línea (para pedidos con varios destinos: la empresa externa
     # puede repartir el material entre distintas direcciones). Si es NULL, se
@@ -305,6 +308,9 @@ class Movimiento(Base):
     observaciones = Column(Text, nullable=True)
     es_prestamo = Column(Boolean, default=False, nullable=False)
     es_devolucion = Column(Boolean, default=False, nullable=False)
+    # True cuando esta ENTRADA es la devolución de material de un pedido ya
+    # SERVIDO (distinto de es_devolucion, que es la devolución de un PRÉSTAMO).
+    es_devolucion_pedido = Column(Boolean, default=False, nullable=False, server_default="false")
     prestamo_referencia_id = Column(Integer, ForeignKey("movimientos.id"), nullable=True)
     devuelto = Column(Boolean, default=False, nullable=False)
     fecha_devolucion = Column(DateTime, nullable=True)

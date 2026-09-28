@@ -262,6 +262,13 @@ export const eliminarPedido = async (id) => {
   return data;
 };
 
+// Devolución de material de un pedido servido: reingresa lo sobrante al vivero.
+// payload = { lineas: [{ pedido_item_id, cantidad, zona_destino, fecha_disponibilidad? }], nota? }
+export const devolverPedido = async (pedidoId, payload) => {
+  const { data } = await api.post(`/pedidos/${pedidoId}/devoluciones`, payload);
+  return data;
+};
+
 export const aprobarPedido = async (id, payload = {}) => {
   const { data } = await api.post(`/pedidos/${id}/aprobar`, payload);
   return data;
