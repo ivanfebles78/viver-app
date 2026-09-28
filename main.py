@@ -5941,9 +5941,34 @@ def _validate_password_or_400(pwd: str) -> str:
     return pwd
 
 
+# Mensaje único de la política de contraseñas fuertes. Se comparte con el
+# frontend (CuentaToken) para que el usuario vea exactamente el mismo requisito.
+PASSWORD_POLICY_MESSAGE = (
+    "La contraseña debe tener al menos 8 caracteres e incluir una mayúscula, "
+    "una minúscula, un número y un símbolo."
+)
+
+
+def _validate_strong_password_or_400(pwd: str) -> str:
+    """Política reforzada para contraseñas fijadas mediante un enlace con token
+    (reset de contraseña, activación de cuenta y desbloqueo): mínimo 8 caracteres
+    con al menos una mayúscula, una minúscula, un número y un símbolo."""
+    pwd = _validate_password_or_400(pwd)  # longitud mínima/máxima
+    tiene_min = any(c.islower() for c in pwd)
+    tiene_may = any(c.isupper() for c in pwd)
+    tiene_num = any(c.isdigit() for c in pwd)
+    tiene_sim = any(not c.isalnum() for c in pwd)
+    if not (tiene_min and tiene_may and tiene_num and tiene_sim):
+        raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MESSAGE)
+    return pwd
+
+
 class ForgotPasswordIn(BaseModel):
-    username: str
+    # El flujo de autoservicio identifica la cuenta SOLO por el email con el que
+    # se registró. `username` se mantiene opcional por compatibilidad con clientes
+    # antiguos, pero no es necesario ni se exige.
     email: str
+    username: Optional[str] = None
 
 
 @app.get("/admin/email-config")
@@ -5972,8 +5997,9 @@ def admin_email_test(
 def auth_forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
     """
     Endpoint público (sin auth) para solicitar reset de contraseña desde el login.
-    Si username + email coinciden con un usuario activo, envía un email con enlace.
-    Si no coinciden, ignora silenciosamente la petición.
+    Si el email coincide con el de un usuario activo, envía un email con un enlace
+    de un solo uso válido 1 hora. Si no coincide, ignora silenciosamente la
+    petición.
 
     En todos los casos devuelve 200 OK con el mismo mensaje genérico para no
     filtrar información sobre qué usuarios/emails existen en el sistema.
@@ -5981,23 +6007,22 @@ def auth_forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db
     GENERIC_RESPONSE = {
         "ok": True,
         "message": (
-            "Si los datos coinciden con una cuenta válida, recibirás un email "
+            "Si el email coincide con una cuenta válida, recibirás un correo "
             "con instrucciones para restablecer tu contraseña."
         ),
     }
 
-    username = (payload.username or "").strip()
     email = (payload.email or "").strip().lower()
 
-    if not username or not email:
+    if not email or "@" not in email:
         return GENERIC_RESPONSE
 
+    # La cuenta se identifica SOLO por el email de registro. Si hubiera más de un
+    # usuario con el mismo email, se toma el más antiguo de forma determinista.
     user = (
         db.query(Usuario)
-        .filter(
-            func.lower(Usuario.username) == username.lower(),
-            func.lower(Usuario.email) == email,
-        )
+        .filter(func.lower(Usuario.email) == email)
+        .order_by(Usuario.id.asc())
         .first()
     )
 
@@ -6010,6 +6035,7 @@ def auth_forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db
         return GENERIC_RESPONSE
 
     try:
+        # El enlace de reset vive 1 hora (lo fija LIFETIME_BY_PURPOSE["reset"]).
         raw_token = account_tokens.issue_token(db, user, "reset", created_by="self-service")
         db.commit()
         email_service.send_reset_password_email(
@@ -6063,7 +6089,9 @@ def auth_token_consume(
     if not user:
         raise HTTPException(status_code=400, detail={"code": "invalid", "message": "Token inválido."})
 
-    new_password = _validate_password_or_400(payload.new_password)
+    # Toda contraseña fijada por un enlace con token debe cumplir la política
+    # fuerte (mayúscula + minúscula + número + símbolo, mínimo 8).
+    new_password = _validate_strong_password_or_400(payload.new_password)
 
     user.password_hash = pwd_context.hash(new_password)
 

@@ -495,11 +495,11 @@ export const adminEmailTest = async (to) => {
 // ACCOUNT TOKENS (public, no auth)
 // =========================
 
-export const requestPasswordReset = async (username, email) => {
-  const { data } = await api.post("/auth/forgot-password", {
-    username,
-    email,
-  });
+// Solicita el restablecimiento de contraseña identificando la cuenta SOLO por el
+// email de registro. Responde siempre 200 con un mensaje genérico (no revela si
+// el email existe).
+export const requestPasswordReset = async (email) => {
+  const { data } = await api.post("/auth/forgot-password", { email });
   return data;
 };
 

@@ -182,8 +182,8 @@ describe("a11y · Cuenta por token", () => {
     api.consumeAccountToken.mockResolvedValue({});
     const { container } = render(<MemoryRouter><CuentaToken /></MemoryRouter>);
     await screen.findByText(/restablece tu contraseña/i);
-    await user.type(screen.getByLabelText(/nueva contraseña/i), "contrasena-larga");
-    await user.type(screen.getByLabelText(/confirma/i), "contrasena-larga");
+    await user.type(screen.getByLabelText(/nueva contraseña/i), "Vivero2026!");
+    await user.type(screen.getByLabelText(/confirma/i), "Vivero2026!");
     await user.click(screen.getByRole("button", { name: /guardar la nueva/i }));
     await screen.findByRole("status");
     sinViolaciones(await analizar(container));

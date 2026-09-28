@@ -61,6 +61,26 @@ def _email_from() -> str:
     return _env("EMAIL_FROM", "ViverApp <onboarding@resend.dev>")
 
 
+def _reset_email_from() -> str:
+    """Remitente de los correos de restablecimiento de contraseña.
+
+    Por defecto ViverApp <noreply2@viverapp.com>; configurable con RESET_EMAIL_FROM.
+    El dominio debe estar verificado en el proveedor (Resend) para que el envío no
+    sea rechazado."""
+    return _env("RESET_EMAIL_FROM", "ViverApp <noreply2@viverapp.com>")
+
+
+def _parse_from(raw: str) -> Tuple[str, str]:
+    """Convierte 'ViverApp <noreply@dominio.com>' en ('ViverApp', 'noreply@dominio.com').
+    Si solo viene el email crudo, devuelve nombre = 'ViverApp' por defecto."""
+    m = re.match(r"^\s*(.+?)\s*<\s*([^>]+)\s*>\s*$", raw or "")
+    if m:
+        return m.group(1).strip().strip('"'), m.group(2).strip()
+    if raw and "@" in raw:
+        return "ViverApp", raw.strip()
+    return "ViverApp", "noreply@example.com"
+
+
 def _parse_email_from() -> Tuple[str, str]:
     """
     Convierte 'ViverApp <noreply@dominio.com>' en ('ViverApp', 'noreply@dominio.com').
@@ -86,10 +106,11 @@ def _driver() -> str:
 # ----------------------------------------------------------------------------
 
 def _send_console(*, to: str, subject: str, html: str, text: str,
-                  attachments: Optional[List[Attachment]] = None) -> None:
+                  attachments: Optional[List[Attachment]] = None,
+                  from_override: Optional[str] = None) -> None:
     print("=" * 72)
     print(f"[email:console] To:      {to}")
-    print(f"[email:console] From:    {_email_from()}")
+    print(f"[email:console] From:    {from_override or _email_from()}")
     print(f"[email:console] Subject: {subject}")
     if attachments:
         for fn, body, mime in attachments:
@@ -101,7 +122,8 @@ def _send_console(*, to: str, subject: str, html: str, text: str,
 
 def _send_resend(*, to: str, subject: str, html: str, text: str,
                  attachments: Optional[List[Attachment]] = None,
-                 strict: bool = False) -> None:
+                 strict: bool = False,
+                 from_override: Optional[str] = None) -> None:
     api_key = _env("RESEND_API_KEY")
     if not api_key:
         if strict:
@@ -111,11 +133,12 @@ def _send_resend(*, to: str, subject: str, html: str, text: str,
             "[email:resend] WARNING: RESEND_API_KEY no configurada. "
             "Cayendo a driver consola."
         )
-        _send_console(to=to, subject=subject, html=html, text=text, attachments=attachments)
+        _send_console(to=to, subject=subject, html=html, text=text,
+                      attachments=attachments, from_override=from_override)
         return
 
     payload = {
-        "from": _email_from(),
+        "from": from_override or _email_from(),
         "to": [to],
         "subject": subject,
         "html": html,
@@ -173,7 +196,8 @@ def _send_resend(*, to: str, subject: str, html: str, text: str,
 
 def _send_brevo(*, to: str, subject: str, html: str, text: str,
                 attachments: Optional[List[Attachment]] = None,
-                strict: bool = False) -> None:
+                strict: bool = False,
+                from_override: Optional[str] = None) -> None:
     api_key = _env("BREVO_API_KEY")
     if not api_key:
         if strict:
@@ -182,10 +206,11 @@ def _send_brevo(*, to: str, subject: str, html: str, text: str,
             "[email:brevo] WARNING: BREVO_API_KEY no configurada. "
             "Cayendo a driver consola."
         )
-        _send_console(to=to, subject=subject, html=html, text=text, attachments=attachments)
+        _send_console(to=to, subject=subject, html=html, text=text,
+                      attachments=attachments, from_override=from_override)
         return
 
-    sender_name, sender_email = _parse_email_from()
+    sender_name, sender_email = _parse_from(from_override) if from_override else _parse_email_from()
 
     payload = {
         "sender": {"name": sender_name, "email": sender_email},
@@ -245,7 +270,8 @@ def _send_brevo(*, to: str, subject: str, html: str, text: str,
 
 def _send_smtp(*, to: str, subject: str, html: str, text: str,
                attachments: Optional[List[Attachment]] = None,
-               strict: bool = False) -> None:
+               strict: bool = False,
+               from_override: Optional[str] = None) -> None:
     """
     Send via plain SMTP (e.g. Office 365 on smtp.office365.com:587).
     Uses STARTTLS by default — Office 365 requires it.
@@ -275,7 +301,8 @@ def _send_smtp(*, to: str, subject: str, html: str, text: str,
             "[email:smtp] WARNING: SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD "
             "no configurados.  Cayendo a driver consola."
         )
-        _send_console(to=to, subject=subject, html=html, text=text, attachments=attachments)
+        _send_console(to=to, subject=subject, html=html, text=text,
+                      attachments=attachments, from_override=from_override)
         return
 
     try:
@@ -283,7 +310,7 @@ def _send_smtp(*, to: str, subject: str, html: str, text: str,
     except (TypeError, ValueError):
         port = 587
 
-    sender_name, sender_email = _parse_email_from()
+    sender_name, sender_email = _parse_from(from_override) if from_override else _parse_email_from()
     # Office 365 rechaza FROM distinto del usuario autenticado.  Lo
     # corregimos silenciosamente para evitar 550 5.7.1 si el operador
     # configuró EMAIL_FROM con otro dominio por error.
@@ -381,7 +408,8 @@ def _send_smtp(*, to: str, subject: str, html: str, text: str,
 
 
 def _send_disabled(*, to: str, subject: str, html: str, text: str,
-                   attachments: Optional[List[Attachment]] = None) -> None:
+                   attachments: Optional[List[Attachment]] = None,
+                   from_override: Optional[str] = None) -> None:
     """Driver no-op: silenciosamente descarta el email.  Útil para
     desactivar el envío sin tener que tocar el código — basta con poner
     EMAIL_DRIVER=disabled en Railway.  No imprime nada para no saturar
@@ -392,27 +420,31 @@ def _send_disabled(*, to: str, subject: str, html: str, text: str,
 
 def _dispatch(*, to: str, subject: str, html: str, text: str,
               attachments: Optional[List[Attachment]] = None,
-              strict: bool = False) -> None:
+              strict: bool = False,
+              from_override: Optional[str] = None) -> None:
     """Envía por el driver activo. Con strict=True lanza una excepción con el
-    motivo real del fallo (para el diagnóstico), en vez de tragarlo."""
+    motivo real del fallo (para el diagnóstico), en vez de tragarlo.
+
+    `from_override` fuerza el remitente de ESTE envío (p.ej. los correos de reset
+    salen de noreply2@viverapp.com aunque EMAIL_FROM global sea otro)."""
     driver = _driver()
     if driver == "disabled":
         if strict:
             raise RuntimeError("EMAIL_DRIVER=disabled: el envío de correos está desactivado.")
         _send_disabled(to=to, subject=subject, html=html, text=text, attachments=attachments)
     elif driver == "resend":
-        _send_resend(to=to, subject=subject, html=html, text=text, attachments=attachments, strict=strict)
+        _send_resend(to=to, subject=subject, html=html, text=text, attachments=attachments, strict=strict, from_override=from_override)
     elif driver == "brevo":
-        _send_brevo(to=to, subject=subject, html=html, text=text, attachments=attachments, strict=strict)
+        _send_brevo(to=to, subject=subject, html=html, text=text, attachments=attachments, strict=strict, from_override=from_override)
     elif driver == "smtp":
-        _send_smtp(to=to, subject=subject, html=html, text=text, attachments=attachments, strict=strict)
+        _send_smtp(to=to, subject=subject, html=html, text=text, attachments=attachments, strict=strict, from_override=from_override)
     else:
         if strict:
             raise RuntimeError(
                 f"EMAIL_DRIVER='{driver or 'console'}': no se envían correos reales, solo se "
                 "imprimen en el log. Configura EMAIL_DRIVER=resend/brevo/smtp y sus claves en Railway."
             )
-        _send_console(to=to, subject=subject, html=html, text=text, attachments=attachments)
+        _send_console(to=to, subject=subject, html=html, text=text, attachments=attachments, from_override=from_override)
 
 
 def _dispatch_many(*, recipients: Iterable[str], subject: str, html: str, text: str,
@@ -435,7 +467,8 @@ def _dispatch_many(*, recipients: Iterable[str], subject: str, html: str, text: 
 # Plantillas
 # ----------------------------------------------------------------------------
 
-def _wrap_html(title: str, body_html: str, button_label: str, button_url: str, footer: str) -> str:
+def _wrap_html(title: str, body_html: str, button_label: str, button_url: str, footer: str,
+               expiry_note: str = "24 horas") -> str:
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -471,7 +504,7 @@ def _wrap_html(title: str, body_html: str, button_label: str, button_url: str, f
             <span style="word-break:break-all;color:#0f5132;">{button_url}</span>
           </p>
           <p style="margin:16px 0 0;font-size:12px;color:#64748b;">
-            Este enlace caduca en <strong>24 horas</strong> y solo puede usarse una vez.
+            Este enlace caduca en <strong>{expiry_note}</strong> y solo puede usarse una vez.
           </p>
         </td></tr>
         <tr><td style="padding:16px 32px;background:#f8fafc;border-top:1px solid rgba(15,23,42,0.06);
@@ -485,12 +518,12 @@ def _wrap_html(title: str, body_html: str, button_label: str, button_url: str, f
 </html>"""
 
 
-def _wrap_text(intro: str, button_url: str, outro: str) -> str:
+def _wrap_text(intro: str, button_url: str, outro: str, expiry_note: str = "24 horas") -> str:
     return (
         f"{intro}\n\n"
         f"{button_url}\n\n"
         f"{outro}\n\n"
-        "Este enlace caduca en 24 horas y solo puede usarse una vez.\n"
+        f"Este enlace caduca en {expiry_note} y solo puede usarse una vez.\n"
         "— ViverApp · Ayuntamiento de Santa Cruz de Tenerife\n"
     )
 
@@ -523,28 +556,31 @@ def send_invitation_email(*, to: str, username: str, token: str) -> None:
 
 def send_reset_password_email(*, to: str, username: str, token: str) -> None:
     url = f"{_frontend_url()}/reset-password/{token}"
-    subject = "Reset Password"
+    subject = "Restablece tu contraseña de ViverApp"
     html = _wrap_html(
         title="Restablece tu contraseña",
         body_html=(
             f"Hola <strong>{username}</strong>,<br><br>"
-            "Un administrador ha solicitado el restablecimiento de tu contraseña en ViverApp.<br>"
+            "Se ha solicitado restablecer la contraseña de tu cuenta de ViverApp.<br>"
             "Pulsa el botón inferior para definir una nueva."
         ),
         button_label="Restablecer contraseña",
         button_url=url,
-        footer="Si no has pedido este cambio, contacta inmediatamente con el administrador.",
+        footer="Si no has solicitado este cambio, ignora este correo: tu contraseña seguirá siendo la misma.",
+        expiry_note="1 hora",
     )
     text = _wrap_text(
         intro=(
             f"Hola {username},\n\n"
-            "Un administrador ha solicitado el restablecimiento de tu contraseña.\n"
-            "Para definir una nueva contraseña, abre este enlace:"
+            "Se ha solicitado restablecer la contraseña de tu cuenta de ViverApp.\n"
+            "Para definir una nueva, abre este enlace:"
         ),
         button_url=url,
-        outro="Si no has pedido este cambio, contacta inmediatamente con el administrador.",
+        outro="Si no has solicitado este cambio, ignora este correo: tu contraseña seguirá siendo la misma.",
+        expiry_note="1 hora",
     )
-    _dispatch(to=to, subject=subject, html=html, text=text)
+    # Los correos de reset salen desde noreply2@viverapp.com (o RESET_EMAIL_FROM).
+    _dispatch(to=to, subject=subject, html=html, text=text, from_override=_reset_email_from())
 
 
 def config_status() -> dict:

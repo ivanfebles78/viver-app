@@ -5,7 +5,7 @@ Reglas de seguridad:
 - El token se genera con secrets.token_urlsafe (256 bits de entropía).
 - Solo se entrega al usuario el token en claro (en el email).
 - En BD se guarda únicamente el SHA-256 del token. No reversible.
-- Caduca en 24 horas.
+- Caducidad por propósito: reset de contraseña 1 hora; activación/unlock 24 horas.
 - Un solo uso: al consumirse se marca used_at.
 - Comparación con secrets.compare_digest para evitar timing attacks.
 - Estos tokens NO sirven para autenticar (login). Solo para fijar contraseña.
@@ -25,7 +25,12 @@ from models import AccountToken, Usuario
 
 TokenPurpose = Literal["activate", "reset", "unlock"]
 
+# Caducidad por defecto (horas) si el llamante no la fija explícitamente.
 TOKEN_LIFETIME_HOURS = 24
+# Un enlace de reset de contraseña es más sensible: vive solo 1 hora.
+LIFETIME_BY_PURPOSE: dict[str, int] = {
+    "reset": 1,
+}
 TOKEN_BYTES = 32  # secrets.token_urlsafe(32) -> ~43 chars URL-safe (~256 bits)
 
 
@@ -39,6 +44,7 @@ def issue_token(
     user: Usuario,
     purpose: TokenPurpose,
     created_by: Optional[str] = None,
+    lifetime_hours: Optional[int] = None,
 ) -> str:
     """
     Genera un nuevo token, lo guarda hasheado y devuelve el token en claro
@@ -56,7 +62,8 @@ def issue_token(
 
     raw_token = secrets.token_urlsafe(TOKEN_BYTES)
     token_hash = _hash_token(raw_token)
-    expires_at = datetime.utcnow() + timedelta(hours=TOKEN_LIFETIME_HOURS)
+    horas = lifetime_hours if lifetime_hours is not None else LIFETIME_BY_PURPOSE.get(purpose, TOKEN_LIFETIME_HOURS)
+    expires_at = datetime.utcnow() + timedelta(hours=horas)
 
     record = AccountToken(
         user_id=user.id,
