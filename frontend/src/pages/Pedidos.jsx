@@ -47,6 +47,7 @@ import {
   createPedido,
   updatePedido,
   cancelarPedido,
+  eliminarPedido,
   descargarPedidoPdf,
 } from "../api/api";
 import { CARD_CLS, INPUT_CLS, TD, TH } from "../components/ui/tableStyles";
@@ -2102,6 +2103,31 @@ export default function Pedidos() {
     }
   };
 
+  // Eliminar un pedido por completo (solo admin). Para limpiar pedidos de prueba.
+  // No revierte stock; borra el pedido y sus movimientos asociados.
+  const onEliminar = async (p) => {
+    const ok = await confirmar({
+      title: `¿Eliminar el pedido #${p.id}?`,
+      description:
+        "Se borrará el pedido por completo, junto con sus movimientos asociados. " +
+        "No revierte el stock y no se puede deshacer.",
+      confirmLabel: "Eliminar el pedido",
+      cancelLabel: "Volver",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await eliminarPedido(p.id);
+      await refrescar();
+      showTimedMessage("Pedido eliminado.", "success");
+    } catch (e) {
+      showTimedMessage(
+        e?.response?.data?.detail || e?.message || "Error eliminando pedido",
+        "error"
+      );
+    }
+  };
+
   const startEdit = (p) => {
     setEditQty(construirEdicion(p));
     setEditingId(p.id);
@@ -2475,6 +2501,14 @@ export default function Pedidos() {
                                 Cerrar
                               </Button>
                             </>
+                          ) : null}
+
+                          {/* Eliminar: solo admin. Disponible en cualquier estado
+                              (sirve para limpiar pedidos de prueba). */}
+                          {role === "admin" && editingId !== p.id ? (
+                            <Button type="button" variant="destructive" size="sm" onClick={() => onEliminar(p)}>
+                              Eliminar
+                            </Button>
                           ) : null}
 
                           {/* Descarga del PDF "oficial" del pedido.  Disponible

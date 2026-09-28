@@ -256,6 +256,12 @@ export const cancelarPedido = async (id) => {
   return data;
 };
 
+// Elimina un pedido por completo (limpieza). Solo admin (backend).
+export const eliminarPedido = async (id) => {
+  const { data } = await api.delete(`/pedidos/${id}`);
+  return data;
+};
+
 export const aprobarPedido = async (id, payload = {}) => {
   const { data } = await api.post(`/pedidos/${id}/aprobar`, payload);
   return data;
