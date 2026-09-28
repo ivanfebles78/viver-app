@@ -1,9 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 
-import { aprobarPedido, decidirPedido, denegarPedido, descargarPedidoPdf, getPedidos } from "../api/api";
+import {
+  aprobarPedido,
+  cancelarModificacionPedido,
+  decidirModificacionPedido,
+  decidirPedido,
+  denegarPedido,
+  descargarPedidoPdf,
+  getPedidos,
+} from "../api/api";
 import { formatCantidad } from "../utils/numero";
-import { Button, Dialog, DialogContent, StatusBadge } from "../ui";
+import { Button, Dialog, DialogContent, Status, StatusBadge } from "../ui";
 import { Alert } from "../components/ui/feedback";
 import { useConfirm } from "../components/ui/ConfirmDialog";
 import { estadoLinea, estadoPedido } from "../app/estado";
@@ -67,6 +75,140 @@ function EstadoPedidoBadge({ estado }) {
 function EstadoLineaBadge({ estado }) {
   const def = estadoLinea(estado);
   return <StatusBadge status={def.status} label={def.label} />;
+}
+
+/* ── Panel de decisión de una solicitud de modificación ───────────────────
+ *
+ * Cuando un pedido tiene una modificación PENDIENTE queda "congelado": no se
+ * puede servir. El responsable decide aquí, cambio a cambio, qué aprueba y qué
+ * deniega. Los aprobados se aplican al pedido y este se descongela; también
+ * puede cancelar la solicitud entera (el pedido vuelve a su estado sin cambios).
+ */
+const nombreCambio = (c) =>
+  c.producto_nombre_cientifico || c.producto_nombre_natural || `Producto #${c.producto_id}`;
+
+function describeCambio(c) {
+  const nombre = nombreCambio(c);
+  const tam = c.tamano ? ` · ${c.tamano}` : "";
+  if (c.tipo === "add") return `Añadir: ${nombre}${tam} · ${formatCantidad(c.cantidad_propuesta)} uds`;
+  if (c.tipo === "remove") return `Quitar: ${nombre}${tam} (actual ${formatCantidad(c.cantidad_actual)})`;
+  return `${nombre}${tam}: ${formatCantidad(c.cantidad_actual)} → ${formatCantidad(c.cantidad_propuesta)}`;
+}
+
+function ModificacionDecisionPanel({ pedido, mod, canApprove, onPedidoUpdated, onMessage }) {
+  const cambios = safeArray(mod?.cambios);
+  const [decisiones, setDecisiones] = useState({}); // { [cambioId]: "aprobar" | "denegar" }
+  const [submitting, setSubmitting] = useState(false);
+
+  const pendientes = cambios.filter((c) => String(c.estado || "RESERVA").toUpperCase() === "RESERVA");
+  const decididos = pendientes.filter((c) => decisiones[c.id]).length;
+  const allDecided = pendientes.length > 0 && decididos === pendientes.length;
+
+  const setDecision = (id, d) => setDecisiones((prev) => ({ ...prev, [id]: d }));
+
+  const confirmar = async () => {
+    if (!allDecided || submitting) return;
+    const approved_item_ids = pendientes.filter((c) => decisiones[c.id] === "aprobar").map((c) => c.id);
+    const denied_item_ids = pendientes.filter((c) => decisiones[c.id] === "denegar").map((c) => c.id);
+    setSubmitting(true);
+    try {
+      const updated = await decidirModificacionPedido(mod.id, { approved_item_ids, denied_item_ids });
+      onMessage?.(`Modificación del pedido #${pedido.id} resuelta.`);
+      onPedidoUpdated?.(updated);
+    } catch (e) {
+      onMessage?.(e?.response?.data?.detail || e?.message || "Error resolviendo la modificación");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const cancelar = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const updated = await cancelarModificacionPedido(mod.id);
+      onMessage?.(`Solicitud de modificación del pedido #${pedido.id} cancelada.`);
+      onPedidoUpdated?.(updated);
+    } catch (e) {
+      onMessage?.(e?.response?.data?.detail || e?.message || "Error cancelando la modificación");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="rounded-[var(--radius-md)] border border-[var(--warning-subtle)] bg-[var(--warning-subtle)] p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge status={Status.ON_HOLD} label="Modificación pendiente" />
+        <span className="text-body-sm font-[var(--font-weight-medium)] text-[var(--warning-subtle-foreground)]">
+          Pedida por {mod?.created_by || "—"}. El pedido está congelado hasta que se decida.
+        </span>
+      </div>
+
+      {mod?.nota ? <p className="mt-2 text-body-sm text-[var(--warning-subtle-foreground)]">Nota: {mod.nota}</p> : null}
+
+      <ul className="mt-3 flex flex-col gap-2">
+        {cambios.map((c) => {
+          const isPend = String(c.estado || "RESERVA").toUpperCase() === "RESERVA";
+          const decision = decisiones[c.id];
+          return (
+            <li
+              key={c.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] px-3 py-2"
+            >
+              <span className="min-w-0 break-words text-body-sm font-[var(--font-weight-medium)]">
+                {describeCambio(c)}
+              </span>
+              {canApprove && isPend ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={decision === "aprobar" ? "primary" : "secondary"}
+                    aria-pressed={decision === "aprobar"}
+                    disabled={submitting}
+                    onClick={() => setDecision(c.id, "aprobar")}
+                  >
+                    Aprobar
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={decision === "denegar" ? "destructive" : "secondary"}
+                    aria-pressed={decision === "denegar"}
+                    disabled={submitting}
+                    onClick={() => setDecision(c.id, "denegar")}
+                  >
+                    Denegar
+                  </Button>
+                </div>
+              ) : (
+                <EstadoLineaBadge estado={String(c.estado || "RESERVA").toUpperCase()} />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
+      {canApprove ? (
+        <div className="mt-3 flex flex-col gap-3 border-t border-[var(--border)] pt-3">
+          <p role="status" className="text-body-sm text-[var(--warning-subtle-foreground)]">
+            {allDecided
+              ? `Listo: ${decididos} de ${pendientes.length} cambios decididos.`
+              : `Decide TODOS los cambios antes de confirmar (${decididos}/${pendientes.length}).`}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="primary" disabled={!allDecided || submitting} onClick={confirmar}>
+              {submitting ? "Aplicando…" : "Confirmar decisión"}
+            </Button>
+            <Button type="button" variant="secondary" disabled={submitting} onClick={cancelar}>
+              Cancelar solicitud
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 /* ── Modal de detalle ──────────────────────────────────────────────────── */
@@ -171,6 +313,16 @@ function DetallePedidoModal({ pedido, onClose, canApprove = false, onPedidoUpdat
           </dl>
 
           {pedido.nota ? <Alert tone="info">{pedido.nota}</Alert> : null}
+
+          {pedido.modificacion_pendiente ? (
+            <ModificacionDecisionPanel
+              pedido={pedido}
+              mod={pedido.modificacion_pendiente}
+              canApprove={canApprove}
+              onPedidoUpdated={onPedidoUpdated}
+              onMessage={onMessage}
+            />
+          ) : null}
 
           <h3 className="text-body font-[var(--font-weight-semibold)]">
             Productos del pedido ({items.length})

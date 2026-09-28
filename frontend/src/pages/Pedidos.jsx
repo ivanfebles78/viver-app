@@ -13,6 +13,7 @@ import {
   Field,
   Input,
   PageHeader,
+  Status,
   StatusBadge,
   cn,
 } from "../ui";
@@ -52,6 +53,7 @@ import {
 } from "../api/api";
 import { CARD_CLS, INPUT_CLS, TD, TH } from "../components/ui/tableStyles";
 import DevolucionPedidoModal from "./pedidos/DevolucionPedidoModal";
+import ModificacionPedidoModal from "./pedidos/ModificacionPedidoModal";
 
 /** Fecha corta en formato canario, tal y como la mostraba main. */
 const fmtFechaES = (value) => formatFechaCanaria(value);
@@ -1901,6 +1903,8 @@ export default function Pedidos() {
   const [expandedRows, setExpandedRows] = useState({});
   // Pedido cuyo modal de devolución de material está abierto (o null).
   const [devolucionPedido, setDevolucionPedido] = useState(null);
+  // Pedido cuyo modal de solicitud de modificación está abierto (o null).
+  const [modificacionPedido, setModificacionPedido] = useState(null);
 
   // Confirmación de acciones destructivas. Devuelve una promesa: ver `onCancelar`.
   const { confirmar, dialogo: dialogoConfirmacion } = useConfirm();
@@ -1918,6 +1922,14 @@ export default function Pedidos() {
     (p?.tipo || "salida") !== "reposicion" &&
     ["SERVIDO", "APROBADO_PARCIAL"].includes((p?.estado || "").toUpperCase()) &&
     (p?.items || []).some((it) => Number(it.devolvible || 0) > 0);
+
+  // Solicitud de modificación de un pedido ya aprobado (técnico/gestor/admin).
+  // No disponible si ya hay una modificación pendiente (el pedido está congelado).
+  const puedeModificarRol = ["admin", "tecnico", "gestor_vivero"].includes(role);
+  const puedeModificar = (p) =>
+    puedeModificarRol &&
+    !p?.modificacion_pendiente &&
+    ["APROBADO", "APROBADO_PARCIAL", "SERVIDO"].includes((p?.estado || "").toUpperCase());
 
   const clearMsgTimer = () => {
     if (msgTimerRef.current) {
@@ -2515,6 +2527,19 @@ export default function Pedidos() {
                             </>
                           ) : null}
 
+                          {/* Pedido congelado: hay una solicitud de modificación
+                              pendiente de decidir. No se puede servir hasta resolverla. */}
+                          {p.modificacion_pendiente && editingId !== p.id ? (
+                            <StatusBadge status={Status.ON_HOLD} label="Congelado (modificación pendiente)" />
+                          ) : null}
+
+                          {/* Solicitar modificación de un pedido aprobado. */}
+                          {puedeModificar(p) && editingId !== p.id ? (
+                            <Button type="button" variant="secondary" size="sm" onClick={() => setModificacionPedido(p)}>
+                              ✎ Solicitar cambio
+                            </Button>
+                          ) : null}
+
                           {/* Devolución de material de un pedido servido. */}
                           {puedeDevolver(p) && editingId !== p.id ? (
                             <Button type="button" variant="secondary" size="sm" onClick={() => setDevolucionPedido(p)}>
@@ -2627,6 +2652,17 @@ export default function Pedidos() {
         onDone={async () => {
           await refrescar();
           showTimedMessage("Devolución registrada.", "success");
+        }}
+      />
+
+      <ModificacionPedidoModal
+        open={!!modificacionPedido}
+        pedido={modificacionPedido}
+        productos={productos}
+        onClose={() => setModificacionPedido(null)}
+        onDone={async () => {
+          await refrescar();
+          showTimedMessage("Solicitud de modificación enviada. El pedido queda congelado hasta que se decida.", "success");
         }}
       />
     </div>

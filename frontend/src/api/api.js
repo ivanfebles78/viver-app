@@ -269,6 +269,26 @@ export const devolverPedido = async (pedidoId, payload) => {
   return data;
 };
 
+// Solicitud de modificación de un pedido ya aprobado. Congela el pedido hasta
+// que el responsable la decide. payload = { nota?, cambios: [{ tipo, pedido_item_id?, producto_id, tamano?, cantidad_propuesta }] }
+export const solicitarModificacionPedido = async (pedidoId, payload) => {
+  const { data } = await api.post(`/pedidos/${pedidoId}/modificaciones`, payload);
+  return data;
+};
+
+// El responsable resuelve la modificación por línea.
+// payload = { approved_item_ids: [], denied_item_ids: [] }
+export const decidirModificacionPedido = async (modId, payload) => {
+  const { data } = await api.post(`/pedidos/modificaciones/${modId}/decidir`, payload);
+  return data;
+};
+
+// Cancela una modificación pendiente (la retira quien la pidió o un responsable).
+export const cancelarModificacionPedido = async (modId) => {
+  const { data } = await api.post(`/pedidos/modificaciones/${modId}/cancelar`);
+  return data;
+};
+
 export const aprobarPedido = async (id, payload = {}) => {
   const { data } = await api.post(`/pedidos/${id}/aprobar`, payload);
   return data;
