@@ -34,6 +34,7 @@ import {
   canManageAjustes,
   canManageCategorias,
   canSeeAnalitica,
+  esObservador,
 } from "./permissions";
 
 /** Las 13 rutas de la aplicación, tal y como las declara App.jsx. */
@@ -552,5 +553,44 @@ describe("integridad de la matriz", () => {
     expect(new Set(EFFECTIVE)).toEqual(
       new Set(["admin", "manager", "tecnico", "gestor_vivero", "empresa_externa", "proveedor"])
     );
+  });
+});
+
+describe("rol observador (solo lectura global)", () => {
+  const obs = { rol: "observador" };
+
+  it("esObservador lo reconoce; no colapsa a admin", () => {
+    expect(esObservador(obs)).toBe(true);
+    expect(esObservador({ rol: "admin" })).toBe(false);
+    expect(rolEfectivo(obs)).toBe("observador");
+  });
+
+  it("ve todos los módulos operativos del menú", () => {
+    expect(getVisibleNavItems("observador").map((i) => i.to)).toEqual([
+      ROUTES.DASHBOARD,
+      ROUTES.PRODUCTOS,
+      ROUTES.MOVIMIENTOS,
+      ROUTES.PEDIDOS,
+      ROUTES.APROBACIONES,
+      ROUTES.INFORMES,
+    ]);
+  });
+
+  it("alcanza las rutas operativas (incl. lotes y vivero) pero NO usuarios ni plataforma", () => {
+    for (const r of [ROUTES.DASHBOARD, ROUTES.PRODUCTOS, ROUTES.MOVIMIENTOS, ROUTES.PEDIDOS, ROUTES.APROBACIONES, ROUTES.INFORMES, ROUTES.LOTES, ROUTES.VIVERO]) {
+      expect(isPathAllowedForRole(r, "observador"), r).toBe(true);
+    }
+    expect(isPathAllowedForRole(ROUTES.ADMIN_USUARIOS, "observador")).toBe(false);
+    expect(isPathAllowedForRole(ROUTES.PLATAFORMA, "observador")).toBe(false);
+  });
+
+  it("no tiene ninguna capacidad de escritura de la interfaz", () => {
+    expect(canManageUsuarios(obs)).toBe(false);
+    expect(canManageMapaImagen(obs)).toBe(false);
+    expect(canEditZonas(obs)).toBe(false);
+    expect(canManageAjustes(obs)).toBe(false);
+    expect(canManageCategorias(obs)).toBe(false);
+    // Sí puede CONSULTAR el mapa (solo lectura).
+    expect(canOpenMapaVivero(obs)).toBe(true);
   });
 });

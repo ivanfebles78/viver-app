@@ -578,6 +578,11 @@ def get_current_user(
     return user
 
 
+# Métodos HTTP de solo lectura: el rol "observador" puede usarlos en cualquier
+# endpoint, pero nunca los de escritura.
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
 def require_roles(roles: list[str]):
     allowed = {r.lower() for r in roles}
     # Jerarquía de administración: donde se permita `admin`, también entran
@@ -589,8 +594,19 @@ def require_roles(roles: list[str]):
         allowed.add("admin_vivero")
         allowed.add("superadmin")
 
-    def _dep(current_user: Usuario = Depends(get_current_user)):
+    def _dep(request: Request, current_user: Usuario = Depends(get_current_user)):
         rol = (current_user.rol or "").strip().lower()
+        # Rol OBSERVADOR: solo lectura GLOBAL. Puede LEER cualquier endpoint
+        # protegido por require_roles (aunque su rol no esté en la lista), pero
+        # el backend le bloquea toda escritura (POST/PUT/PATCH/DELETE). Es la
+        # garantía real; el frontend solo oculta los botones por comodidad.
+        if rol == "observador":
+            if request.method in _SAFE_METHODS:
+                return current_user
+            raise HTTPException(
+                status_code=403,
+                detail="El rol observador es de solo lectura: no puede realizar cambios.",
+            )
         if rol not in allowed:
             raise HTTPException(status_code=403, detail="Sin permisos")
         return current_user
@@ -5027,7 +5043,7 @@ def marcar_zona_interna(
 # =============================
 # `admin_vivero`: administrador del vivero de un ayuntamiento (gestiona usuarios,
 # productos y el mapa de SU ayuntamiento). `admin` es el super-admin global.
-ALLOWED_ROLES = {"superadmin", "admin", "admin_vivero", "manager", "tecnico", "gestor_vivero", "empresa_externa", "proveedor"}
+ALLOWED_ROLES = {"superadmin", "admin", "admin_vivero", "manager", "tecnico", "gestor_vivero", "empresa_externa", "proveedor", "observador"}
 ALLOWED_STATUSES_FOR_UPDATE = {"activo", "inactivo", "bloqueado", "pendiente"}
 
 

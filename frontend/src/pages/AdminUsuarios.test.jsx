@@ -151,7 +151,9 @@ describe("visibilidad de las herramientas de plataforma", () => {
     expect(rolesParaUsuario(false).map((r) => r.value)).not.toContain("superadmin");
     expect(rolesParaUsuario(true).map((r) => r.value)).toContain("superadmin");
     // Y que la tabla de roles no ha perdido ninguno por el camino.
-    expect(ROLES).toHaveLength(8);
+    expect(ROLES).toHaveLength(9);
+    // El observador (solo lectura) se puede asignar como cualquier otro rol.
+    expect(rolesParaUsuario(false).map((r) => r.value)).toContain("observador");
   });
 });
 
