@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { Copy, Check, Plus } from "lucide-react";
 
 import { getMovimientos, getProductos, getPedidos, createMovimiento } from "../api/api";
+import { esObservador } from "../app/permissions";
 import { loadZonasFromServer } from "../components/vivero/zonesStorage";
 import { formatUsername } from "../utils/format";
 import { getUnidadMovimiento } from "../utils/formato";
@@ -80,6 +82,9 @@ const MENSAJE_MS = 3000;
 const UUID_COPIADO_MS = 1800;
 
 export default function Movimientos() {
+  // `|| {}`: en pruebas la página se monta sin contexto de Outlet.
+  const { me } = useOutletContext() || {};
+  const soloLectura = esObservador(me);
   const [movimientos, setMovimientos] = useState([]);
   const [productos, setProductos] = useState([]);
   const [pedidos, setPedidos] = useState([]);
@@ -421,10 +426,12 @@ export default function Movimientos() {
         */
         actions={
           <div className="flex max-w-[calc(100vw-2rem)] flex-wrap justify-end gap-2">
-            <Button variant="primary" onClick={() => setShowModal(true)}>
-              <Plus aria-hidden="true" className="size-4" />
-              Nuevo movimiento
-            </Button>
+            {!soloLectura && (
+              <Button variant="primary" onClick={() => setShowModal(true)}>
+                <Plus aria-hidden="true" className="size-4" />
+                Nuevo movimiento
+              </Button>
+            )}
           </div>
         }
       />

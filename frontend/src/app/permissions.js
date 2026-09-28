@@ -31,7 +31,15 @@ export const ROLES = Object.freeze({
   GESTOR_VIVERO: "gestor_vivero",
   EMPRESA_EXTERNA: "empresa_externa",
   PROVEEDOR: "proveedor",
+  // Solo lectura global: ve todos los módulos operativos pero no puede escribir
+  // (el backend bloquea toda escritura para este rol).
+  OBSERVADOR: "observador",
 });
+
+/** ¿Es un rol de solo lectura (observador)? Para ocultar acciones de escritura. */
+export function esObservador(meOrRol) {
+  return rolReal(meOrRol) === ROLES.OBSERVADOR;
+}
 
 /** Los roles "efectivos" que usa la interfaz, una vez colapsados los alias. */
 export const EFFECTIVE_ROLES = Object.freeze([
@@ -143,6 +151,8 @@ const NAV_BY_ROLE = Object.freeze({
   // Proveedor: rol de SOLO CONSULTA. Únicamente ve los pedidos de reposición
   // aprobados y puede imprimirlos. Nada más en el menú.
   [ROLES.PROVEEDOR]: [ROUTES.PEDIDOS],
+  // Observador: solo lectura, pero ve TODOS los módulos operativos.
+  [ROLES.OBSERVADOR]: NAV_ITEMS.map((i) => i.to),
 });
 
 /**
@@ -194,6 +204,18 @@ const ROUTES_BY_ROLE = Object.freeze({
   ],
   [ROLES.EMPRESA_EXTERNA]: [ROUTES.PRODUCTOS, ROUTES.PEDIDOS, ROUTES.INFORMES],
   [ROLES.PROVEEDOR]: [ROUTES.PEDIDOS],
+  // Observador: alcanza todos los módulos operativos (incl. lotes y vivero),
+  // pero no la gestión de usuarios ni la plataforma. Solo lectura.
+  [ROLES.OBSERVADOR]: [
+    ROUTES.DASHBOARD,
+    ROUTES.PRODUCTOS,
+    ROUTES.MOVIMIENTOS,
+    ROUTES.PEDIDOS,
+    ROUTES.APROBACIONES,
+    ROUTES.INFORMES,
+    ROUTES.LOTES,
+    ROUTES.VIVERO,
+  ],
 });
 
 /** Ruta de aterrizaje por rol cuando la actual no está permitida. */
@@ -204,6 +226,7 @@ const DEFAULT_ROUTE_BY_ROLE = Object.freeze({
   [ROLES.GESTOR_VIVERO]: ROUTES.DASHBOARD,
   [ROLES.EMPRESA_EXTERNA]: ROUTES.PRODUCTOS,
   [ROLES.PROVEEDOR]: ROUTES.PEDIDOS,
+  [ROLES.OBSERVADOR]: ROUTES.DASHBOARD,
 });
 
 /* ── Consultas ──────────────────────────────────────────────────────────── */
@@ -281,14 +304,15 @@ export function canSeeNotifications(me) {
   return !!role && role !== ROLES.EMPRESA_EXTERNA;
 }
 
-/** Botón "Mapa del vivero": roles internos del vivero. */
+/** Botón "Mapa del vivero": roles internos del vivero (observador solo lo consulta). */
 export function canOpenMapaVivero(me) {
   const role = rolEfectivo(me);
   return (
     role === ROLES.ADMIN ||
     role === ROLES.TECNICO ||
     role === ROLES.MANAGER ||
-    role === ROLES.GESTOR_VIVERO
+    role === ROLES.GESTOR_VIVERO ||
+    role === ROLES.OBSERVADOR
   );
 }
 

@@ -17,6 +17,7 @@ export const ROLES = [
   { value: "tecnico", label: "Técnico" },
   { value: "empresa_externa", label: "Empresa externa" },
   { value: "proveedor", label: "Proveedor" },
+  { value: "observador", label: "Observador (solo lectura)" },
 ];
 
 /**
