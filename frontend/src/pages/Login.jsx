@@ -63,7 +63,6 @@ function formatError(err) {
 /* ── Restablecer contraseña ─────────────────────────────────────────────── */
 
 function ForgotForm({ onClose }) {
-  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -72,8 +71,8 @@ function ForgotForm({ onClose }) {
   const submit = async (e) => {
     e.preventDefault();
     setErrorMsg("");
-    if (!username.trim() || !email.trim()) {
-      setErrorMsg("Rellena ambos campos.");
+    if (!email.trim()) {
+      setErrorMsg("Escribe tu email.");
       return;
     }
     if (!email.includes("@")) {
@@ -82,7 +81,7 @@ function ForgotForm({ onClose }) {
     }
     setSubmitting(true);
     try {
-      await requestPasswordReset(username.trim(), email.trim());
+      await requestPasswordReset(email.trim());
       setDone(true);
     } catch {
       // Misma respuesta haya o no cuenta: revelar la diferencia permitiría
@@ -97,9 +96,10 @@ function ForgotForm({ onClose }) {
     return (
       <div className="flex flex-col gap-4">
         <p className="text-body-sm text-muted-foreground">
-          Si los datos coinciden con una cuenta válida, recibirás un email con
+          Si el email coincide con una cuenta válida, recibirás un mensaje con
           instrucciones para restablecer tu contraseña en los próximos minutos.
-          Revisa también la carpeta de spam.
+          El enlace es válido durante 1 hora y de un solo uso. Revisa también la
+          carpeta de spam.
         </p>
         <FormActions>
           <Button variant="primary" onClick={onClose}>
@@ -129,20 +129,11 @@ function ForgotForm({ onClose }) {
      */
     <form onSubmit={submit} noValidate className="flex flex-col gap-[var(--form-field-gap)]">
       <p className="text-body-sm text-muted-foreground">
-        Indica tu usuario y el email asociado a la cuenta. Te enviaremos un
-        enlace para definir una contraseña nueva.
+        Indica el email con el que te registraste. Si coincide con una cuenta,
+        te enviaremos un enlace para definir una contraseña nueva.
       </p>
 
       {errorMsg && <Alert tone="error">{errorMsg}</Alert>}
-
-      <Field label="Usuario" required>
-        <Input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          autoComplete="username"
-          autoFocus
-        />
-      </Field>
 
       <Field label="Email" required>
         <Input
@@ -150,6 +141,7 @@ function ForgotForm({ onClose }) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           autoComplete="email"
+          autoFocus
         />
       </Field>
 

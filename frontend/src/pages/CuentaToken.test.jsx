@@ -94,8 +94,8 @@ describe("CuentaToken · el token nunca se expone", () => {
     const { container } = render(<CuentaToken />);
 
     await screen.findByText(/restablece tu contraseña/i);
-    await user.type(screen.getByLabelText(/nueva contraseña/i), "contrasena-larga");
-    await user.type(screen.getByLabelText(/confirma/i), "contrasena-larga");
+    await user.type(screen.getByLabelText(/nueva contraseña/i), "Contrasena1!");
+    await user.type(screen.getByLabelText(/confirma/i), "Contrasena1!");
     await user.click(screen.getByRole("button", { name: /guardar la nueva/i }));
 
     await screen.findByText(/todo listo/i);
@@ -124,11 +124,11 @@ describe("CuentaToken · el token nunca se expone", () => {
     await screen.findByText(/activa tu cuenta/i);
     expect(validateAccountToken).toHaveBeenCalledWith(TOKEN);
 
-    await user.type(screen.getByLabelText(/nueva contraseña/i), "contrasena-larga");
-    await user.type(screen.getByLabelText(/confirma/i), "contrasena-larga");
+    await user.type(screen.getByLabelText(/nueva contraseña/i), "Contrasena1!");
+    await user.type(screen.getByLabelText(/confirma/i), "Contrasena1!");
     await user.click(screen.getByRole("button", { name: /activar cuenta/i }));
 
-    expect(consumeAccountToken).toHaveBeenCalledWith(TOKEN, "contrasena-larga");
+    expect(consumeAccountToken).toHaveBeenCalledWith(TOKEN, "Contrasena1!");
   });
 });
 
@@ -155,7 +155,7 @@ describe("CuentaToken · validaciones (idénticas a main)", () => {
     render(<CuentaToken />);
     await screen.findByText(/activa tu cuenta/i);
 
-    await user.type(screen.getByLabelText(/nueva contraseña/i), "contrasena-larga");
+    await user.type(screen.getByLabelText(/nueva contraseña/i), "Contrasena1!");
     await user.type(screen.getByLabelText(/confirma/i), "otra-contrasena");
     await user.click(screen.getByRole("button", { name: /activar cuenta/i }));
 
@@ -163,17 +163,32 @@ describe("CuentaToken · validaciones (idénticas a main)", () => {
     expect(consumeAccountToken).not.toHaveBeenCalled();
   });
 
-  it("acepta exactamente 8 caracteres (el límite es inclusivo, como en main)", async () => {
+  it("acepta exactamente 8 caracteres si cumplen la política (límite inclusivo)", async () => {
     const user = userEvent.setup();
     consumeAccountToken.mockResolvedValue({});
     render(<CuentaToken />);
     await screen.findByText(/activa tu cuenta/i);
 
-    await user.type(screen.getByLabelText(/nueva contraseña/i), "12345678");
-    await user.type(screen.getByLabelText(/confirma/i), "12345678");
+    // 8 caracteres con mayúscula, minúscula, número y símbolo.
+    await user.type(screen.getByLabelText(/nueva contraseña/i), "Abcd123!");
+    await user.type(screen.getByLabelText(/confirma/i), "Abcd123!");
     await user.click(screen.getByRole("button", { name: /activar cuenta/i }));
 
     expect(consumeAccountToken).toHaveBeenCalled();
+  });
+
+  it("rechaza contraseñas sin mayúscula, número o símbolo", async () => {
+    const user = userEvent.setup();
+    render(<CuentaToken />);
+    await screen.findByText(/activa tu cuenta/i);
+
+    // 16 caracteres pero solo minúsculas y un guion: no cumple la política.
+    await user.type(screen.getByLabelText(/nueva contraseña/i), "contrasena-larga");
+    await user.type(screen.getByLabelText(/confirma/i), "contrasena-larga");
+    await user.click(screen.getByRole("button", { name: /activar cuenta/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/mayúscula|minúscula|número|símbolo/i);
+    expect(consumeAccountToken).not.toHaveBeenCalled();
   });
 
   it("si el backend rechaza, vuelve al formulario sin perder la pantalla", async () => {
@@ -184,8 +199,8 @@ describe("CuentaToken · validaciones (idénticas a main)", () => {
     render(<CuentaToken />);
     await screen.findByText(/activa tu cuenta/i);
 
-    await user.type(screen.getByLabelText(/nueva contraseña/i), "contrasena-larga");
-    await user.type(screen.getByLabelText(/confirma/i), "contrasena-larga");
+    await user.type(screen.getByLabelText(/nueva contraseña/i), "Contrasena1!");
+    await user.type(screen.getByLabelText(/confirma/i), "Contrasena1!");
     await user.click(screen.getByRole("button", { name: /activar cuenta/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/demasiado común/i);
@@ -226,8 +241,8 @@ describe("CuentaToken · accesibilidad y estados", () => {
     render(<CuentaToken />);
     await screen.findByText(/activa tu cuenta/i);
 
-    await user.type(screen.getByLabelText(/nueva contraseña/i), "contrasena-larga");
-    await user.type(screen.getByLabelText(/confirma/i), "contrasena-larga");
+    await user.type(screen.getByLabelText(/nueva contraseña/i), "Contrasena1!");
+    await user.type(screen.getByLabelText(/confirma/i), "Contrasena1!");
     await user.click(screen.getByRole("button", { name: /activar cuenta/i }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(/todo listo/i);

@@ -5,6 +5,7 @@ import { ShieldCheck, CircleCheck, Sprout } from "lucide-react";
 import { validateAccountToken, consumeAccountToken } from "../api/api";
 import { Button, Card, Field, Input, ErrorState } from "../ui";
 import { Alert, LoadingState } from "../components/ui/feedback";
+import { PASSWORD_POLICY_TEXT, validateStrongPassword } from "../utils/password";
 
 /*
  * ACTIVAR CUENTA · RESTABLECER CONTRASEÑA · DESBLOQUEAR.
@@ -122,8 +123,9 @@ export default function CuentaToken({ purposeOverride }) {
     e.preventDefault();
     setErrorMsg("");
 
-    if (password.length < 8) {
-      setErrorMsg("La contraseña debe tener al menos 8 caracteres.");
+    const policyError = validateStrongPassword(password);
+    if (policyError) {
+      setErrorMsg(policyError);
       return;
     }
     if (password !== confirm) {
@@ -215,7 +217,7 @@ export default function CuentaToken({ purposeOverride }) {
         <Field
           label="Nueva contraseña"
           required
-          description="Mínimo 8 caracteres. Combina letras, números y símbolos."
+          description={PASSWORD_POLICY_TEXT}
         >
           <Input
             type="password"

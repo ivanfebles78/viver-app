@@ -206,20 +206,18 @@ describe("Login · restablecer contraseña", () => {
     // Caso 1: el backend responde bien.
     requestPasswordReset.mockResolvedValue({});
     let dlg = await abrir(user);
-    await user.type(within(dlg).getByLabelText(/^usuario/i), "existe");
     await user.type(within(dlg).getByLabelText(/^email/i), "a@b.es");
     await user.click(within(dlg).getByRole("button", { name: /enviar enlace/i }));
-    const conExito = (await screen.findByText(/si los datos coinciden/i)).textContent;
+    const conExito = (await screen.findByText(/si el email coincide/i)).textContent;
 
     await user.click(screen.getByRole("button", { name: /entendido/i }));
 
     // Caso 2: el backend falla porque la cuenta no existe.
     requestPasswordReset.mockRejectedValue({ response: { status: 404 } });
     dlg = await abrir(user);
-    await user.type(within(dlg).getByLabelText(/^usuario/i), "no-existe");
-    await user.type(within(dlg).getByLabelText(/^email/i), "a@b.es");
+    await user.type(within(dlg).getByLabelText(/^email/i), "otro@b.es");
     await user.click(within(dlg).getByRole("button", { name: /enviar enlace/i }));
-    const conFallo = (await screen.findByText(/si los datos coinciden/i)).textContent;
+    const conFallo = (await screen.findByText(/si el email coincide/i)).textContent;
 
     expect(conFallo).toBe(conExito);
   });
@@ -230,27 +228,25 @@ describe("Login · restablecer contraseña", () => {
     const dlg = await abrir(user);
 
     await user.click(within(dlg).getByRole("button", { name: /enviar enlace/i }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/rellena ambos campos/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/escribe tu email/i);
     expect(requestPasswordReset).not.toHaveBeenCalled();
 
-    await user.type(within(dlg).getByLabelText(/^usuario/i), "u");
     await user.type(within(dlg).getByLabelText(/^email/i), "sin-arroba");
     await user.click(within(dlg).getByRole("button", { name: /enviar enlace/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/arroba/i);
     expect(requestPasswordReset).not.toHaveBeenCalled();
   });
 
-  it("recorta los espacios antes de enviar", async () => {
+  it("recorta los espacios y envía SOLO el email", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     requestPasswordReset.mockResolvedValue({});
     pintar();
     const dlg = await abrir(user);
 
-    await user.type(within(dlg).getByLabelText(/^usuario/i), "  maria  ");
     await user.type(within(dlg).getByLabelText(/^email/i), "  m@a.es  ");
     await user.click(within(dlg).getByRole("button", { name: /enviar enlace/i }));
 
-    expect(requestPasswordReset).toHaveBeenCalledWith("maria", "m@a.es");
+    expect(requestPasswordReset).toHaveBeenCalledWith("m@a.es");
   });
 });
 
