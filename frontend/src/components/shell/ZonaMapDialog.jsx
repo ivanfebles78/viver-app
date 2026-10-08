@@ -378,7 +378,16 @@ function ZonaMapModal({ open, onClose, isAdmin = false, canManageMapa = false, s
             ventana. `minmax(0, …)` es lo que permite que la fila baje del
             tamaño de su contenido; `1fr` sola tiene un mínimo automático de
             `auto` y no encogería. */}
-        <div className="grid max-h-[75dvh] min-h-0 grid-cols-1 overflow-y-auto lg:grid-cols-[1.45fr_0.8fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
+        {/*
+          ALTURA FIJA EN ESCRITORIO (`lg:h-[75dvh]`), no `max-h`. Con `max-h` la
+          altura del modal la marcaba el contenido: corto para una zona con pocos
+          productos, creciendo hasta el tope para una con muchos — y como las dos
+          columnas se estiran a la fila de la rejilla, el MAPA de la izquierda
+          cambiaba de tamaño al cambiar de zona. Con altura fija, la fila (y por
+          tanto el mapa) es constante y solo scrollea la lista de productos de la
+          derecha. En móvil (una sola columna) se mantiene `max-h`: ahí todo se
+          apila y una altura fija dejaría hueco vacío. */}
+        <div className="grid max-h-[75dvh] min-h-0 grid-cols-1 overflow-y-auto lg:h-[75dvh] lg:grid-cols-[1.45fr_0.8fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
           <div className="min-h-0 overflow-y-auto border-b border-border p-4 lg:border-b-0 lg:border-r">
             {(canEdit || puedeSubirMapa) && (
               <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
