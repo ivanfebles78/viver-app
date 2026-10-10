@@ -3,7 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { Copy, Check, Plus } from "lucide-react";
 
 import { getMovimientos, getProductos, getPedidos, createMovimiento } from "../api/api";
-import { esObservador } from "../app/permissions";
+import { esObservador, tieneMatriz, can } from "../app/permissions";
 import { loadZonasFromServer } from "../components/vivero/zonesStorage";
 import { formatUsername } from "../utils/format";
 import { getUnidadMovimiento } from "../utils/formato";
@@ -84,7 +84,12 @@ const UUID_COPIADO_MS = 1800;
 export default function Movimientos() {
   // `|| {}`: en pruebas la página se monta sin contexto de Outlet.
   const { me } = useOutletContext() || {};
-  const soloLectura = esObservador(me);
+  // "Nuevo movimiento" lo gobierna la funcionalidad movimientos.registrar cuando
+  // hay matriz del ayuntamiento; sin matriz (p.ej. en pruebas) se conserva el
+  // comportamiento anterior (todos menos el observador). El observador nunca escribe.
+  const puedeRegistrar =
+    !esObservador(me) && (tieneMatriz(me) ? can(me, "movimientos.registrar") : true);
+  const soloLectura = !puedeRegistrar;
   const [movimientos, setMovimientos] = useState([]);
   const [productos, setProductos] = useState([]);
   const [pedidos, setPedidos] = useState([]);

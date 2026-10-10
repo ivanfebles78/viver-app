@@ -13,7 +13,6 @@ import {
   ROUTES,
   getVisibleNavItems,
   canSeePlataforma,
-  rolEfectivo,
 } from "./permissions";
 
 /**
@@ -71,7 +70,7 @@ export function buildNavSections(me, badges = {}) {
     });
   }
 
-  const items = getVisibleNavItems(rolEfectivo(me)).map((item) => ({
+  const items = getVisibleNavItems(me).map((item) => ({
     key: item.to,
     label: item.label,
     href: item.to,

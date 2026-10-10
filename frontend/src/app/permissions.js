@@ -90,6 +90,49 @@ export function esSuperadmin(me) {
   return !!(me?.es_superadmin || me?.es_admin_global) || rolReal(me) === ROLES.SUPERADMIN;
 }
 
+/* ── Matriz de permisos dinámica (RBAC por ayuntamiento) ────────────────────
+ *
+ * El backend (`/auth/me`) devuelve `me.permisos` (funcionalidad → none/read/full)
+ * y `me.scope` (casillas de alcance), sembrados y EDITABLES por ayuntamiento.
+ *
+ * HÍBRIDO A PROPÓSITO: cuando `me` trae `permisos` (app real), mandan los datos
+ * del backend. Cuando NO los trae (p.ej. pruebas que pasan solo el rol), se cae
+ * a las tablas estáticas de más abajo, que reproducen la matriz por defecto. Así
+ * la app es dinámica sin obligar a reescribir toda la batería de pruebas.
+ */
+
+/** ¿Tenemos matriz del backend para este `me`? */
+export function tieneMatriz(me) {
+  return !!(me && typeof me === "object" && me.permisos && typeof me.permisos === "object");
+}
+
+/** Nivel ('none'|'read'|'full') de una funcionalidad para `me` (según la matriz). */
+export function nivelDe(me, func) {
+  return (me?.permisos && me.permisos[func]) || "none";
+}
+
+/**
+ * ¿Puede `me` usar la funcionalidad `func`? `escribir=true` exige 'full';
+ * `escribir=false` (lectura) acepta 'read' o 'full'. superadmin siempre sí.
+ */
+export function can(me, func, { escribir = true } = {}) {
+  if (esSuperadmin(me)) return true;
+  const nivel = nivelDe(me, func);
+  if (nivel === "full") return true;
+  if (nivel === "read" && !escribir) return true;
+  return false;
+}
+
+/** ¿Puede VER (lectura o más) la funcionalidad? */
+export function puedeVer(me, func) {
+  return can(me, func, { escribir: false });
+}
+
+/** Valor de una casilla de alcance (filtrado de datos) del rol. */
+export function tieneAlcance(me, flag) {
+  return !!(me?.scope && me.scope[flag]);
+}
+
 /* ── Rutas ──────────────────────────────────────────────────────────────── */
 
 export const ROUTES = Object.freeze({
@@ -229,10 +272,56 @@ const DEFAULT_ROUTE_BY_ROLE = Object.freeze({
   [ROLES.OBSERVADOR]: ROUTES.DASHBOARD,
 });
 
+/* ── Mapa ruta → funcionalidad (para la matriz dinámica) ─────────────────── */
+
+/** Funcionalidades de informes: la pantalla Informes se ve si hay ALGUNA. */
+const INFORMES_FUNCS = [
+  "informes.trazabilidad",
+  "informes.distribucion",
+  "informes.inventario",
+  "informes.existencias",
+  "informes.caducidad",
+  "informes.movimientos_externos",
+  "informes.prestamos",
+  "informes.abastecimiento",
+  "informes.baja",
+  "informes.estadisticas",
+];
+
+/** Qué funcionalidad gobierna la VISIBILIDAD de cada ruta. */
+const ROUTE_FUNC = Object.freeze({
+  [ROUTES.DASHBOARD]: "general.panel",
+  [ROUTES.PRODUCTOS]: "productos.ver",
+  [ROUTES.MOVIMIENTOS]: "movimientos.ver",
+  [ROUTES.PEDIDOS]: "pedidos.ver",
+  [ROUTES.APROBACIONES]: "aprobaciones.ver",
+  [ROUTES.INFORMES]: "__informes__",
+  [ROUTES.LOTES]: "general.lotes",
+  [ROUTES.VIVERO]: "general.mapa",
+  [ROUTES.ADMIN_USUARIOS]: "admin.usuarios",
+});
+
+/** ¿La matriz de `me` concede ver esta ruta? (solo cuando hay matriz). */
+function _rutaVisibleMatriz(me, route) {
+  if (route === ROUTES.INFORMES) return INFORMES_FUNCS.some((f) => puedeVer(me, f));
+  const func = ROUTE_FUNC[route];
+  if (!func) return false;
+  return puedeVer(me, func);
+}
+
 /* ── Consultas ──────────────────────────────────────────────────────────── */
 
-/** Elementos del menú principal que este rol efectivo puede ver. */
-export function getVisibleNavItems(role) {
+/**
+ * Elementos del menú principal visibles.
+ *
+ * Acepta el `me` completo (con matriz del backend) o, por compatibilidad con
+ * las pruebas, un rol efectivo en cadena (cae a la tabla estática).
+ */
+export function getVisibleNavItems(meOrRole) {
+  if (tieneMatriz(meOrRole) || esSuperadmin(meOrRole)) {
+    return NAV_ITEMS.filter((item) => _rutaVisibleMatriz(meOrRole, item.to));
+  }
+  const role = typeof meOrRole === "string" ? meOrRole : rolEfectivo(meOrRole);
   if (!role) return [];
   const allowed = NAV_BY_ROLE[role];
   if (!allowed) return [];
@@ -267,14 +356,24 @@ export function isPathAllowedForRole(pathname, role) {
  * super-admin de su propia pantalla en cada carga.
  */
 export function canAccessRoute(pathname, me) {
-  const role = rolEfectivo(me);
   if (esSuperadmin(me) && pathname === ROUTES.PLATAFORMA) return true;
-  return isPathAllowedForRole(pathname, role);
+  if (pathname === "/") return true;
+  if (tieneMatriz(me) || esSuperadmin(me)) {
+    // Ruta conocida → la gobierna su funcionalidad en la matriz; ruta
+    // desconocida → no permitida (falla cerrada, igual que la tabla estática).
+    if (ROUTE_FUNC[pathname] !== undefined) return _rutaVisibleMatriz(me, pathname);
+    return false;
+  }
+  return isPathAllowedForRole(pathname, rolEfectivo(me));
 }
 
 /** Ruta de aterrizaje real del usuario: el super-admin global aterriza en /plataforma. */
 export function resolveLandingRoute(me) {
   if (esSuperadmin(me)) return ROUTES.PLATAFORMA;
+  if (tieneMatriz(me)) {
+    const nav = getVisibleNavItems(me);
+    return nav.length ? nav[0].to : ROUTES.DASHBOARD;
+  }
   return getDefaultRouteForRole(rolEfectivo(me));
 }
 
@@ -282,6 +381,26 @@ export function resolveLandingRoute(me) {
  * Las mismas condiciones que Layout.jsx aplicaba en línea. Extraerlas les da
  * nombre y las hace verificables; los valores son idénticos.
  */
+
+/**
+ * Ayudante HÍBRIDO: con matriz del backend decide por `func`; sin ella, cae a la
+ * regla estática `estatico()` (para las pruebas basadas solo en el rol).
+ */
+function _cap(me, func, estatico, escribir = true) {
+  if (tieneMatriz(me) || esSuperadmin(me)) return can(me, func, { escribir });
+  return estatico();
+}
+
+/**
+ * Gate de ACCIÓN de una pantalla, híbrido: con matriz manda `func`; sin matriz
+ * (pruebas por rol) cae a si el rol efectivo está en `rolesFallback`. Pensado
+ * para botones de página (crear pedido, registrar movimiento, decidir, etc.).
+ */
+export function puedeAccion(me, func, rolesFallback = [], { escribir = true } = {}) {
+  if (tieneMatriz(me) || esSuperadmin(me)) return can(me, func, { escribir });
+  const role = rolEfectivo(me);
+  return rolesFallback.includes(role);
+}
 
 /** Enlace "Plataforma" en el menú: solo super-admin global. */
 export function canSeePlataforma(me) {
@@ -293,26 +412,40 @@ export function canSelectCliente(me) {
   return esSuperadmin(me);
 }
 
-/** Acceso a la gestión de usuarios (`/admin/usuarios`). */
+/** Acceso a la gestión de usuarios y roles (`/admin/usuarios`). */
 export function canManageUsuarios(me) {
-  return rolEfectivo(me) === ROLES.ADMIN;
+  return _cap(me, "admin.usuarios", () => rolEfectivo(me) === ROLES.ADMIN);
 }
 
-/** Campana de notificaciones: todos menos empresa externa. */
+/** Campana de notificaciones. */
 export function canSeeNotifications(me) {
-  const role = rolEfectivo(me);
-  return !!role && role !== ROLES.EMPRESA_EXTERNA;
+  return _cap(
+    me,
+    "general.notificaciones",
+    () => {
+      const role = rolEfectivo(me);
+      return !!role && role !== ROLES.EMPRESA_EXTERNA;
+    },
+    false
+  );
 }
 
-/** Botón "Mapa del vivero": roles internos del vivero (observador solo lo consulta). */
+/** Botón "Mapa del vivero". */
 export function canOpenMapaVivero(me) {
-  const role = rolEfectivo(me);
-  return (
-    role === ROLES.ADMIN ||
-    role === ROLES.TECNICO ||
-    role === ROLES.MANAGER ||
-    role === ROLES.GESTOR_VIVERO ||
-    role === ROLES.OBSERVADOR
+  return _cap(
+    me,
+    "general.mapa",
+    () => {
+      const role = rolEfectivo(me);
+      return (
+        role === ROLES.ADMIN ||
+        role === ROLES.TECNICO ||
+        role === ROLES.MANAGER ||
+        role === ROLES.GESTOR_VIVERO ||
+        role === ROLES.OBSERVADOR
+      );
+    },
+    false
   );
 }
 
@@ -325,8 +458,14 @@ export function canOpenMapaVivero(me) {
  * en `admin` vía `rolEfectivo`.
  */
 export function canManageMapaImagen(me) {
-  const role = rolEfectivo(me);
-  return role === ROLES.ADMIN || role === ROLES.MANAGER;
+  return _cap(
+    me,
+    "general.mapa_editar_zonas",
+    () => {
+      const role = rolEfectivo(me);
+      return role === ROLES.ADMIN || role === ROLES.MANAGER;
+    }
+  );
 }
 
 /**
@@ -337,7 +476,7 @@ export function canManageMapaImagen(me) {
  * `PUT /zonas-config` en main.py.
  */
 export function canEditZonas(me) {
-  return rolEfectivo(me) === ROLES.ADMIN;
+  return _cap(me, "general.mapa_editar_zonas", () => rolEfectivo(me) === ROLES.ADMIN);
 }
 
 /**
@@ -377,11 +516,18 @@ export function canManageCategorias(me) {
  * devolvería 403.
  */
 export function canSeeAnalitica(me) {
-  const role = rolEfectivo(me);
-  return (
-    role === ROLES.ADMIN ||
-    role === ROLES.MANAGER ||
-    role === ROLES.TECNICO ||
-    role === ROLES.GESTOR_VIVERO
+  return _cap(
+    me,
+    "general.panel",
+    () => {
+      const role = rolEfectivo(me);
+      return (
+        role === ROLES.ADMIN ||
+        role === ROLES.MANAGER ||
+        role === ROLES.TECNICO ||
+        role === ROLES.GESTOR_VIVERO
+      );
+    },
+    false
   );
 }

@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { formatUsername } from "../utils/format";
 import { formatFechaCanaria } from "../utils/fecha";
 import { rolEfectivo } from "../utils/roles";
+import { puedeAccion } from "../app/permissions";
 import { getProductFormatoConfig, getFormatoOptions } from "../utils/formato";
 import { formatCantidad } from "../utils/numero";
 import {
@@ -1913,19 +1914,23 @@ export default function Pedidos() {
   // Proveedor es estrictamente de lectura: no edita ni cancela ni crea.
   const isProveedor = role === "proveedor";
   const isReadOnly = role === "tecnico" || role === "gestor_vivero" || isProveedor;
+  // Crear pedido lo gobierna la funcionalidad pedidos.crear (matriz del
+  // ayuntamiento); sin matriz (pruebas) cae a los roles que lo tenían.
+  const puedeCrear = puedeAccion(me, "pedidos.crear", ["admin", "empresa_externa"]);
+  const puedeEliminar = puedeAccion(me, "pedidos.eliminar", ["admin"]);
 
-  // Devolución de material de un pedido servido: roles operativos del vivero,
-  // sobre pedidos de salida ya servidos (total o parcialmente) con algo devolvible.
-  const puedeDevolverRol = ["admin", "manager", "tecnico", "gestor_vivero"].includes(role);
+  // Devolución de material de un pedido servido: por funcionalidad
+  // pedidos.devolucion, sobre pedidos de salida ya servidos con algo devolvible.
+  const puedeDevolverRol = puedeAccion(me, "pedidos.devolucion", ["admin", "manager", "tecnico", "gestor_vivero"]);
   const puedeDevolver = (p) =>
     puedeDevolverRol &&
     (p?.tipo || "salida") !== "reposicion" &&
     ["SERVIDO", "APROBADO_PARCIAL"].includes((p?.estado || "").toUpperCase()) &&
     (p?.items || []).some((it) => Number(it.devolvible || 0) > 0);
 
-  // Solicitud de modificación de un pedido ya aprobado (técnico/gestor/admin).
-  // No disponible si ya hay una modificación pendiente (el pedido está congelado).
-  const puedeModificarRol = ["admin", "tecnico", "gestor_vivero"].includes(role);
+  // Solicitud de modificación de un pedido ya aprobado (por funcionalidad
+  // pedidos.modificacion). No disponible si ya hay una pendiente (congelado).
+  const puedeModificarRol = puedeAccion(me, "pedidos.modificacion", ["admin", "tecnico", "gestor_vivero"]);
   const puedeModificar = (p) =>
     puedeModificarRol &&
     !p?.modificacion_pendiente &&
@@ -2262,7 +2267,7 @@ export default function Pedidos() {
             >
               Imprimir pedido
             </Button>
-            {!isReadOnly && (
+            {puedeCrear && (
               <Button type="button" variant="primary" onClick={() => setModalOpen(true)}>
                 Nuevo pedido
               </Button>
@@ -2549,7 +2554,7 @@ export default function Pedidos() {
 
                           {/* Eliminar: solo admin. Disponible en cualquier estado
                               (sirve para limpiar pedidos de prueba). */}
-                          {role === "admin" && editingId !== p.id ? (
+                          {puedeEliminar && editingId !== p.id ? (
                             <Button type="button" variant="destructive" size="sm" onClick={() => onEliminar(p)}>
                               Eliminar
                             </Button>
