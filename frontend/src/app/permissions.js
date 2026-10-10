@@ -321,7 +321,10 @@ function _rutaVisibleMatriz(me, route) {
  * las pruebas, un rol efectivo en cadena (cae a la tabla estática).
  */
 export function getVisibleNavItems(meOrRole) {
-  if (tieneMatriz(meOrRole) || esSuperadmin(meOrRole)) {
+  // Solo la matriz real (objeto `me` con permisos) activa el modo dinámico. Un
+  // rol en cadena —incluido "superadmin"— cae a las tablas estáticas, igual que
+  // el legado (el superadmin REAL llega como objeto `me` con permisos).
+  if (tieneMatriz(meOrRole)) {
     return NAV_ITEMS.filter((item) => _rutaVisibleMatriz(meOrRole, item.to));
   }
   const role = typeof meOrRole === "string" ? meOrRole : rolEfectivo(meOrRole);
