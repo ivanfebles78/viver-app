@@ -145,6 +145,7 @@ export const ROUTES = Object.freeze({
   LOTES: "/lotes",
   VIVERO: "/vivero",
   ADMIN_USUARIOS: "/admin/usuarios",
+  ADMIN_ROLES: "/admin/roles",
   PLATAFORMA: "/plataforma",
 });
 
@@ -217,6 +218,7 @@ const ROUTES_BY_ROLE = Object.freeze({
     ROUTES.LOTES,
     ROUTES.VIVERO,
     ROUTES.ADMIN_USUARIOS,
+    ROUTES.ADMIN_ROLES,
   ],
   [ROLES.TECNICO]: [
     ROUTES.DASHBOARD,
@@ -299,6 +301,7 @@ const ROUTE_FUNC = Object.freeze({
   [ROUTES.LOTES]: "general.lotes",
   [ROUTES.VIVERO]: "general.mapa",
   [ROUTES.ADMIN_USUARIOS]: "admin.usuarios",
+  [ROUTES.ADMIN_ROLES]: "admin.usuarios",
 });
 
 /** ¿La matriz de `me` concede ver esta ruta? (solo cuando hay matriz). */

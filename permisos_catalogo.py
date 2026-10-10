@@ -136,9 +136,20 @@ GRUPOS_ETIQUETA = {
     "ADMINISTRACION": "Administración",
 }
 
+# Funcionalidades que, en viver-app (multi-ayuntamiento), son de PLATAFORMA y las
+# gestiona solo el superadmin (correo y copia de seguridad son globales, no por
+# ayuntamiento). Se muestran en el editor pero no son editables por el admin.
+SOLO_SUPERADMIN = {"admin.email", "admin.backup"}
+
 # Funcionalidades en orden, para catálogo de la UI y validación.
 FUNCIONALIDADES = [
-    {"clave": clave, "grupo": grupo, "etiqueta": etiqueta, "soporta_lectura": soporta_lectura}
+    {
+        "clave": clave,
+        "grupo": grupo,
+        "etiqueta": etiqueta,
+        "soporta_lectura": soporta_lectura,
+        "solo_superadmin": clave in SOLO_SUPERADMIN,
+    }
     for (clave, grupo, etiqueta, soporta_lectura, _celdas) in _MATRIX
 ]
 FUNCIONALIDADES_CLAVES = {f["clave"] for f in FUNCIONALIDADES}
