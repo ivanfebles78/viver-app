@@ -24,6 +24,7 @@ from db import engine
 from models import (
     Cliente,
     Usuario,
+    Rol,
     Producto,
     Categoria,
     Subcategoria,
@@ -52,6 +53,7 @@ from analytics import dashboard_analytics
 
 import account_tokens
 import email_service
+import permisos_catalogo
 
 
 
@@ -167,6 +169,49 @@ def _restaurar_zonas_santa_cruz_si_vacio(db: Session, cliente_id: int) -> None:
     print(f"[seed] Restauradas {len(_ZONAS_DEFAULT_SANTA_CRUZ)} zonas por defecto de Santa Cruz.")
 
 
+def _sembrar_roles_cliente(db: Session, cliente_id: int) -> int:
+    """Siembra los 7 roles por defecto (matriz del PDF) para un ayuntamiento.
+    Idempotente: no hace nada si el ayuntamiento ya tiene roles. Devuelve cuántos
+    creó. Debe llamarse con skip_tenant para controlar cliente_id a mano."""
+    existentes = (
+        db.query(Rol)
+        .filter(Rol.cliente_id == cliente_id)
+        .execution_options(skip_tenant=True)
+        .count()
+    )
+    if existentes > 0:
+        return 0
+    creados = 0
+    for definicion in permisos_catalogo.roles_por_defecto():
+        scope = definicion["scope"]
+        db.add(
+            Rol(
+                cliente_id=cliente_id,
+                clave=definicion["clave"],
+                nombre=definicion["nombre"],
+                es_sistema=True,
+                permisos=definicion["permisos"],
+                solo_sus_pedidos=scope.get("solo_sus_pedidos", False),
+                solo_reposiciones_aprobadas=scope.get("solo_reposiciones_aprobadas", False),
+                ocultar_internos=scope.get("ocultar_internos", False),
+            )
+        )
+        creados += 1
+    return creados
+
+
+def _sembrar_roles_todos(db: Session) -> None:
+    """Backfill: siembra los roles por defecto en TODOS los ayuntamientos que aún
+    no tengan ninguno (p.ej. ayuntamientos creados antes de existir este sistema)."""
+    clientes = db.query(Cliente).execution_options(skip_tenant=True).all()
+    total = 0
+    for c in clientes:
+        total += _sembrar_roles_cliente(db, c.id)
+    if total:
+        db.commit()
+        print(f"[seed] Sembrados {total} roles por defecto en ayuntamientos sin roles.")
+
+
 def _seed_bootstrap() -> None:
     """Arranque de una BD nueva y vacía: crea el ayuntamiento de Santa Cruz
     (cliente id=1) y, si no existe ningún usuario, un super-admin global y un
@@ -224,6 +269,10 @@ def _seed_bootstrap() -> None:
                 "[seed] Usuarios de arranque creados: 'superadmin' (plataforma) y "
                 "'admin_sct' (admin de Santa Cruz). Cambia las contraseñas."
             )
+
+        # Siembra los roles por defecto en los ayuntamientos que aún no tengan
+        # ninguno (BD nueva y también backfill de ayuntamientos ya existentes).
+        _sembrar_roles_todos(db)
     except Exception as exc:  # pragma: no cover - no debe tumbar el arranque
         db.rollback()
         print(f"[seed] aviso durante el arranque: {exc}")
@@ -630,6 +679,80 @@ def require_global_admin():
         if rol != ROL_ADMIN_GLOBAL:
             raise HTTPException(status_code=403, detail="Solo el superadmin de la plataforma")
         return current_user
+
+    return _dep
+
+
+# =============================
+# RESOLUCIÓN DE PERMISOS (RBAC dinámico por ayuntamiento)
+# =============================
+_SCOPE_FALSE = {flag: False for flag in permisos_catalogo.SCOPE_FLAGS}
+
+
+def _rol_efectivo_clave(rol: Optional[str]) -> str:
+    """`admin_vivero` se comporta como `admin` (mismo juego de permisos)."""
+    r = (rol or "").strip().lower()
+    return "admin" if r == "admin_vivero" else r
+
+
+def _cargar_rol(db: Session, cliente_id: Optional[int], rol_clave: str) -> Optional[Rol]:
+    if cliente_id is None or not rol_clave:
+        return None
+    return (
+        db.query(Rol)
+        .filter(Rol.cliente_id == cliente_id, Rol.clave == rol_clave)
+        .execution_options(skip_tenant=True)
+        .first()
+    )
+
+
+def permisos_efectivos(db: Session, user: Usuario) -> tuple[dict, dict, bool]:
+    """Devuelve (permisos, scope, es_superadmin) para el usuario.
+
+    - superadmin: god-mode global, permisos vacíos (se resuelven con el flag) y
+      scope sin restricciones.
+    - resto: carga el Rol de SU ayuntamiento por la clave de su rol.
+    """
+    rol = (user.rol or "").strip().lower()
+    if rol == ROL_ADMIN_GLOBAL:
+        return ({}, dict(_SCOPE_FALSE), True)
+    row = _cargar_rol(db, user.cliente_id, _rol_efectivo_clave(rol))
+    if row is None:
+        return ({}, dict(_SCOPE_FALSE), False)
+    scope = {
+        "solo_sus_pedidos": bool(row.solo_sus_pedidos),
+        "solo_reposiciones_aprobadas": bool(row.solo_reposiciones_aprobadas),
+        "ocultar_internos": bool(row.ocultar_internos),
+    }
+    return (dict(row.permisos or {}), scope, False)
+
+
+def tiene_permiso(permisos: dict, es_superadmin: bool, func: str, *, escribir: bool) -> bool:
+    """¿Concede la matriz acceso a `func`? `escribir=True` exige nivel 'full';
+    `escribir=False` (lectura) acepta 'read' o 'full'. superadmin siempre sí."""
+    if es_superadmin:
+        return True
+    nivel = (permisos or {}).get(func, "none")
+    if nivel == "full":
+        return True
+    if nivel == "read" and not escribir:
+        return True
+    return False
+
+
+def require_permiso(func: str, *, escribir: bool = True):
+    """Dependencia FastAPI que exige el permiso `func` sobre la matriz del rol.
+
+    `escribir=True` (por defecto) exige acceso completo; `escribir=False` acepta
+    también 'solo lectura'. El `superadmin` pasa siempre. El rol `observador`, si
+    la funcionalidad le concede 'read', puede usar métodos seguros pero nunca
+    escribir (lo garantiza el nivel 'read' + `escribir`)."""
+
+    def _dep(current_user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)):
+        permisos, _scope, es_super = permisos_efectivos(db, current_user)
+        if tiene_permiso(permisos, es_super, func, escribir=escribir):
+            return current_user
+        raise HTTPException(status_code=403, detail="Sin permisos para esta acción.")
 
     return _dep
 
@@ -1493,6 +1616,9 @@ def auth_me(
             .first()
         )
         cliente_nombre = c.nombre if c else None
+    # Matriz de permisos EFECTIVA del usuario + casillas de alcance. El frontend
+    # decide nav/botones con esto; el superadmin lo puede todo.
+    permisos, scope, es_super = permisos_efectivos(db, current_user)
     return {
         "id": current_user.id,
         "username": current_user.username,
@@ -1503,8 +1629,10 @@ def auth_me(
         "cliente_nombre": cliente_nombre,
         # es_superadmin: dueño global de la plataforma. Mantenemos es_admin_global
         # como alias por compatibilidad (mismo significado).
-        "es_superadmin": (current_user.rol or "").strip().lower() == ROL_ADMIN_GLOBAL,
-        "es_admin_global": (current_user.rol or "").strip().lower() == ROL_ADMIN_GLOBAL,
+        "es_superadmin": es_super,
+        "es_admin_global": es_super,
+        "permisos": permisos,
+        "scope": scope,
     }
 
 
@@ -2345,6 +2473,10 @@ def superadmin_enroll(
     )
     db.add(cliente)
     db.flush()  # necesitamos cliente.id
+
+    # Siembra los roles por defecto (matriz del PDF) para el ayuntamiento nuevo,
+    # para que su administrador pueda ajustarlos desde el primer momento.
+    _sembrar_roles_cliente(db, cliente.id)
 
     # 2) Administrador inicial del ayuntamiento (pendiente de activación)
     admin_user = Usuario(
@@ -5598,6 +5730,239 @@ def _validate_email_or_400(email: Optional[str]) -> str:
     return cleaned
 
 
+# =============================
+# ROLES Y PERMISOS (RBAC por ayuntamiento)
+# =============================
+# Gestión de la matriz de permisos y de los roles del ayuntamiento. El acceso se
+# controla por el ROL-tier administrativo (admin/admin_vivero/superadmin), no por
+# la propia matriz editable, para que un administrador no pueda dejarse fuera de
+# esta misma pantalla al tocar los toggles. El superadmin puede editar cualquier
+# ayuntamiento (vía X-Cliente-Id).
+_RESERVED_ROLE_CLAVES = {"superadmin", "admin_vivero"}
+
+
+class RolCreate(BaseModel):
+    nombre: str
+    permisos: Optional[dict] = None
+    solo_sus_pedidos: bool = False
+    solo_reposiciones_aprobadas: bool = False
+    ocultar_internos: bool = False
+
+
+class RolUpdate(BaseModel):
+    nombre: Optional[str] = None
+    permisos: Optional[dict] = None
+    solo_sus_pedidos: Optional[bool] = None
+    solo_reposiciones_aprobadas: Optional[bool] = None
+    ocultar_internos: Optional[bool] = None
+
+
+def _slug_rol(nombre: str) -> str:
+    base = _slugify(nombre) if "_slugify" in globals() else None
+    if not base:
+        # Slug sencillo: minúsculas, alfanumérico y guion bajo.
+        import re as _re
+        base = _re.sub(r"[^a-z0-9]+", "_", (nombre or "").strip().lower()).strip("_")
+    return base or "rol"
+
+
+def _clave_rol_unica(db: Session, cliente_id: int, nombre: str) -> str:
+    base = _slug_rol(nombre)
+    if base in _RESERVED_ROLE_CLAVES:
+        base = f"{base}_rol"
+    existentes = {
+        r.clave
+        for r in db.query(Rol).filter(Rol.cliente_id == cliente_id).execution_options(skip_tenant=True).all()
+    }
+    clave = base
+    i = 2
+    while clave in existentes:
+        clave = f"{base}_{i}"
+        i += 1
+    return clave
+
+
+def _sanear_permisos(crudo) -> dict:
+    """Normaliza el mapa de permisos: solo funcionalidades conocidas, niveles
+    válidos, y 'read' solo donde la funcionalidad lo admite. Rellena a 'none'."""
+    crudo = crudo if isinstance(crudo, dict) else {}
+    out = {}
+    for f in permisos_catalogo.FUNCIONALIDADES:
+        clave = f["clave"]
+        nivel = str(crudo.get(clave, "none")).strip().lower()
+        if nivel not in permisos_catalogo.NIVELES:
+            raise HTTPException(status_code=400, detail=f"Nivel inválido para «{clave}»: {nivel}")
+        if not permisos_catalogo.nivel_permitido(clave, nivel):
+            raise HTTPException(
+                status_code=400,
+                detail=f"La funcionalidad «{clave}» no admite el nivel «solo lectura».",
+            )
+        out[clave] = nivel
+    return out
+
+
+def _rol_to_dict(db: Session, r: Rol, cliente_id: int) -> dict:
+    # Rellena el mapa con todas las funcionalidades (por si el catálogo creció
+    # después de crear el rol).
+    permisos = dict(r.permisos or {})
+    permisos_full = {f["clave"]: permisos.get(f["clave"], "none") for f in permisos_catalogo.FUNCIONALIDADES}
+    en_uso = (
+        db.query(Usuario)
+        .filter(Usuario.cliente_id == cliente_id, func.lower(Usuario.rol) == r.clave)
+        .execution_options(skip_tenant=True)
+        .count()
+    )
+    return {
+        "id": r.id,
+        "clave": r.clave,
+        "nombre": r.nombre,
+        "es_sistema": bool(r.es_sistema),
+        "permisos": permisos_full,
+        "scope": {
+            "solo_sus_pedidos": bool(r.solo_sus_pedidos),
+            "solo_reposiciones_aprobadas": bool(r.solo_reposiciones_aprobadas),
+            "ocultar_internos": bool(r.ocultar_internos),
+        },
+        "usuarios_asignados": en_uso,
+    }
+
+
+def _cliente_activo_o_400(current_user: Usuario, db: Session) -> int:
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Selecciona un ayuntamiento para gestionar sus roles.",
+        )
+    return cid
+
+
+@app.get("/roles")
+def listar_roles(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    """Catálogo de funcionalidades + roles del ayuntamiento activo con su matriz."""
+    cid = _cliente_activo_o_400(current_user, db)
+    roles = (
+        db.query(Rol)
+        .filter(Rol.cliente_id == cid)
+        .execution_options(skip_tenant=True)
+        .order_by(Rol.es_sistema.desc(), Rol.nombre.asc())
+        .all()
+    )
+    # Red de seguridad: si el ayuntamiento no tuviera roles (datos antiguos), se
+    # siembran al vuelo para no mostrar una pantalla vacía.
+    if not roles:
+        _sembrar_roles_cliente(db, cid)
+        db.commit()
+        roles = (
+            db.query(Rol)
+            .filter(Rol.cliente_id == cid)
+            .execution_options(skip_tenant=True)
+            .order_by(Rol.es_sistema.desc(), Rol.nombre.asc())
+            .all()
+        )
+    return {
+        "catalogo": permisos_catalogo.catalogo_serializable(),
+        "roles": [_rol_to_dict(db, r, cid) for r in roles],
+    }
+
+
+@app.post("/roles", status_code=201)
+def crear_rol(
+    payload: RolCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _cliente_activo_o_400(current_user, db)
+    nombre = (payload.nombre or "").strip()
+    if len(nombre) < 2:
+        raise HTTPException(status_code=400, detail="El nombre del rol debe tener al menos 2 caracteres.")
+    permisos = _sanear_permisos(payload.permisos)
+    clave = _clave_rol_unica(db, cid, nombre)
+    rol = Rol(
+        cliente_id=cid,
+        clave=clave,
+        nombre=nombre,
+        es_sistema=False,
+        permisos=permisos,
+        solo_sus_pedidos=bool(payload.solo_sus_pedidos),
+        solo_reposiciones_aprobadas=bool(payload.solo_reposiciones_aprobadas),
+        ocultar_internos=bool(payload.ocultar_internos),
+    )
+    db.add(rol)
+    db.commit()
+    db.refresh(rol)
+    return _rol_to_dict(db, rol, cid)
+
+
+@app.put("/roles/{rol_id}")
+def actualizar_rol(
+    rol_id: int,
+    payload: RolUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _cliente_activo_o_400(current_user, db)
+    rol = (
+        db.query(Rol)
+        .filter(Rol.id == rol_id, Rol.cliente_id == cid)
+        .execution_options(skip_tenant=True)
+        .first()
+    )
+    if not rol:
+        raise HTTPException(status_code=404, detail="Rol no encontrado.")
+    if payload.nombre is not None:
+        nombre = payload.nombre.strip()
+        if len(nombre) < 2:
+            raise HTTPException(status_code=400, detail="El nombre del rol debe tener al menos 2 caracteres.")
+        rol.nombre = nombre
+    if payload.permisos is not None:
+        rol.permisos = _sanear_permisos(payload.permisos)
+    if payload.solo_sus_pedidos is not None:
+        rol.solo_sus_pedidos = bool(payload.solo_sus_pedidos)
+    if payload.solo_reposiciones_aprobadas is not None:
+        rol.solo_reposiciones_aprobadas = bool(payload.solo_reposiciones_aprobadas)
+    if payload.ocultar_internos is not None:
+        rol.ocultar_internos = bool(payload.ocultar_internos)
+    db.add(rol)
+    db.commit()
+    db.refresh(rol)
+    return _rol_to_dict(db, rol, cid)
+
+
+@app.delete("/roles/{rol_id}")
+def eliminar_rol(
+    rol_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _cliente_activo_o_400(current_user, db)
+    rol = (
+        db.query(Rol)
+        .filter(Rol.id == rol_id, Rol.cliente_id == cid)
+        .execution_options(skip_tenant=True)
+        .first()
+    )
+    if not rol:
+        raise HTTPException(status_code=404, detail="Rol no encontrado.")
+    en_uso = (
+        db.query(Usuario)
+        .filter(Usuario.cliente_id == cid, func.lower(Usuario.rol) == rol.clave)
+        .execution_options(skip_tenant=True)
+        .count()
+    )
+    if en_uso > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"No se puede borrar: {en_uso} usuario(s) tienen este rol. Reasígnalos primero.",
+        )
+    db.delete(rol)
+    db.commit()
+    return {"ok": True, "deleted": rol_id}
+
+
 @app.get("/admin/users")
 def admin_list_users(
     db: Session = Depends(get_db),
@@ -6238,6 +6603,7 @@ _BACKUP_MODELS = [
     # El ayuntamiento va primero: es el padre al que referencian todos los demás.
     Cliente,
     Usuario,
+    Rol,
     Producto,
     CaducidadConfig,
     ZonaPolygon,

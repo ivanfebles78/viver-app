@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session, with_loader_criteria
 
 from models import (
     Usuario,
+    Rol,
     Producto,
     Categoria,
     Subcategoria,
@@ -60,6 +61,7 @@ from models import (
 # admin global ve todos).
 TENANT_MODELS = [
     Usuario,
+    Rol,
     Producto,
     Categoria,
     Subcategoria,
