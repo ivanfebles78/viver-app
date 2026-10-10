@@ -2,23 +2,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import { PackageSearch, ClipboardList } from "lucide-react";
 
 import { getDashboardAnalytics, getMe, getPedidos, getProductos } from "../api/api";
-import {
-  Card,
-  cn,
-  DataTable,
-  EmptyState,
-  PageHeader,
-  StatusBadge,
-} from "../ui";
-import { Alert, LoadingState, Truncated } from "../components/ui/feedback";
+import { Card, PageHeader } from "../ui";
+import { Alert, LoadingState } from "../components/ui/feedback";
 import { SectionHeader } from "../components/ui/layout";
 import { KpiRow, KpiCell } from "../components/ui/KpiRow";
 import ProportionBar from "../components/ui/ProportionBar";
 import RankingList from "../components/ui/RankingList";
 import WeekdayChart from "../components/ui/WeekdayChart";
 import LinkButton from "../components/ui/LinkButton";
-import { estadoPedido, estadoCaducidad } from "../app/estado";
-import { formatFechaCanaria } from "../utils/fecha";
+import { estadoPedido } from "../app/estado";
 import { ROUTES, canSeeAnalitica } from "../app/permissions";
 
 /*
@@ -72,125 +64,6 @@ function pedidoGroupLabel(value) {
   if (e === "CANCELADO" || e === "CADUCADO") return "CANCELADO";
   return "OTROS";
 }
-
-function toStartOfDay(value) {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
-
-function getCaducidadEstado(fechaCaducidad) {
-  const objetivo = toStartOfDay(fechaCaducidad);
-  if (!objetivo) return null;
-  const hoy = toStartOfDay(new Date());
-  const diasRestantes = Math.floor((objetivo.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
-  if (diasRestantes < 0) return { estado: "Caducado", diasRestantes };
-  if (diasRestantes <= 7) return { estado: "Próximo a caducar", diasRestantes };
-  return { estado: "Vigente", diasRestantes };
-}
-
-function buildCaducidadKey({ producto, loteUuid, zona, tamano, fechaCaducidad, cantidad, estado }) {
-  // Sin `id` ni `source`, para que alertas_caducidad y lotes que apuntan al
-  // mismo inventario se fusionen en una sola entrada.
-  return [
-    producto?.id ?? "sin-producto",
-    loteUuid || "sin-lote",
-    zona || "sin-zona",
-    tamano || "sin-tamano",
-    fechaCaducidad || "sin-fecha",
-    Number(cantidad || 0),
-    estado || "sin-estado",
-  ].join("::");
-}
-
-function buildCaducidadItems(productos) {
-  const items = [];
-  const seen = new Set();
-
-  const pushItemFactory = (producto) => ({ zona, tamano, fechaCaducidad, cantidad, loteUuid }) => {
-    const cad = getCaducidadEstado(fechaCaducidad);
-    const estado = cad?.estado || "Sin fecha";
-    const diasRestantes = cad?.diasRestantes ?? null;
-    const dedupeKey = buildCaducidadKey({
-      producto, loteUuid, zona, tamano, fechaCaducidad, cantidad,
-      estado: cad?.estado || null,
-    });
-
-    if (seen.has(dedupeKey)) return;
-    seen.add(dedupeKey);
-
-    items.push({
-      id: dedupeKey,
-      productoId: producto?.id ?? null,
-      nombre:
-        producto?.nombre_natural ||
-        producto?.nombre ||
-        producto?.nombre_cientifico ||
-        `Producto #${producto?.id ?? "—"}`,
-      categoria: String(producto?.categoria || "Sin categoría").trim() || "Sin categoría",
-      subcategoria: String(producto?.subcategoria || "Sin subcategoría").trim() || "Sin subcategoría",
-      zona: zona || "—",
-      tamano: tamano || "—",
-      fechaCaducidad: fechaCaducidad || null,
-      cantidad: Number(cantidad || 0),
-      loteUuid: loteUuid || "—",
-      estado,
-      diasRestantes,
-    });
-  };
-
-  (Array.isArray(productos) ? productos : []).forEach((producto) => {
-    const pushItem = pushItemFactory(producto);
-
-    const alertas = Array.isArray(producto?.alertas_caducidad)
-      ? producto.alertas_caducidad
-      : Array.isArray(producto?.caducidad_alertas)
-      ? producto.caducidad_alertas
-      : [];
-
-    alertas.forEach((a) =>
-      pushItem({
-        zona: a?.zona || a?.zone || a?.zona_id,
-        tamano: a?.tamano || a?.size,
-        fechaCaducidad: a?.fecha_caducidad || a?.caducidad || a?.fecha || null,
-        cantidad: a?.cantidad,
-        loteUuid: a?.uuid_lote || a?.lote_uuid,
-      })
-    );
-
-    const lotes = Array.isArray(producto?.lotes)
-      ? producto.lotes
-      : Array.isArray(producto?.batches)
-      ? producto.batches
-      : [];
-
-    lotes.forEach((l) =>
-      pushItem({
-        zona: l?.zona || l?.zone || l?.zona_id,
-        tamano: l?.tamano || l?.size,
-        fechaCaducidad: l?.fecha_caducidad || l?.caducidad || l?.expiry_date || null,
-        cantidad: l?.cantidad,
-        loteUuid: l?.uuid_lote || l?.uuid,
-      })
-    );
-  });
-
-  return items;
-}
-
-/** Etiquetas de la tabla, en un solo sitio. */
-const TABLE_LABELS = {
-  selectAll: "Seleccionar todo",
-  selectRow: "Seleccionar fila",
-  actions: "Acciones",
-  sortAscending: "Orden ascendente",
-  sortDescending: "Orden descendente",
-  loading: "Cargando…",
-  previous: "Anterior",
-  next: "Siguiente",
-  selectedCount: (n) => `${n} seleccionado${n === 1 ? "" : "s"}`,
-};
 
 /** Formato local para cantidades. Las cifras se alinean con `tabular`. */
 const numero = (n) => new Intl.NumberFormat("es-ES").format(Number(n || 0));
@@ -267,60 +140,17 @@ export default function Dashboard() {
     };
   }, [puedeVerAnalitica]);
 
-  const caducidadItems = useMemo(() => buildCaducidadItems(productos), [productos]);
-
   const metrics = useMemo(() => {
     const prods = productos || [];
     const peds = pedidos || [];
     return {
       totalProductos: prods.length,
       stockTotal: prods.reduce((acc, p) => acc + Number(p?.stock ?? p?.stock_real ?? 0), 0),
-      bajoMinimo: prods.filter((p) => {
-        const stock = Number(p?.stock ?? p?.stock_real ?? 0);
-        const min = Number(p?.stock_minimo ?? 0);
-        return Number.isFinite(min) && min > 0 && stock < min;
-      }).length,
       reserva: peds.filter((p) => pedidoGroupLabel(p?.estado) === "RESERVA").length,
       aprobados: peds.filter((p) => pedidoGroupLabel(p?.estado) === "APROBADO").length,
       totalPedidos: peds.length,
     };
   }, [productos, pedidos]);
-
-  /**
-   * Productos por debajo de su mínimo.
-   *
-   * El mismo predicado que alimenta el indicador `bajoMinimo`: antes solo
-   * existía el recuento, y saber que hay «2» sin saber cuáles no permite
-   * actuar.
-   */
-  const bajoMinimoItems = useMemo(
-    () =>
-      (productos || [])
-        // El índice como último recurso para la clave: `Math.random()` daría
-        // una clave distinta en cada render y React remontaría todas las filas.
-        .map((p, i) => ({
-          id: String(p?.id ?? p?.nombre_cientifico ?? `sin-id-${i}`),
-          nombre: p?.nombre_natural || p?.nombre || p?.nombre_cientifico || `Producto #${p?.id ?? "—"}`,
-          categoria: String(p?.categoria || "Sin categoría").trim() || "Sin categoría",
-          stock: Number(p?.stock ?? p?.stock_real ?? 0),
-          minimo: Number(p?.stock_minimo ?? 0),
-        }))
-        .filter((p) => Number.isFinite(p.minimo) && p.minimo > 0 && p.stock < p.minimo)
-        .sort((a, b) => a.stock - b.stock),
-    [productos]
-  );
-
-  /**
-   * Lotes que exigen actuar: caducados primero, luego los próximos a caducar,
-   * y dentro de cada grupo los de menos días restantes.
-   */
-  const atencionCaducidad = useMemo(
-    () =>
-      caducidadItems
-        .filter((i) => i.estado === "Caducado" || i.estado === "Próximo a caducar")
-        .sort((a, b) => (a.diasRestantes ?? 0) - (b.diasRestantes ?? 0)),
-    [caducidadItems]
-  );
 
   const categoriasDist = useMemo(() => {
     const map = new Map();
@@ -344,102 +174,6 @@ export default function Dashboard() {
       .map((label) => ({ label: estadoPedido(label).label, value: groups.get(label) || 0 }))
       .filter((x) => x.value > 0);
   }, [pedidos]);
-
-  const caducidadDist = useMemo(() => {
-    const conFecha = caducidadItems.filter((i) => i.fechaCaducidad !== null);
-    const cuenta = (estado) => conFecha.filter((i) => i.estado === estado).length;
-    return {
-      sinFecha: caducidadItems.filter((i) => i.fechaCaducidad === null).length,
-      items: [
-        { label: "Vigentes", value: cuenta("Vigente") },
-        { label: "Próximos a caducar", value: cuenta("Próximo a caducar") },
-        { label: "Caducados", value: cuenta("Caducado") },
-      ].filter((i) => i.value > 0),
-    };
-  }, [caducidadItems]);
-
-  const hayAtencion = atencionCaducidad.length > 0 || bajoMinimoItems.length > 0;
-
-  /* ── Columnas ─────────────────────────────────────────────────────────── */
-
-  const columnasCaducidad = useMemo(
-    () => [
-      {
-        key: "nombre",
-        header: "Producto",
-        cell: (i) => (
-          <div className="flex min-w-0 flex-col">
-            <Truncated className="font-[var(--font-weight-medium)]">{i.nombre}</Truncated>
-            <span className="text-caption text-muted-foreground">{i.categoria}</span>
-          </div>
-        ),
-      },
-      { key: "zona", header: "Zona", cell: (i) => i.zona, hideOnMobile: true },
-      { key: "tamano", header: "Tamaño", cell: (i) => i.tamano, hideOnMobile: true },
-      { key: "cantidad", header: "Cantidad", numeric: true, cell: (i) => numero(i.cantidad) },
-      {
-        key: "fechaCaducidad",
-        header: "Caduca",
-        cell: (i) => (i.fechaCaducidad ? formatFechaCanaria(i.fechaCaducidad) : "—"),
-      },
-      {
-        key: "estado",
-        header: "Estado",
-        cell: (i) => {
-          const { status, label } = estadoCaducidad(
-            i.estado === "Caducado" ? "caducado" : "proximo_a_caducar"
-          );
-          const dias = i.diasRestantes;
-          return (
-            <div className="flex min-w-0 flex-col items-start gap-1">
-              {/* `whitespace-normal`: el badge por defecto va en una sola línea
-                  (nowrap) y "Próximo a caducar" se recortaba en columnas
-                  estrechas. Aquí se permite que envuelva a dos líneas. */}
-              <StatusBadge status={status} label={label} className="h-auto whitespace-normal text-left" />
-              {typeof dias === "number" && (
-                <span className="text-caption text-muted-foreground">
-                  {dias < 0
-                    ? `Hace ${Math.abs(dias)} día${Math.abs(dias) === 1 ? "" : "s"}`
-                    : dias === 0
-                    ? "Hoy"
-                    : `En ${dias} día${dias === 1 ? "" : "s"}`}
-                </span>
-              )}
-            </div>
-          );
-        },
-      },
-    ],
-    []
-  );
-
-  const columnasBajoMinimo = useMemo(
-    () => [
-      {
-        key: "nombre",
-        header: "Producto",
-        cell: (p) => (
-          <div className="flex min-w-0 flex-col">
-            <Truncated className="font-[var(--font-weight-medium)]">{p.nombre}</Truncated>
-            <span className="text-caption text-muted-foreground">{p.categoria}</span>
-          </div>
-        ),
-      },
-      { key: "stock", header: "Stock", numeric: true, cell: (p) => numero(p.stock) },
-      { key: "minimo", header: "Mínimo", numeric: true, cell: (p) => numero(p.minimo) },
-      {
-        key: "falta",
-        header: "Faltan",
-        numeric: true,
-        cell: (p) => (
-          <span className="font-[var(--font-weight-medium)] text-[var(--destructive-emphasis)]">
-            {numero(p.minimo - p.stock)}
-          </span>
-        ),
-      },
-    ],
-    []
-  );
 
   if (loading) {
     return (
@@ -473,106 +207,21 @@ export default function Dashboard() {
         <KpiCell label="Productos" value={numero(metrics.totalProductos)} hint="En catálogo" />
         <KpiCell label="Stock total" value={numero(metrics.stockTotal)} hint="Unidades en existencias" />
         <KpiCell
-          label="Bajo mínimo"
-          value={numero(metrics.bajoMinimo)}
-          hint="Productos por reponer"
-          // El estado solo aparece cuando significa algo: un 0 aquí es lo
-          // normal y teñirlo de verde sería celebrar la ausencia de problemas.
-          status={metrics.bajoMinimo > 0 ? { status: "pending", label: "Requiere reposición" } : undefined}
-        />
-        <KpiCell
           label="Pedidos activos"
           value={numero(metrics.reserva + metrics.aprobados)}
           hint={`${numero(metrics.reserva)} en reserva · ${numero(metrics.aprobados)} aprobados`}
         />
       </KpiRow>
 
-      {/* ── Lo que requiere atención ─────────────────────────────────────── */}
-      <section className="flex flex-col gap-4" aria-labelledby="atencion">
-        <SectionHeader
-          id="atencion"
-          title="Requiere atención"
-          description={
-            hayAtencion
-              ? "Lotes con la caducidad vencida o cercana y productos por debajo de su mínimo."
-              : undefined
-          }
-        />
-
-        {!hayAtencion ? (
-          <Card className="p-[var(--card-padding)]">
-            <EmptyState
-              title="No hay nada pendiente de atención"
-              description="Ningún lote está caducado ni próximo a caducar, y todos los productos están por encima de su stock mínimo."
-            />
-          </Card>
-        ) : (
-          /* Rejilla asimétrica: «Caducidades» necesita más ancho porque su
-             columna «Estado» lleva una insignia larga («Próximo a caducar») que
-             en 50/50 se recortaba; «Bajo mínimo» son cifras cortas y se apaña con
-             menos. Cuando solo hay uno de los dos, ocupa todo. */
-          <div
-            className={cn(
-              "grid grid-cols-1 gap-[var(--card-gap)]",
-              atencionCaducidad.length > 0 && bajoMinimoItems.length > 0
-                ? "xl:grid-cols-[3fr_2fr]"
-                : "xl:grid-cols-1"
-            )}
-          >
-            {atencionCaducidad.length > 0 && (
-              <div className="flex min-w-0 flex-col gap-3">
-                <SectionHeader
-                  as="h3"
-                  title="Caducidades"
-                  actions={
-                    <LinkButton to={ROUTES.INFORMES} variant="ghost" size="sm">
-                      Ver informes
-                    </LinkButton>
-                  }
-                />
-                <DataTable
-                  caption="Lotes caducados o próximos a caducar, ordenados por urgencia"
-                  columns={columnasCaducidad}
-                  rows={atencionCaducidad}
-                  rowKey={(i) => i.id}
-                  labels={TABLE_LABELS}
-                />
-              </div>
-            )}
-
-            {bajoMinimoItems.length > 0 && (
-              <div className="flex min-w-0 flex-col gap-3">
-                <SectionHeader
-                  as="h3"
-                  title="Bajo mínimo"
-                  actions={
-                    <LinkButton to={ROUTES.PRODUCTOS} variant="ghost" size="sm">
-                      Ver productos
-                    </LinkButton>
-                  }
-                />
-                <DataTable
-                  caption="Productos por debajo de su stock mínimo, de menor a mayor existencia"
-                  columns={columnasBajoMinimo}
-                  rows={bajoMinimoItems}
-                  rowKey={(p) => p.id}
-                  labels={TABLE_LABELS}
-                />
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
       {/* ── Distribución ─────────────────────────────────────────────────── */}
       <section className="flex flex-col gap-4" aria-labelledby="distribucion">
         <SectionHeader
           id="distribucion"
           title="Distribución"
-          description="Reparto del catálogo, de los pedidos y del estado de caducidad."
+          description="Reparto del catálogo y de los pedidos."
         />
 
-        <div className="grid grid-cols-1 gap-[var(--card-gap)] md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-[var(--card-gap)] md:grid-cols-2">
           <Card className="p-[var(--card-padding)]">
             <ProportionBar
               title="Catálogo por categoría"
@@ -589,22 +238,6 @@ export default function Dashboard() {
               unit="pedidos"
               emptyLabel="Todavía no hay pedidos registrados."
             />
-          </Card>
-
-          <Card className="p-[var(--card-padding)]">
-            <ProportionBar
-              title="Caducidad de lotes"
-              items={caducidadDist.items}
-              unit="lotes con fecha"
-              emptyLabel="Ningún lote tiene fecha de caducidad registrada."
-            />
-            {caducidadDist.sinFecha > 0 && (
-              <p className="mt-3 text-caption text-muted-foreground">
-                Los porcentajes se calculan solo sobre lotes con fecha.{" "}
-                <span className="tabular">{numero(caducidadDist.sinFecha)}</span>{" "}
-                {caducidadDist.sinFecha === 1 ? "lote no la tiene" : "lotes no la tienen"}.
-              </p>
-            )}
           </Card>
         </div>
       </section>

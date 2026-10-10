@@ -205,10 +205,10 @@ export default function Login() {
                 <span className="text-h3 font-[var(--font-weight-semibold)]">ViverApp</span>
               </span>
               <h1 className="text-h4 font-[var(--font-weight-semibold)]">
-                Gestión del vivero municipal
+                Gestión integral de tu vivero
               </h1>
               <p className="text-body-sm text-muted-foreground">
-                Accede con las credenciales que te haya facilitado tu ayuntamiento.
+                Por favor, introduce tus credenciales para acceder.
               </p>
             </header>
 

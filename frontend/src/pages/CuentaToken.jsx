@@ -67,7 +67,7 @@ function Marco({ children }) {
         </header>
         <Card className="p-[var(--card-padding)]">{children}</Card>
         <p className="text-center text-caption text-muted-foreground">
-          Gestión del vivero municipal
+          Gestión integral de tu vivero
         </p>
       </div>
     </div>

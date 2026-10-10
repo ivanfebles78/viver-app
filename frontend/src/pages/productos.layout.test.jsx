@@ -155,16 +155,17 @@ describe("Productos · las pestañas del modal son un tablist real", () => {
   });
 });
 
-describe("Productos · la tabla del modal puede desplazarse en vez de aplastarse", () => {
-  it("la tabla declara un ancho mínimo dentro de un contenedor con scroll", () => {
+describe("Productos · la tabla del modal se ve entera, sin scroll horizontal", () => {
+  it("la tabla ocupa el 100% del contenedor y NO declara un ancho mínimo", () => {
     /*
-     * Sin `minWidth`, `table-layout: fixed` + porcentajes hacían que la tabla
-     * se encogiera hasta el ancho del contenedor y el `overflow-x: auto` fuera
-     * decorativo. Con él, el envoltorio desplaza y las celdas conservan su
-     * ancho útil, que es lo que impide que los botones se salgan.
+     * A petición del usuario: la tabla (con la columna «Interno» y «Acciones»)
+     * debe verse completa sin desplazarse. Con `table-layout: fixed` + `width:
+     * 100%` y SIN `minWidth`, la tabla nunca excede a su contenedor. Los botones
+     * de acción van en un contenedor con `flex-wrap`, así que se apilan en vez
+     * de salirse de su celda en anchos pequeños.
      */
-    expect(FUENTE).toMatch(/overflowX:\s*"auto"/);
-    expect(FUENTE).toMatch(/minWidth:\s*760/);
+    expect(FUENTE).toMatch(/tableLayout:\s*"fixed"/);
+    expect(FUENTE).not.toMatch(/minWidth:\s*760/);
   });
 
   it("las acciones de fila usan el Button del sistema, no botones con estilo suelto", async () => {

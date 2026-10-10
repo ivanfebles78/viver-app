@@ -93,14 +93,15 @@ describe("a11y · Panel de control", () => {
     { id: 2, nombre_natural: "Palmera", categoria: "Palmera", stock: 80, stock_minimo: 10 },
   ];
 
-  it("con datos, incluidas tablas y barras de proporción", async () => {
+  it("con datos y barras de proporción", async () => {
     api.getProductos.mockResolvedValue(productos);
     api.getPedidos.mockResolvedValue([{ estado: "RESERVA" }, { estado: "APROBADO" }]);
     const { container } = render(<MemoryRouter><Dashboard /></MemoryRouter>);
 
     // Comprobar que hay algo que analizar: si no, el análisis pasa por vacío.
+    // El panel ya no muestra tablas de caducidad/bajo mínimo; sí la Distribución.
     await screen.findByText("Productos");
-    expect(screen.getAllByRole("table").length).toBeGreaterThan(0);
+    expect(screen.getByText("Distribución")).toBeInTheDocument();
 
     sinViolaciones(await analizar(container));
   });
