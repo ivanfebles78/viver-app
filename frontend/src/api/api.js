@@ -726,5 +726,29 @@ export const deleteSubcategoria = async (id) => {
   return data;
 };
 
+// ── Roles y permisos (RBAC por ayuntamiento) ────────────────────────────────
+// Todo va contra el ayuntamiento ACTIVO (el superadmin lo elige con X-Cliente-Id,
+// que el interceptor de `api` ya añade). Añadir/editar/borrar un rol afecta solo
+// a ese ayuntamiento.
+export const getRoles = async () => {
+  const { data } = await api.get("/roles");
+  return data; // { catalogo, roles }
+};
+
+export const crearRol = async (payload) => {
+  const { data } = await api.post("/roles", payload);
+  return data;
+};
+
+export const actualizarRol = async (rolId, payload) => {
+  const { data } = await api.put(`/roles/${rolId}`, payload);
+  return data;
+};
+
+export const eliminarRol = async (rolId) => {
+  const { data } = await api.delete(`/roles/${rolId}`);
+  return data;
+};
+
 export default api;
 

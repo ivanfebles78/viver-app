@@ -15,6 +15,7 @@ import { Button, Dialog, DialogContent, Status, StatusBadge } from "../ui";
 import { Alert } from "../components/ui/feedback";
 import { useConfirm } from "../components/ui/ConfirmDialog";
 import { estadoLinea, estadoPedido } from "../app/estado";
+import { puedeAccion } from "../app/permissions";
 import {
   agruparPorDestino,
   construirPayloadDecisiones,
@@ -26,7 +27,6 @@ import {
   mensajeConAvisos,
   progresoDecision,
   puedeAtajoDeFila,
-  puedeDecidir,
   puedeVerPdf,
   resumenDecisiones,
   safeArray,
@@ -642,7 +642,9 @@ export default function Aprobaciones() {
     }
   };
 
-  const canApprove = puedeDecidir(me);
+  // Decidir (aprobar/denegar/decidir modificaciones) lo gobierna la matriz
+  // (aprobaciones.decidir); sin matriz (pruebas) cae a los roles responsables.
+  const canApprove = puedeAccion(me, "aprobaciones.decidir", ["admin", "manager"]);
 
   const campoFiltro = (id, label, control) => (
     <div className="flex min-w-0 flex-col gap-1">

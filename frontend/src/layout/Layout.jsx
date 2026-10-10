@@ -307,6 +307,7 @@ export default function Layout() {
             onChangePassword={() => setPasswordModalOpen(true)}
             onOpenHelp={() => setWelcomeOpen(true)}
             onOpenUsuarios={() => navigate(ROUTES.ADMIN_USUARIOS)}
+            onOpenRoles={() => navigate(ROUTES.ADMIN_ROLES)}
             onOpenMapa={() => setMapOpen(true)}
             onOpenAjustes={() => setAjustesOpen(true)}
             onLogout={logout}

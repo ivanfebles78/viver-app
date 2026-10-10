@@ -32,6 +32,7 @@ export const accountLabels = {
   changePassword: "Cambiar contraseña",
   help: "Guía de bienvenida",
   usuarios: "Gestión de usuarios",
+  roles: "Roles y permisos",
   mapa: "Mapa del vivero",
   ajustes: "Ajustes del ayuntamiento",
   logout: "Cerrar sesión",

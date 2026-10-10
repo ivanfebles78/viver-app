@@ -24,6 +24,7 @@ from db import engine
 from models import (
     Cliente,
     Usuario,
+    Rol,
     Producto,
     Categoria,
     Subcategoria,
@@ -52,6 +53,7 @@ from analytics import dashboard_analytics
 
 import account_tokens
 import email_service
+import permisos_catalogo
 
 
 
@@ -167,6 +169,49 @@ def _restaurar_zonas_santa_cruz_si_vacio(db: Session, cliente_id: int) -> None:
     print(f"[seed] Restauradas {len(_ZONAS_DEFAULT_SANTA_CRUZ)} zonas por defecto de Santa Cruz.")
 
 
+def _sembrar_roles_cliente(db: Session, cliente_id: int) -> int:
+    """Siembra los 7 roles por defecto (matriz del PDF) para un ayuntamiento.
+    Idempotente: no hace nada si el ayuntamiento ya tiene roles. Devuelve cuántos
+    creó. Debe llamarse con skip_tenant para controlar cliente_id a mano."""
+    existentes = (
+        db.query(Rol)
+        .filter(Rol.cliente_id == cliente_id)
+        .execution_options(skip_tenant=True)
+        .count()
+    )
+    if existentes > 0:
+        return 0
+    creados = 0
+    for definicion in permisos_catalogo.roles_por_defecto():
+        scope = definicion["scope"]
+        db.add(
+            Rol(
+                cliente_id=cliente_id,
+                clave=definicion["clave"],
+                nombre=definicion["nombre"],
+                es_sistema=True,
+                permisos=definicion["permisos"],
+                solo_sus_pedidos=scope.get("solo_sus_pedidos", False),
+                solo_reposiciones_aprobadas=scope.get("solo_reposiciones_aprobadas", False),
+                ocultar_internos=scope.get("ocultar_internos", False),
+            )
+        )
+        creados += 1
+    return creados
+
+
+def _sembrar_roles_todos(db: Session) -> None:
+    """Backfill: siembra los roles por defecto en TODOS los ayuntamientos que aún
+    no tengan ninguno (p.ej. ayuntamientos creados antes de existir este sistema)."""
+    clientes = db.query(Cliente).execution_options(skip_tenant=True).all()
+    total = 0
+    for c in clientes:
+        total += _sembrar_roles_cliente(db, c.id)
+    if total:
+        db.commit()
+        print(f"[seed] Sembrados {total} roles por defecto en ayuntamientos sin roles.")
+
+
 def _seed_bootstrap() -> None:
     """Arranque de una BD nueva y vacía: crea el ayuntamiento de Santa Cruz
     (cliente id=1) y, si no existe ningún usuario, un super-admin global y un
@@ -224,6 +269,10 @@ def _seed_bootstrap() -> None:
                 "[seed] Usuarios de arranque creados: 'superadmin' (plataforma) y "
                 "'admin_sct' (admin de Santa Cruz). Cambia las contraseñas."
             )
+
+        # Siembra los roles por defecto en los ayuntamientos que aún no tengan
+        # ninguno (BD nueva y también backfill de ayuntamientos ya existentes).
+        _sembrar_roles_todos(db)
     except Exception as exc:  # pragma: no cover - no debe tumbar el arranque
         db.rollback()
         print(f"[seed] aviso durante el arranque: {exc}")
@@ -630,6 +679,94 @@ def require_global_admin():
         if rol != ROL_ADMIN_GLOBAL:
             raise HTTPException(status_code=403, detail="Solo el superadmin de la plataforma")
         return current_user
+
+    return _dep
+
+
+# =============================
+# RESOLUCIÓN DE PERMISOS (RBAC dinámico por ayuntamiento)
+# =============================
+_SCOPE_FALSE = {flag: False for flag in permisos_catalogo.SCOPE_FLAGS}
+
+
+def _rol_efectivo_clave(rol: Optional[str]) -> str:
+    """`admin_vivero` se comporta como `admin` (mismo juego de permisos)."""
+    r = (rol or "").strip().lower()
+    return "admin" if r == "admin_vivero" else r
+
+
+def _cargar_rol(db: Session, cliente_id: Optional[int], rol_clave: str) -> Optional[Rol]:
+    if cliente_id is None or not rol_clave:
+        return None
+    return (
+        db.query(Rol)
+        .filter(Rol.cliente_id == cliente_id, Rol.clave == rol_clave)
+        .execution_options(skip_tenant=True)
+        .first()
+    )
+
+
+def permisos_efectivos(db: Session, user: Usuario) -> tuple[dict, dict, bool]:
+    """Devuelve (permisos, scope, es_superadmin) para el usuario.
+
+    - superadmin: god-mode global, permisos vacíos (se resuelven con el flag) y
+      scope sin restricciones.
+    - resto: carga el Rol de SU ayuntamiento por la clave de su rol.
+    """
+    rol = (user.rol or "").strip().lower()
+    if rol == ROL_ADMIN_GLOBAL:
+        return ({}, dict(_SCOPE_FALSE), True)
+    row = _cargar_rol(db, user.cliente_id, _rol_efectivo_clave(rol))
+    if row is None:
+        return ({}, dict(_SCOPE_FALSE), False)
+    scope = {
+        "solo_sus_pedidos": bool(row.solo_sus_pedidos),
+        "solo_reposiciones_aprobadas": bool(row.solo_reposiciones_aprobadas),
+        "ocultar_internos": bool(row.ocultar_internos),
+    }
+    return (dict(row.permisos or {}), scope, False)
+
+
+def tiene_permiso(permisos: dict, es_superadmin: bool, func: str, *, escribir: bool) -> bool:
+    """¿Concede la matriz acceso a `func`? `escribir=True` exige nivel 'full';
+    `escribir=False` (lectura) acepta 'read' o 'full'. superadmin siempre sí."""
+    if es_superadmin:
+        return True
+    nivel = (permisos or {}).get(func, "none")
+    if nivel == "full":
+        return True
+    if nivel == "read" and not escribir:
+        return True
+    return False
+
+
+def require_permiso_any(funcs: list[str], *, escribir: bool = True):
+    """Como require_permiso pero pasa si el rol tiene CUALQUIERA de `funcs`.
+    Útil para acciones que pueden iniciar tanto el solicitante como el
+    responsable (p.ej. cancelar una modificación)."""
+
+    def _dep(current_user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)):
+        permisos, _scope, es_super = permisos_efectivos(db, current_user)
+        if any(tiene_permiso(permisos, es_super, f, escribir=escribir) for f in funcs):
+            return current_user
+        raise HTTPException(status_code=403, detail="Sin permisos para esta acción.")
+
+    return _dep
+
+
+def require_permiso(func: str, *, escribir: bool = True):
+    """Dependencia FastAPI que exige el permiso `func` sobre la matriz del rol.
+
+    `escribir=True` (por defecto) exige acceso completo; `escribir=False` acepta
+    también 'solo lectura'. El `superadmin` pasa siempre. El rol `observador`, si
+    la funcionalidad le concede 'read', puede usar métodos seguros pero nunca
+    escribir (lo garantiza el nivel 'read' + `escribir`)."""
+
+    def _dep(current_user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)):
+        permisos, _scope, es_super = permisos_efectivos(db, current_user)
+        if tiene_permiso(permisos, es_super, func, escribir=escribir):
+            return current_user
+        raise HTTPException(status_code=403, detail="Sin permisos para esta acción.")
 
     return _dep
 
@@ -1493,6 +1630,9 @@ def auth_me(
             .first()
         )
         cliente_nombre = c.nombre if c else None
+    # Matriz de permisos EFECTIVA del usuario + casillas de alcance. El frontend
+    # decide nav/botones con esto; el superadmin lo puede todo.
+    permisos, scope, es_super = permisos_efectivos(db, current_user)
     return {
         "id": current_user.id,
         "username": current_user.username,
@@ -1503,8 +1643,10 @@ def auth_me(
         "cliente_nombre": cliente_nombre,
         # es_superadmin: dueño global de la plataforma. Mantenemos es_admin_global
         # como alias por compatibilidad (mismo significado).
-        "es_superadmin": (current_user.rol or "").strip().lower() == ROL_ADMIN_GLOBAL,
-        "es_admin_global": (current_user.rol or "").strip().lower() == ROL_ADMIN_GLOBAL,
+        "es_superadmin": es_super,
+        "es_admin_global": es_super,
+        "permisos": permisos,
+        "scope": scope,
     }
 
 
@@ -1688,7 +1830,7 @@ def _resolve_active_cliente_id(current_user: Usuario, db: Session) -> Optional[i
 @app.get("/mapa-imagen")
 def get_mapa_imagen(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permiso("general.mapa", escribir=False)),
 ):
     """Devuelve la imagen del mapa del vivero del ayuntamiento activo."""
     cid = _resolve_active_cliente_id(current_user, db)
@@ -1717,7 +1859,7 @@ _MAPA_MAX_BYTES = 8 * 1024 * 1024  # 8 MB
 async def upload_mapa_imagen(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager"])),
+    current_user: Usuario = Depends(require_permiso("general.mapa_editar_zonas")),
 ):
     """Sube/reemplaza la imagen del mapa del vivero del ayuntamiento activo.
     Disponible para admin_vivero (hereda de 'admin'), admin global y manager."""
@@ -1749,7 +1891,7 @@ async def upload_mapa_imagen(
 @app.delete("/mapa-imagen")
 def delete_mapa_imagen(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager"])),
+    current_user: Usuario = Depends(require_permiso("general.mapa_editar_zonas")),
 ):
     """Elimina la imagen del mapa del vivero del ayuntamiento activo."""
     cid = _resolve_active_cliente_id(current_user, db)
@@ -2346,6 +2488,10 @@ def superadmin_enroll(
     db.add(cliente)
     db.flush()  # necesitamos cliente.id
 
+    # Siembra los roles por defecto (matriz del PDF) para el ayuntamiento nuevo,
+    # para que su administrador pueda ajustarlos desde el primer momento.
+    _sembrar_roles_cliente(db, cliente.id)
+
     # 2) Administrador inicial del ayuntamiento (pendiente de activación)
     admin_user = Usuario(
         username=admin_username,
@@ -2730,7 +2876,7 @@ async def superadmin_import_cliente(
 @app.get("/productos")
 def get_productos(
     db: Session = Depends(get_db),
-    user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "empresa_externa", "gestor_vivero"])),
+    user: Usuario = Depends(require_permiso("productos.ver", escribir=False)),
 ):
     """
     Listado de productos con stock agregado y lotes vivos.
@@ -2742,12 +2888,16 @@ def get_productos(
     Total: 3 queries independientemente del número de productos.
     """
     rol_user = (user.rol or "").strip().lower()
+    # Alcance "ocultar internos" (empresa externa por defecto): no ve productos
+    # internos ni las columnas sensibles (stock mínimo, interno, precio).
+    _perm_pr, scope_pr, _es_pr = permisos_efectivos(db, user)
+    ocultar_internos = bool(scope_pr.get("ocultar_internos"))
     today = datetime.utcnow().date()
     warning_limit = today + timedelta(days=7)
 
     # ---------- 1. Productos ----------
     productos_q = db.query(Producto)
-    if rol_user == "empresa_externa":
+    if ocultar_internos:
         productos_q = productos_q.filter(
             or_(Producto.es_interno.is_(None), Producto.es_interno == False)
         )
@@ -2922,7 +3072,7 @@ def get_productos(
             "lotes": lotes,
         }
 
-        if rol_user != "empresa_externa":
+        if not ocultar_internos:
             item["stock_minimo"] = p.stock_minimo
             item["es_interno"] = bool(getattr(p, "es_interno", False))
             _precio = getattr(p, "precio", None)
@@ -2945,7 +3095,7 @@ def actualizar_producto_interno(
     producto_id: int,
     payload: ProductoInternoUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager"])),
+    current_user: Usuario = Depends(require_permiso("productos.marcar_interno")),
 ):
     producto = db.query(Producto).filter(Producto.id == producto_id).first()
     if not producto:
@@ -3003,7 +3153,7 @@ def _producto_dict(p: Producto) -> dict:
 def crear_producto(
     payload: ProductoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico"])),
+    current_user: Usuario = Depends(require_permiso("productos.gestionar")),
 ):
     nombre_c = (payload.nombre_cientifico or "").strip()
     if not nombre_c:
@@ -3040,7 +3190,7 @@ def actualizar_producto(
     producto_id: int,
     payload: ProductoUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico"])),
+    current_user: Usuario = Depends(require_permiso("productos.gestionar")),
 ):
     producto = db.query(Producto).filter(Producto.id == producto_id).first()
     if not producto:
@@ -3091,7 +3241,7 @@ def actualizar_producto(
 def eliminar_producto(
     producto_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico"])),
+    current_user: Usuario = Depends(require_permiso("productos.gestionar")),
 ):
     producto = db.query(Producto).filter(Producto.id == producto_id).first()
     if not producto:
@@ -3140,7 +3290,7 @@ def _parse_bool(value) -> bool:
 async def importar_productos(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico"])),
+    current_user: Usuario = Depends(require_permiso("productos.gestionar")),
 ):
     try:
         import pandas as pd  # lazy import
@@ -3269,7 +3419,7 @@ async def importar_productos(
 @app.get("/pedidos")
 def get_pedidos(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "empresa_externa", "gestor_vivero", "proveedor"])),
+    current_user: Usuario = Depends(require_permiso("pedidos.ver", escribir=False)),
 ):
     # Transiciona pedidos vencidos y repara los que ya están totalmente
     # servidos pero quedaron colgados en APROBADO_PARCIAL, antes de listar.
@@ -3277,6 +3427,10 @@ def get_pedidos(
     _transicionar_pedidos_servidos(db)
 
     rol = (current_user.rol or "").strip().lower()
+    # Alcance de datos del rol (casillas de la matriz), no el nombre del rol: así
+    # un rol personalizado con "solo sus pedidos" o "solo reposiciones aprobadas"
+    # recibe el mismo filtrado que empresa externa / proveedor.
+    _perm, scope, _es_super = permisos_efectivos(db, current_user)
     # Eager-loading para evitar N+1: los items, su producto y sus movimientos se
     # cargan en pocas consultas en vez de una por cada item al serializar.
     q = db.query(Pedido).options(
@@ -3292,7 +3446,7 @@ def get_pedidos(
     #      APROBADO_PARCIAL se incluye para no perder la esencia de la
     #      aprobación parcial: el proveedor puede servir los items ya
     #      aprobados aunque queden otros pendientes de decisión.
-    if rol == "empresa_externa":
+    if scope.get("solo_sus_pedidos"):
         q = q.filter(
             or_(
                 # Caso 1: sus propios pedidos
@@ -3305,10 +3459,10 @@ def get_pedidos(
             )
         )
 
-    # Proveedor: rol estrictamente de consulta y servicio.  Solo ve los
-    # pedidos de REPOSICIÓN con al menos un item aprobado o servido.
-    # Nunca pedidos de salida, ni reposiciones aún sin aprobación.
-    if rol == "proveedor":
+    # Alcance "solo reposiciones aprobadas" (proveedor por defecto): solo ve los
+    # pedidos de REPOSICIÓN con al menos un item aprobado o servido. Nunca
+    # pedidos de salida, ni reposiciones aún sin aprobación.
+    if scope.get("solo_reposiciones_aprobadas"):
         q = q.filter(
             and_(
                 func.lower(Pedido.tipo) == "reposicion",
@@ -3318,10 +3472,10 @@ def get_pedidos(
 
     pedidos = q.order_by(Pedido.id.desc()).all()
     out = [_pedido_to_dict(p, viewer_role=rol) for p in pedidos]
-    # For proveedor: after filtering items, drop pedidos that ended up with
-    # zero visible lines (e.g. all approved items already SERVIDO and the
-    # rest were denied — nothing left for them to act on or audit).
-    if rol == "proveedor":
+    # Tras recortar items, descarta los pedidos que quedaron sin líneas visibles
+    # (p.ej. todo lo aprobado ya SERVIDO y el resto denegado — nada que servir ni
+    # auditar). Aplica al alcance "solo reposiciones aprobadas".
+    if scope.get("solo_reposiciones_aprobadas"):
         out = [p for p in out if p.get("items")]
     return out
 
@@ -3330,7 +3484,7 @@ def get_pedidos(
 def create_pedido(
     payload: PedidoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "empresa_externa", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("pedidos.crear")),
 ):
     if not payload.items or len(payload.items) == 0:
         raise HTTPException(status_code=400, detail="Debes añadir al menos una línea al pedido")
@@ -3339,15 +3493,18 @@ def create_pedido(
     if tipo_pedido not in ("salida", "reposicion"):
         raise HTTPException(status_code=400, detail="Tipo de pedido inválido")
 
-    # Permiso por rol para pedidos de reposición: solo personal interno del
-    # vivero (admin, manager, técnico, gestor_vivero). Empresa externa NO
-    # puede generar pedidos de reposición: ella los recibe y los sirve.
+    # Pedir una reposición ("Pedir más") es su propia funcionalidad en la matriz
+    # (productos.reposicion). Crear un pedido de reposición exige ese permiso,
+    # además de poder crear pedidos. Así, por defecto, la empresa externa (sin
+    # productos.reposicion) no puede generar reposiciones: ella las recibe y sirve.
     user_role = (current_user.rol or "").strip().lower()
-    if tipo_pedido == "reposicion" and user_role == "empresa_externa":
-        raise HTTPException(
-            status_code=403,
-            detail="Las empresas externas no pueden crear pedidos de reposición.",
-        )
+    if tipo_pedido == "reposicion":
+        _perm_cp, _scope_cp, _es_cp = permisos_efectivos(db, current_user)
+        if not tiene_permiso(_perm_cp, _es_cp, "productos.reposicion", escribir=True):
+            raise HTTPException(
+                status_code=403,
+                detail="Tu rol no puede crear pedidos de reposición.",
+            )
 
     if tipo_pedido == "salida":
         if not payload.distrito_destino or not payload.barrio_destino or not payload.direccion_destino:
@@ -3453,7 +3610,7 @@ def update_pedido(
     pedido_id: int,
     payload: PedidoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "empresa_externa", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("pedidos.editar")),
 ):
     pedido = db.query(Pedido).filter(Pedido.id == pedido_id).first()
     if not pedido:
@@ -3561,7 +3718,7 @@ def update_pedido(
 def cancelar_pedido_endpoint(
     pedido_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "empresa_externa", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("pedidos.editar")),
 ):
     pedido = db.query(Pedido).filter(Pedido.id == pedido_id).first()
     if not pedido:
@@ -3583,7 +3740,7 @@ def cancelar_pedido_endpoint(
 def eliminar_pedido(
     pedido_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin"])),
+    current_user: Usuario = Depends(require_permiso("pedidos.eliminar")),
 ):
     """Elimina un pedido por completo (para limpiar pedidos de prueba). Solo
     admin. No revierte stock: borra el pedido, sus líneas (cascade), sus
@@ -3663,7 +3820,7 @@ def devolver_material_pedido(
     pedido_id: int,
     payload: DevolucionPedidoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("pedidos.devolucion")),
 ):
     """Registra la devolución de material de un pedido de SALIDA ya servido. No
     cambia el estado del pedido (sigue SERVIDO). Todo queda acotado al
@@ -3828,7 +3985,7 @@ def solicitar_modificacion_pedido(
     pedido_id: int,
     payload: PedidoModificacionCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "tecnico", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("pedidos.modificacion")),
 ):
     """El técnico (o gestor/admin) solicita cambios sobre un pedido aprobado.
     Cada cambio (add/update/remove) queda en RESERVA hasta que el responsable lo
@@ -3911,7 +4068,7 @@ def decidir_modificacion_pedido(
     mod_id: int,
     payload: PedidoModDecidirRequest,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager"])),
+    current_user: Usuario = Depends(require_permiso("aprobaciones.modificaciones")),
 ):
     """El responsable aprueba o deniega cada cambio de la modificación. Los
     cambios aprobados se aplican al pedido; el pedido se descongela."""
@@ -3994,7 +4151,9 @@ def decidir_modificacion_pedido(
 def cancelar_modificacion_pedido(
     mod_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "gestor_vivero"])),
+    current_user: Usuario = Depends(
+        require_permiso_any(["pedidos.modificacion", "aprobaciones.modificaciones"])
+    ),
 ):
     """Cancela una modificación pendiente (la retira quien la pidió o un
     responsable). El pedido se descongela sin cambios."""
@@ -4046,7 +4205,7 @@ def aprobar_pedido(
     pedido_id: int,
     payload: PedidoActionRequest,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager"])),
+    current_user: Usuario = Depends(require_permiso("aprobaciones.decidir")),
 ):
     """
     Approve a pedido — fully or partially.
@@ -4123,7 +4282,7 @@ def denegar_pedido(
     pedido_id: int,
     payload: PedidoActionRequest,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager"])),
+    current_user: Usuario = Depends(require_permiso("aprobaciones.decidir")),
 ):
     """
     Deny a pedido — fully or partially.
@@ -4183,7 +4342,7 @@ def decidir_pedido(
     pedido_id: int,
     payload: PedidoDecidirRequest,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager"])),
+    current_user: Usuario = Depends(require_permiso("aprobaciones.decidir")),
 ):
     """
     Atomic per-item decision over a pedido.
@@ -4310,7 +4469,7 @@ def decidir_pedido(
 def descargar_pedido_pdf(
     pedido_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "gestor_vivero", "empresa_externa", "proveedor"])),
+    current_user: Usuario = Depends(require_permiso("pedidos.pdf", escribir=False)),
 ):
     """
     Devuelve el PDF imprimible del pedido.
@@ -4344,9 +4503,10 @@ def descargar_pedido_pdf(
         )
 
     rol = (current_user.rol or "").strip().lower()
+    _perm_pdf, scope_pdf, _es_pdf = permisos_efectivos(db, current_user)
 
-    # Empresa externa: only their own pedidos, or public reposiciones.
-    if rol == "empresa_externa":
+    # Alcance "solo sus pedidos": solo sus propios pedidos o reposiciones públicas.
+    if scope_pdf.get("solo_sus_pedidos"):
         tipo = (pedido.tipo or "").strip().lower()
         es_reposicion_publica = tipo == "reposicion" and (
             estado in SERVICEABLE_STATES or has_approved
@@ -4355,11 +4515,9 @@ def descargar_pedido_pdf(
         if not (es_reposicion_publica or es_propio):
             raise HTTPException(status_code=403, detail="No puedes descargar este pedido.")
 
-    # Proveedor: only reposiciones with at least one approved/served item.
-    # Additional belt-and-suspenders check: even if the pedido is in a
-    # serviceable state, refuse if there are no APROBADO/SERVIDO items
-    # (theoretical edge case after filtering).
-    if rol == "proveedor":
+    # Alcance "solo reposiciones aprobadas": solo reposiciones con al menos un
+    # item aprobado/servido (cinturón y tirantes aunque el estado sea servible).
+    if scope_pdf.get("solo_reposiciones_aprobadas"):
         tipo = (pedido.tipo or "").strip().lower()
         has_servible_items = any(
             _item_estado(it) in ("APROBADO", "SERVIDO")
@@ -4384,7 +4542,7 @@ def descargar_pedido_pdf(
 def get_lotes_disponibles(
     producto_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "empresa_externa", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("productos.ver", escribir=False)),
 ):
     rows = (
         db.query(InventarioLote, Lote)
@@ -4416,7 +4574,7 @@ def get_lotes_disponibles(
 def crear_movimiento(
     payload: MovimientoCreate,
     db: Session = Depends(get_db),
-    user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "gestor_vivero"])),
+    user: Usuario = Depends(require_permiso("movimientos.registrar")),
 ):
     if payload.cantidad <= 0:
         raise HTTPException(status_code=400, detail="La cantidad debe ser mayor que 0")
@@ -4801,7 +4959,7 @@ def crear_movimiento(
 @app.get("/movimientos")
 def listar_movimientos(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "tecnico", "manager", "empresa_externa", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("movimientos.ver", escribir=False)),
 ):
     rows = (
         db.query(Movimiento, Producto)
@@ -4868,7 +5026,7 @@ def get_dashboard_analytics(
     # hoy no pueden consultar, así que esos dos roles quedan fuera. El resto son
     # exactamente los que ya ven el histórico completo de pedidos.
     current_user: Usuario = Depends(
-        require_roles(["admin", "manager", "tecnico", "gestor_vivero"])
+        require_permiso("general.panel", escribir=False)
     ),
 ):
     """Métricas agregadas del panel (productos más demandados, destinos más
@@ -4886,7 +5044,7 @@ def get_dashboard_analytics(
 def get_lote(
     uuid_lote: str,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "tecnico", "manager", "empresa_externa", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("general.lotes", escribir=False)),
 ):
     lote = db.query(Lote).filter(Lote.uuid_lote == uuid_lote).first()
 
@@ -4965,7 +5123,7 @@ def _producto_display(prod: Producto | None, producto_id: int | None = None) -> 
 def reporte_trazabilidad(
     uuid_lote: str,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("informes.trazabilidad", escribir=False)),
 ):
     lote = (
         db.query(Lote)
@@ -5079,7 +5237,7 @@ def reporte_trazabilidad(
 def reporte_distribucion(
     producto: str,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("informes.distribucion", escribir=False)),
 ):
     producto = (producto or "").strip()
     if not producto:
@@ -5141,7 +5299,7 @@ def reporte_distribucion(
 def reporte_stock_bajo(
     margen_pct: int = 20,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("informes.abastecimiento", escribir=False)),
 ):
     productos = db.query(Producto).order_by(Producto.nombre_cientifico.asc()).all()
 
@@ -5205,7 +5363,7 @@ def reporte_movimientos_externos(
     categoria: str | None = None,
     subcategoria: str | None = None,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "empresa_externa", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("informes.movimientos_externos", escribir=False)),
 ):
     q = (
         db.query(Movimiento, Producto)
@@ -5282,7 +5440,7 @@ def reporte_distribucion_economica(
     fecha_desde: str | None = None,
     fecha_hasta: str | None = None,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin", "manager", "tecnico", "gestor_vivero"])),
+    current_user: Usuario = Depends(require_permiso("informes.distribucion", escribir=False)),
 ):
     """Distribución económica de lo que SALE del vivero, agrupada por distrito y
     barrio de destino. Valor = cantidad × precio del producto. Permite ver cuánto
@@ -5382,7 +5540,11 @@ def _num_clean(n) -> float | int:
 
 
 @app.get("/zonas/{zona_id}/items")
-def get_zona_items(zona_id: str, db: Session = Depends(get_db)):
+def get_zona_items(
+    zona_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permiso("general.mapa", escribir=False)),
+):
     zona_norm = _normalize_zona_id(zona_id)
 
     # El stock de la zona se calcula DESDE LOS MOVIMIENTOS (misma lógica que el
@@ -5487,7 +5649,7 @@ def marcar_zona_interna(
     zona_id: str,
     payload: ZonaInternaRequest,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin"])),
+    current_user: Usuario = Depends(require_permiso("general.mapa_zona_interna")),
 ):
     """Marca (o desmarca) como INTERNOS todos los productos con stock en la zona.
     Los productos internos no los ve ni puede pedir la empresa externa."""
@@ -5598,10 +5760,243 @@ def _validate_email_or_400(email: Optional[str]) -> str:
     return cleaned
 
 
+# =============================
+# ROLES Y PERMISOS (RBAC por ayuntamiento)
+# =============================
+# Gestión de la matriz de permisos y de los roles del ayuntamiento. El acceso se
+# controla por el ROL-tier administrativo (admin/admin_vivero/superadmin), no por
+# la propia matriz editable, para que un administrador no pueda dejarse fuera de
+# esta misma pantalla al tocar los toggles. El superadmin puede editar cualquier
+# ayuntamiento (vía X-Cliente-Id).
+_RESERVED_ROLE_CLAVES = {"superadmin", "admin_vivero"}
+
+
+class RolCreate(BaseModel):
+    nombre: str
+    permisos: Optional[dict] = None
+    solo_sus_pedidos: bool = False
+    solo_reposiciones_aprobadas: bool = False
+    ocultar_internos: bool = False
+
+
+class RolUpdate(BaseModel):
+    nombre: Optional[str] = None
+    permisos: Optional[dict] = None
+    solo_sus_pedidos: Optional[bool] = None
+    solo_reposiciones_aprobadas: Optional[bool] = None
+    ocultar_internos: Optional[bool] = None
+
+
+def _slug_rol(nombre: str) -> str:
+    base = _slugify(nombre) if "_slugify" in globals() else None
+    if not base:
+        # Slug sencillo: minúsculas, alfanumérico y guion bajo.
+        import re as _re
+        base = _re.sub(r"[^a-z0-9]+", "_", (nombre or "").strip().lower()).strip("_")
+    return base or "rol"
+
+
+def _clave_rol_unica(db: Session, cliente_id: int, nombre: str) -> str:
+    base = _slug_rol(nombre)
+    if base in _RESERVED_ROLE_CLAVES:
+        base = f"{base}_rol"
+    existentes = {
+        r.clave
+        for r in db.query(Rol).filter(Rol.cliente_id == cliente_id).execution_options(skip_tenant=True).all()
+    }
+    clave = base
+    i = 2
+    while clave in existentes:
+        clave = f"{base}_{i}"
+        i += 1
+    return clave
+
+
+def _sanear_permisos(crudo) -> dict:
+    """Normaliza el mapa de permisos: solo funcionalidades conocidas, niveles
+    válidos, y 'read' solo donde la funcionalidad lo admite. Rellena a 'none'."""
+    crudo = crudo if isinstance(crudo, dict) else {}
+    out = {}
+    for f in permisos_catalogo.FUNCIONALIDADES:
+        clave = f["clave"]
+        nivel = str(crudo.get(clave, "none")).strip().lower()
+        if nivel not in permisos_catalogo.NIVELES:
+            raise HTTPException(status_code=400, detail=f"Nivel inválido para «{clave}»: {nivel}")
+        if not permisos_catalogo.nivel_permitido(clave, nivel):
+            raise HTTPException(
+                status_code=400,
+                detail=f"La funcionalidad «{clave}» no admite el nivel «solo lectura».",
+            )
+        out[clave] = nivel
+    return out
+
+
+def _rol_to_dict(db: Session, r: Rol, cliente_id: int) -> dict:
+    # Rellena el mapa con todas las funcionalidades (por si el catálogo creció
+    # después de crear el rol).
+    permisos = dict(r.permisos or {})
+    permisos_full = {f["clave"]: permisos.get(f["clave"], "none") for f in permisos_catalogo.FUNCIONALIDADES}
+    en_uso = (
+        db.query(Usuario)
+        .filter(Usuario.cliente_id == cliente_id, func.lower(Usuario.rol) == r.clave)
+        .execution_options(skip_tenant=True)
+        .count()
+    )
+    return {
+        "id": r.id,
+        "clave": r.clave,
+        "nombre": r.nombre,
+        "es_sistema": bool(r.es_sistema),
+        "permisos": permisos_full,
+        "scope": {
+            "solo_sus_pedidos": bool(r.solo_sus_pedidos),
+            "solo_reposiciones_aprobadas": bool(r.solo_reposiciones_aprobadas),
+            "ocultar_internos": bool(r.ocultar_internos),
+        },
+        "usuarios_asignados": en_uso,
+    }
+
+
+def _cliente_activo_o_400(current_user: Usuario, db: Session) -> int:
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Selecciona un ayuntamiento para gestionar sus roles.",
+        )
+    return cid
+
+
+@app.get("/roles")
+def listar_roles(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    """Catálogo de funcionalidades + roles del ayuntamiento activo con su matriz."""
+    cid = _cliente_activo_o_400(current_user, db)
+    roles = (
+        db.query(Rol)
+        .filter(Rol.cliente_id == cid)
+        .execution_options(skip_tenant=True)
+        .order_by(Rol.es_sistema.desc(), Rol.nombre.asc())
+        .all()
+    )
+    # Red de seguridad: si el ayuntamiento no tuviera roles (datos antiguos), se
+    # siembran al vuelo para no mostrar una pantalla vacía.
+    if not roles:
+        _sembrar_roles_cliente(db, cid)
+        db.commit()
+        roles = (
+            db.query(Rol)
+            .filter(Rol.cliente_id == cid)
+            .execution_options(skip_tenant=True)
+            .order_by(Rol.es_sistema.desc(), Rol.nombre.asc())
+            .all()
+        )
+    return {
+        "catalogo": permisos_catalogo.catalogo_serializable(),
+        "roles": [_rol_to_dict(db, r, cid) for r in roles],
+    }
+
+
+@app.post("/roles", status_code=201)
+def crear_rol(
+    payload: RolCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _cliente_activo_o_400(current_user, db)
+    nombre = (payload.nombre or "").strip()
+    if len(nombre) < 2:
+        raise HTTPException(status_code=400, detail="El nombre del rol debe tener al menos 2 caracteres.")
+    permisos = _sanear_permisos(payload.permisos)
+    clave = _clave_rol_unica(db, cid, nombre)
+    rol = Rol(
+        cliente_id=cid,
+        clave=clave,
+        nombre=nombre,
+        es_sistema=False,
+        permisos=permisos,
+        solo_sus_pedidos=bool(payload.solo_sus_pedidos),
+        solo_reposiciones_aprobadas=bool(payload.solo_reposiciones_aprobadas),
+        ocultar_internos=bool(payload.ocultar_internos),
+    )
+    db.add(rol)
+    db.commit()
+    db.refresh(rol)
+    return _rol_to_dict(db, rol, cid)
+
+
+@app.put("/roles/{rol_id}")
+def actualizar_rol(
+    rol_id: int,
+    payload: RolUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _cliente_activo_o_400(current_user, db)
+    rol = (
+        db.query(Rol)
+        .filter(Rol.id == rol_id, Rol.cliente_id == cid)
+        .execution_options(skip_tenant=True)
+        .first()
+    )
+    if not rol:
+        raise HTTPException(status_code=404, detail="Rol no encontrado.")
+    if payload.nombre is not None:
+        nombre = payload.nombre.strip()
+        if len(nombre) < 2:
+            raise HTTPException(status_code=400, detail="El nombre del rol debe tener al menos 2 caracteres.")
+        rol.nombre = nombre
+    if payload.permisos is not None:
+        rol.permisos = _sanear_permisos(payload.permisos)
+    if payload.solo_sus_pedidos is not None:
+        rol.solo_sus_pedidos = bool(payload.solo_sus_pedidos)
+    if payload.solo_reposiciones_aprobadas is not None:
+        rol.solo_reposiciones_aprobadas = bool(payload.solo_reposiciones_aprobadas)
+    if payload.ocultar_internos is not None:
+        rol.ocultar_internos = bool(payload.ocultar_internos)
+    db.add(rol)
+    db.commit()
+    db.refresh(rol)
+    return _rol_to_dict(db, rol, cid)
+
+
+@app.delete("/roles/{rol_id}")
+def eliminar_rol(
+    rol_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["admin"])),
+):
+    cid = _cliente_activo_o_400(current_user, db)
+    rol = (
+        db.query(Rol)
+        .filter(Rol.id == rol_id, Rol.cliente_id == cid)
+        .execution_options(skip_tenant=True)
+        .first()
+    )
+    if not rol:
+        raise HTTPException(status_code=404, detail="Rol no encontrado.")
+    en_uso = (
+        db.query(Usuario)
+        .filter(Usuario.cliente_id == cid, func.lower(Usuario.rol) == rol.clave)
+        .execution_options(skip_tenant=True)
+        .count()
+    )
+    if en_uso > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"No se puede borrar: {en_uso} usuario(s) tienen este rol. Reasígnalos primero.",
+        )
+    db.delete(rol)
+    db.commit()
+    return {"ok": True, "deleted": rol_id}
+
+
 @app.get("/admin/users")
 def admin_list_users(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin"])),
+    current_user: Usuario = Depends(require_permiso("admin.usuarios", escribir=False)),
 ):
     users = db.query(Usuario).order_by(Usuario.username.asc()).all()
     # Mapa cliente_id -> nombre para mostrar la institución de cada usuario.
@@ -5621,7 +6016,7 @@ def admin_list_users(
 def admin_create_user(
     payload: AdminUserCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin"])),
+    current_user: Usuario = Depends(require_permiso("admin.usuarios")),
 ):
     username = (payload.username or "").strip()
     if len(username) < 3:
@@ -5729,7 +6124,7 @@ def admin_update_user(
     user_id: int,
     payload: AdminUserUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin"])),
+    current_user: Usuario = Depends(require_permiso("admin.usuarios")),
 ):
     user = db.query(Usuario).filter(Usuario.id == user_id).first()
     if not user:
@@ -5804,7 +6199,7 @@ def admin_update_user(
 def admin_delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin"])),
+    current_user: Usuario = Depends(require_permiso("admin.usuarios")),
 ):
     user = db.query(Usuario).filter(Usuario.id == user_id).first()
     if not user:
@@ -5844,7 +6239,7 @@ def admin_delete_user(
 def admin_resend_invitation(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin"])),
+    current_user: Usuario = Depends(require_permiso("admin.usuarios")),
 ):
     user = db.query(Usuario).filter(Usuario.id == user_id).first()
     if not user:
@@ -5872,7 +6267,7 @@ def admin_resend_invitation(
 def admin_reset_password(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin"])),
+    current_user: Usuario = Depends(require_permiso("admin.usuarios")),
 ):
     user = db.query(Usuario).filter(Usuario.id == user_id).first()
     if not user:
@@ -5895,7 +6290,7 @@ def admin_reset_password(
 def admin_unlock_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin"])),
+    current_user: Usuario = Depends(require_permiso("admin.usuarios")),
 ):
     user = db.query(Usuario).filter(Usuario.id == user_id).first()
     if not user:
@@ -6132,7 +6527,7 @@ def _serialize_zona(z: ZonaPolygon) -> dict:
 def get_zonas_config(
     response: Response,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permiso("general.mapa", escribir=False)),
 ):
     """
     Devuelve la configuración de zonas del mapa DEL AYUNTAMIENTO ACTIVO.
@@ -6169,7 +6564,7 @@ def get_zonas_config(
 def put_zonas_config(
     payload: list[ZonaPolygonIn],
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["admin"])),
+    current_user: Usuario = Depends(require_permiso("general.mapa_editar_zonas")),
 ):
     """
     Reemplaza la configuración de zonas completa. Solo admin.
@@ -6238,6 +6633,7 @@ _BACKUP_MODELS = [
     # El ayuntamiento va primero: es el padre al que referencian todos los demás.
     Cliente,
     Usuario,
+    Rol,
     Producto,
     CaducidadConfig,
     ZonaPolygon,

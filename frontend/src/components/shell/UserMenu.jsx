@@ -1,4 +1,4 @@
-import { KeyRound, LifeBuoy, LogOut, Users, Map, Settings } from "lucide-react";
+import { KeyRound, LifeBuoy, LogOut, Users, Map, Settings, ShieldCheck } from "lucide-react";
 
 import {
   Button,
@@ -40,6 +40,7 @@ export default function UserMenu({
   onChangePassword,
   onOpenHelp,
   onOpenUsuarios,
+  onOpenRoles,
   onOpenMapa,
   onOpenAjustes,
   onLogout,
@@ -82,6 +83,13 @@ export default function UserMenu({
           <DropdownMenuItem onSelect={onOpenUsuarios}>
             <Users className="size-4" />
             {L.usuarios}
+          </DropdownMenuItem>
+        )}
+
+        {canManageUsuarios && onOpenRoles && (
+          <DropdownMenuItem onSelect={onOpenRoles}>
+            <ShieldCheck className="size-4" />
+            {L.roles}
           </DropdownMenuItem>
         )}
 

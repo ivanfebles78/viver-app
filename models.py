@@ -1,4 +1,17 @@
-from sqlalchemy import Column, Integer, String, Date, DateTime, Boolean, ForeignKey, Text, Numeric, LargeBinary
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Date,
+    DateTime,
+    Boolean,
+    ForeignKey,
+    Text,
+    Numeric,
+    LargeBinary,
+    JSON,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from db import Base
@@ -71,6 +84,38 @@ class Usuario(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     cliente = relationship("Cliente")
+
+
+# =========================
+# ROLES Y PERMISOS (RBAC por ayuntamiento)
+# =========================
+# Cada ayuntamiento (cliente) tiene su propio juego de roles, sembrado a partir
+# de la matriz por defecto (ver permisos_catalogo.py) y editable por su
+# administrador. `Usuario.rol` guarda la `clave` del rol dentro del mismo
+# cliente. El rol `superadmin` NO se guarda aquí: es god-mode global y no se
+# edita. `admin_vivero` se resuelve como alias de `admin`.
+class Rol(Base):
+    __tablename__ = "roles"
+    __table_args__ = (UniqueConstraint("cliente_id", "clave", name="uq_rol_cliente_clave"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True, index=True)
+    # Clave interna estable (slug). Es a lo que apunta Usuario.rol. No cambia al
+    # renombrar: renombrar edita `nombre` (la etiqueta visible).
+    clave = Column(String(40), nullable=False, index=True)
+    nombre = Column(String(80), nullable=False)
+    # Marca los 7 roles sembrados por defecto (para la UI); siguen siendo
+    # editables salvo superadmin, que ni siquiera es una fila.
+    es_sistema = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Matriz de acceso: { funcionalidad_clave: "none" | "read" | "full" }.
+    permisos = Column(JSON, nullable=False, default=dict)
+    # Casillas de ALCANCE (filtran los datos que ve el rol, no el acceso).
+    solo_sus_pedidos = Column(Boolean, nullable=False, default=False, server_default="false")
+    solo_reposiciones_aprobadas = Column(Boolean, nullable=False, default=False, server_default="false")
+    ocultar_internos = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 # =========================
