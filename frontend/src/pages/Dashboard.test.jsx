@@ -171,116 +171,11 @@ describe("Dashboard · estructura y jerarquía", () => {
     // Sin la pista, «2» no distingue unidades de lotes ni de productos.
     expect(screen.getByText("En catálogo")).toBeInTheDocument();
     expect(screen.getByText("Unidades en existencias")).toBeInTheDocument();
-    expect(screen.getByText("Productos por reponer")).toBeInTheDocument();
   });
 
-  it("marca «bajo mínimo» solo cuando hay algo que reponer", async () => {
-    pintar();
-    expect(await screen.findByText("Requiere reposición")).toBeInTheDocument();
-  });
-
-  it("no marca «bajo mínimo» cuando el valor es 0", async () => {
-    // Un 0 aquí es lo normal: teñirlo sería celebrar la ausencia de problemas.
-    getProductos.mockResolvedValue([{ id: 1, nombre_natural: "Drago", stock: 80, stock_minimo: 10 }]);
-    pintar();
-    await screen.findByText("Productos");
-    expect(screen.queryByText("Requiere reposición")).not.toBeInTheDocument();
-  });
-
-  it("lista QUÉ productos están bajo mínimo, no solo cuántos", async () => {
-    /*
-     * El panel anterior calculaba este conjunto y lo tiraba: mostraba «1» sin
-     * decir cuál. Es dato que ya existía, no funcionalidad nueva.
-     */
-    pintar();
-    const tablas = await screen.findAllByRole("table");
-    const texto = tablas.map((t) => t.textContent).join(" ");
-    expect(texto).toContain("Drago");
-    expect(texto).not.toContain("Palmera");
-  });
-
-  it("cuando no hay nada urgente lo dice, en vez de dejar un hueco", async () => {
-    getProductos.mockResolvedValue([{ id: 1, nombre_natural: "Drago", stock: 80, stock_minimo: 10 }]);
-    getPedidos.mockResolvedValue([]);
-    pintar();
-    expect(await screen.findByText(/no hay nada pendiente|sin nada que requiera/i)).toBeInTheDocument();
-  });
-});
-
-describe("Dashboard · caducidades", () => {
-  /** Fecha relativa a hoy, para no depender del día en que se ejecute. */
-  const enDias = (n) => {
-    const d = new Date();
-    d.setDate(d.getDate() + n);
-    return d.toISOString().slice(0, 10);
-  };
-
-  beforeEach(() => {
-    getPedidos.mockResolvedValue([]);
-  });
-
-  it("ordena por urgencia: lo caducado antes que lo próximo a caducar", async () => {
-    getProductos.mockResolvedValue([
-      {
-        id: 1,
-        nombre_natural: "Vigente",
-        lotes: [{ uuid: "u-vig", cantidad: 1, fecha_caducidad: enDias(200) }],
-      },
-      {
-        id: 2,
-        nombre_natural: "Proximo",
-        lotes: [{ uuid: "u-pro", cantidad: 1, fecha_caducidad: enDias(3) }],
-      },
-      {
-        id: 3,
-        nombre_natural: "Caducado",
-        lotes: [{ uuid: "u-cad", cantidad: 1, fecha_caducidad: enDias(-10) }],
-      },
-    ]);
-    pintar();
-
-    const tabla = (await screen.findAllByRole("table"))[0];
-    const filas = within(tabla).getAllByRole("row").slice(1);
-    const nombres = filas.map((f) => f.textContent);
-
-    expect(nombres[0]).toContain("Caducado");
-    expect(nombres[1]).toContain("Proximo");
-    // Lo vigente no requiere atención y no entra en esta tabla.
-    expect(nombres.join(" ")).not.toContain("Vigente");
-  });
-
-  it("fusiona el mismo lote llegue por alertas_caducidad o por lotes", async () => {
-    // La clave de deduplicación de main omite `id` y `source` justo para esto.
-    getProductos.mockResolvedValue([
-      {
-        id: 1,
-        nombre_natural: "Drago",
-        alertas_caducidad: [
-          { uuid_lote: "L1", zona: "A", tamano: "M", cantidad: 5, fecha_caducidad: enDias(-1) },
-        ],
-        lotes: [{ uuid: "L1", zona: "A", tamano: "M", cantidad: 5, fecha_caducidad: enDias(-1) }],
-      },
-    ]);
-    pintar();
-
-    const tabla = (await screen.findAllByRole("table"))[0];
-    const filas = within(tabla).getAllByRole("row").slice(1);
-    expect(filas).toHaveLength(1);
-  });
-
-  it("el estado nunca se comunica solo con color", async () => {
-    // SC 1.4.1. La versión anterior teñía la fila y ya está.
-    getProductos.mockResolvedValue([
-      { id: 1, nombre_natural: "Drago", lotes: [{ uuid: "L1", cantidad: 1, fecha_caducidad: enDias(-1) }] },
-    ]);
-    pintar();
-    const tabla = (await screen.findAllByRole("table"))[0];
-    // Una celda con la palabra escrita, no un fondo rojo. Se busca en las
-    // celdas de datos para no contar la cabecera ni el resumen.
-    const celdas = within(tabla).getAllByRole("cell");
-    const conTexto = celdas.filter((c) => /caducado/i.test(c.textContent));
-    expect(conTexto.length).toBeGreaterThan(0);
-  });
+  // NOTA: el panel ya NO muestra el detalle de «bajo mínimo» ni el de
+  // caducidades (hay pantallas/informes dedicados a ello). Las pruebas de esas
+  // secciones se retiraron a propósito con la funcionalidad.
 });
 
 describe("Dashboard · datos parciales y errores", () => {

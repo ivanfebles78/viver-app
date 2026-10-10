@@ -1113,24 +1113,22 @@ function GestionProductosModal({ open, productos, onClose, onChanged, me }) {
               </div>
 
               {/*
-               * CAUSA RAÍZ DEL DEFECTO DE SOLAPE.
+               * ANCHO: la tabla ocupa SIEMPRE el 100% del contenedor y no más.
                *
-               * La tabla era `width: 100%` + `table-layout: fixed` con anchos
-               * en PORCENTAJE, así que nunca superaba el ancho del contenedor
-               * y este `overflow-x: auto` no llegaba a activarse jamás. A 375 px
-               * las columnas se comprimían a 16-24 px, pero los botones
-               * «Editar»/«Eliminar» tienen un ancho mínimo intrínseco mayor y
-               * `overflow: visible`: se salían de su celda y se pintaban ENCIMA
-               * de la contigua.
+               * `table-layout: fixed` + anchos en porcentaje (la colgroup suma
+               * 100%) hacen que la tabla nunca exceda a su contenedor: se ve
+               * entera, sin scroll horizontal, también con la columna «Interno»
+               * y «Acciones». Antes llevaba un `min-width: 760` que la obligaba
+               * a desbordarse (y a pedir scroll) en contenedores más estrechos;
+               * se quitó a petición del usuario.
                *
-               * Con un `min-width` la tabla sí puede exceder al contenedor y el
-               * scroll horizontal entra en funcionamiento, que es el
-               * comportamiento correcto para una tabla densa en móvil. No es un
-               * número por pantalla: es el ancho mínimo con el que las ocho
-               * columnas siguen siendo legibles, y vale para todos los anchos.
+               * Los botones de la columna «Acciones» van en un contenedor con
+               * `flex-wrap`, así que en anchos pequeños se apilan (la fila crece
+               * en alto) en vez de salirse de su celda. `overflow-x: auto` se
+               * mantiene como red de seguridad, pero con width 100% no se dispara.
                */}
               <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-md)" }}>
-                <table style={{ width: "100%", minWidth: 760, borderCollapse: "collapse", tableLayout: "fixed", wordBreak: "break-word" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", wordBreak: "break-word" }}>
                   <colgroup>
                     <col style={{ width: "18%" }} />
                     <col style={{ width: "15%" }} />
