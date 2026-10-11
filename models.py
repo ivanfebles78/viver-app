@@ -136,6 +136,9 @@ class Producto(Base):
     es_interno = Column(Boolean, nullable=False, default=False)
     # Precio unitario en euros (coste de referencia del producto). Opcional.
     precio = Column(Numeric(10, 2), nullable=True)
+    # Código/referencia alfanumérico del producto (lo aporta el ayuntamiento,
+    # normalmente por importación de Excel). Opcional.
+    sku = Column(String(60), nullable=True, index=True)
 
 
 # =========================

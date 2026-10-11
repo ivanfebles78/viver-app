@@ -74,6 +74,7 @@ def _ensure_schema() -> None:
         "ALTER TABLE pedido_items ADD COLUMN IF NOT EXISTS barrio_destino VARCHAR(150)",
         "ALTER TABLE pedido_items ADD COLUMN IF NOT EXISTS direccion_destino VARCHAR(255)",
         "ALTER TABLE productos ADD COLUMN IF NOT EXISTS precio NUMERIC(10,2)",
+        "ALTER TABLE productos ADD COLUMN IF NOT EXISTS sku VARCHAR(60)",
         # Devolución de material de pedidos servidos
         "ALTER TABLE pedido_items ADD COLUMN IF NOT EXISTS cantidad_devuelta NUMERIC(12,3) NOT NULL DEFAULT 0",
         "ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS es_devolucion_pedido BOOLEAN NOT NULL DEFAULT FALSE",
@@ -3056,6 +3057,7 @@ def get_productos(
 
         item = {
             "id": p.id,
+            "sku": getattr(p, "sku", None),
             "nombre_cientifico": p.nombre_cientifico,
             "nombre_natural": p.nombre_natural,
             "nombre": p.nombre_natural or p.nombre_cientifico,
@@ -3123,6 +3125,7 @@ class ProductoCreate(BaseModel):
     stock_minimo: int = 0
     es_interno: bool = False
     precio: Optional[float] = None
+    sku: Optional[str] = None
 
 
 class ProductoUpdate(BaseModel):
@@ -3133,12 +3136,14 @@ class ProductoUpdate(BaseModel):
     stock_minimo: Optional[int] = None
     es_interno: Optional[bool] = None
     precio: Optional[float] = None
+    sku: Optional[str] = None
 
 
 def _producto_dict(p: Producto) -> dict:
     precio = getattr(p, "precio", None)
     return {
         "id": p.id,
+        "sku": getattr(p, "sku", None),
         "nombre_cientifico": p.nombre_cientifico,
         "nombre_natural": p.nombre_natural,
         "categoria": p.categoria,
@@ -3178,6 +3183,7 @@ def crear_producto(
         stock_minimo=int(payload.stock_minimo or 0),
         es_interno=bool(payload.es_interno),
         precio=payload.precio,
+        sku=((payload.sku or "").strip() or None),
     )
     db.add(p)
     db.commit()
@@ -3231,6 +3237,8 @@ def actualizar_producto(
         if payload.precio < 0:
             raise HTTPException(status_code=400, detail="El precio no puede ser negativo")
         producto.precio = payload.precio
+    if payload.sku is not None:
+        producto.sku = payload.sku.strip() or None
 
     db.commit()
     db.refresh(producto)
@@ -3319,6 +3327,7 @@ async def importar_productos(
         "subcategoria":      ["subcategoria", "subcategoría"],
         "stock_minimo":      ["stock_minimo", "stock mínimo", "stock minimo", "minimo"],
         "es_interno":        ["es_interno", "interno", "internal"],
+        "sku":               ["sku", "código", "codigo", "referencia", "ref", "cod"],
     }
 
     cols_lower = {str(c).strip().lower(): c for c in df.columns}
@@ -3375,6 +3384,15 @@ async def importar_productos(
             if "es_interno" in resolved:
                 interno = _parse_bool(row[resolved["es_interno"]])
 
+            # SKU: código/referencia alfanumérico. Si la columna existe pero la
+            # celda está vacía, se deja en None (no se pisa con "nan").
+            sku_val = None
+            tiene_col_sku = "sku" in resolved
+            if tiene_col_sku:
+                v = row[resolved["sku"]]
+                if v is not None and str(v).strip().lower() not in ("", "nan"):
+                    sku_val = str(v).strip()
+
             existente = (
                 db.query(Producto)
                 .filter(func.lower(Producto.nombre_cientifico) == nc.lower())
@@ -3386,6 +3404,10 @@ async def importar_productos(
                 existente.subcategoria = sub
                 existente.stock_minimo = minimo
                 existente.es_interno = interno
+                # Solo se actualiza el SKU si el archivo trae esa columna, para no
+                # borrar los SKU existentes al reimportar sin ella.
+                if tiene_col_sku:
+                    existente.sku = sku_val
                 actualizados += 1
             else:
                 p = Producto(
@@ -3395,6 +3417,7 @@ async def importar_productos(
                     subcategoria=sub,
                     stock_minimo=minimo,
                     es_interno=interno,
+                    sku=sku_val,
                 )
                 db.add(p)
                 insertados += 1
