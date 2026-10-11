@@ -46,7 +46,7 @@ import {
   getProductFormatoConfig,
   getFormatoOptions,
 } from "../utils/formato";
-import VerPlanta from "../components/VerPlanta";
+import VerProducto from "../components/VerProducto";
 import CategoriasModal from "../components/common/CategoriasModal";
 import { usePlantsWithImage } from "../utils/plantImages";
 
@@ -89,10 +89,12 @@ const ProductoRow = memo(function ProductoRow({
     */
     <tr>
       <td>
+        {/* El nombre abre SIEMPRE la ficha de detalle (con SKU), tenga foto o
+            no. La imagen, si existe, se muestra dentro de esa ficha. */}
         <div style={{ fontWeight: "var(--font-weight-semibold)" }}>
-          <VerPlanta nombreCientifico={p.nombre_cientifico} nombreNatural={p.nombre_natural} variant="link" stopPropagation={false}>
+          <VerProducto producto={p} stopPropagation={false}>
             {productScientificName(p)}
-          </VerPlanta>
+          </VerProducto>
         </div>
       </td>
       <td>
