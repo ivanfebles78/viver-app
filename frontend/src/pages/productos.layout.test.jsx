@@ -227,8 +227,11 @@ describe("Productos · la tabla principal tiene relleno real en las celdas", () 
     expect(FUENTE).not.toMatch(/rowHeight/i);
   });
 
-  it("la tabla principal puede desplazarse en vez de aplastarse", () => {
-    expect(FUENTE).toMatch(/minWidth:\s*720/);
+  it("la tabla principal se ve entera (fixed + 100%, sin minWidth)", () => {
+    // A petición del usuario: debe verse completa sin scroll horizontal, con la
+    // columna «Acciones»/«Pedir más» incluida. Anchos por columna en los <th>.
+    expect(FUENTE).toMatch(/tableLayout:\s*"fixed"/);
+    expect(FUENTE).not.toMatch(/minWidth:\s*720/);
   });
 
   it("las filas siguen renderizándose con su botón dentro", async () => {

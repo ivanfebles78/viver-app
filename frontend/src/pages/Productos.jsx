@@ -1955,24 +1955,29 @@ export default function Productos() {
             tabla sin avisar de que hay más a los lados (SC 1.3.1, 4.1.2).
           */
           role="region"
-          aria-label="Catálogo de productos. Tabla desplazable en horizontal."
+          aria-label="Catálogo de productos."
           tabIndex={0}
           style={{ overflowX: "auto", minWidth: 0, maxWidth: "100%" }}
         >
           <table
             className="w-full border-collapse [&_td]:p-3 [&_td]:align-middle [&_th]:p-3 [&_tbody_tr]:border-t [&_tbody_tr]:border-[var(--border)]"
-            style={{ minWidth: 720 }}
+            /* `table-layout: fixed` + `width: 100%` sin `min-width`: la tabla
+               ocupa SIEMPRE el ancho del contenedor y se ve entera (incl. la
+               columna «Interno» y «Acciones»/«Pedir más»), sin scroll horizontal.
+               Los anchos por columna los fijan los <th>; el texto largo de los
+               nombres envuelve con `wordBreak`. */
+            style={{ tableLayout: "fixed", width: "100%", wordBreak: "break-word" }}
           >
             <caption className="sr-only">
               Catálogo de productos con existencias, mínimos y clasificación.
             </caption>
             <thead>
               <tr className="bg-[var(--muted)]">
-                <th scope="col" className="text-left">Nombre científico</th>
-                <th scope="col" className="text-left">Nombre común</th>
-                <th scope="col" className="text-left">Categoría</th>
-                <th scope="col" className="text-left">Subcategoría</th>
-                <th scope="col" className="text-center">Stock</th>
+                <th scope="col" className="w-[16%] text-left">Nombre científico</th>
+                <th scope="col" className="w-[14%] text-left">Nombre común</th>
+                <th scope="col" className="w-[11%] text-left">Categoría</th>
+                <th scope="col" className="w-[11%] text-left">Subcategoría</th>
+                <th scope="col" className="w-[8%] text-center">Stock</th>
                 {/*
                   RESERVADO y DISPONIBLE.
 
@@ -1981,11 +1986,11 @@ export default function Productos() {
                   tras Stock porque se leen como una resta: lo que hay, lo que
                   está comprometido, lo que queda.
                 */}
-                <th scope="col" className="text-center">Reservado</th>
-                <th scope="col" className="text-center">Disponible</th>
-                {!esEmpresaExterna && <th scope="col" className="text-center">Stock mínimo</th>}
-                {puedeMarcarInterno && <th scope="col" className="text-center">Interno</th>}
-                {puedePedirMas && <th scope="col" className="text-center">Acciones</th>}
+                <th scope="col" className="w-[8%] text-center">Reservado</th>
+                <th scope="col" className="w-[9%] text-center">Disponible</th>
+                {!esEmpresaExterna && <th scope="col" className="w-[9%] text-center">Stock mínimo</th>}
+                {puedeMarcarInterno && <th scope="col" className="w-[6%] text-center">Interno</th>}
+                {puedePedirMas && <th scope="col" className="w-[8%] text-center">Acciones</th>}
               </tr>
             </thead>
             <tbody>

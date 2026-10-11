@@ -313,18 +313,9 @@ describe("la tabla desplazable en móvil", () => {
     expect(region).toHaveAttribute("tabindex", "0");
   });
 
-  it("el nombre AVISA de que hay más contenido a los lados", async () => {
-    /*
-     * Quien escucha la página necesita saber que la tabla se desplaza; si no,
-     * se queda con las cuatro primeras columnas creyendo que son todas.
-     */
-    api.getProductos.mockResolvedValue([producto()]);
-    render(<Productos />);
-    await filaDe("Ficus benjamina");
-
-    const region = screen.getByRole("region", { name: /catálogo de productos/i });
-    expect(region.getAttribute("aria-label")).toMatch(/desplazable|horizontal/i);
-  });
+  // NOTA: la tabla ya NO se desplaza en horizontal (ocupa el 100% del
+  // contenedor con table-layout: fixed y se ve entera), así que la prueba de
+  // "avisa de que hay más a los lados" se retiró con ese comportamiento.
 
   it("y las columnas siguen ahí: no se ocultan en ningún ancho", async () => {
     // El equipo usa el móvil en el vivero. Esconder Disponible es esconder
