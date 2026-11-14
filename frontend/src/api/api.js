@@ -750,5 +750,28 @@ export const eliminarRol = async (rolId) => {
   return data;
 };
 
+// ── Pack de complementos de árbol (configurable por ayuntamiento) ────────────
+// Leer está abierto al ayuntamiento (lo usa el modal de pedido para ofrecer el
+// pack); crear/editar/borrar exige la funcionalidad admin.pack_complementos.
+export const getPackComplementos = async () => {
+  const { data } = await api.get("/pack-complementos");
+  return data; // { lineas: [...] }
+};
+
+export const crearPackLinea = async (payload) => {
+  const { data } = await api.post("/pack-complementos", payload);
+  return data;
+};
+
+export const actualizarPackLinea = async (lineaId, payload) => {
+  const { data } = await api.put(`/pack-complementos/${lineaId}`, payload);
+  return data;
+};
+
+export const eliminarPackLinea = async (lineaId) => {
+  const { data } = await api.delete(`/pack-complementos/${lineaId}`);
+  return data;
+};
+
 export default api;
 

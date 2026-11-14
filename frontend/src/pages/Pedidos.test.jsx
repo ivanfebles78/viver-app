@@ -29,6 +29,7 @@ vi.mock("../api/api", () => ({
   updatePedido: vi.fn(),
   cancelarPedido: vi.fn(),
   descargarPedidoPdf: vi.fn(),
+  getPackComplementos: vi.fn(),
 }));
 
 vi.mock("./pedidos.pdf", () => ({
@@ -84,6 +85,7 @@ beforeEach(() => {
   api.getMovimientos.mockResolvedValue([]);
   api.cancelarPedido.mockResolvedValue({});
   api.updatePedido.mockResolvedValue({});
+  api.getPackComplementos.mockResolvedValue({ lineas: [] });
 });
 
 afterEach(() => {

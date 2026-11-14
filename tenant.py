@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session, with_loader_criteria
 from models import (
     Usuario,
     Rol,
+    PackComplementoLinea,
     Producto,
     Categoria,
     Subcategoria,
@@ -62,6 +63,7 @@ from models import (
 TENANT_MODELS = [
     Usuario,
     Rol,
+    PackComplementoLinea,
     Producto,
     Categoria,
     Subcategoria,

@@ -25,6 +25,7 @@ from models import (
     Cliente,
     Usuario,
     Rol,
+    PackComplementoLinea,
     Producto,
     Categoria,
     Subcategoria,
@@ -75,6 +76,7 @@ def _ensure_schema() -> None:
         "ALTER TABLE pedido_items ADD COLUMN IF NOT EXISTS direccion_destino VARCHAR(255)",
         "ALTER TABLE productos ADD COLUMN IF NOT EXISTS precio NUMERIC(10,2)",
         "ALTER TABLE productos ADD COLUMN IF NOT EXISTS sku VARCHAR(60)",
+        "ALTER TABLE productos ADD COLUMN IF NOT EXISTS complemento_arbol VARCHAR(30)",
         # Devolución de material de pedidos servidos
         "ALTER TABLE pedido_items ADD COLUMN IF NOT EXISTS cantidad_devuelta NUMERIC(12,3) NOT NULL DEFAULT 0",
         "ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS es_devolucion_pedido BOOLEAN NOT NULL DEFAULT FALSE",
@@ -213,6 +215,38 @@ def _sembrar_roles_todos(db: Session) -> None:
         print(f"[seed] Sembrados {total} roles por defecto en ayuntamientos sin roles.")
 
 
+def _completar_permisos_roles(db: Session) -> None:
+    """Backfill: asegura que TODO rol ya sembrado tenga en su matriz las
+    funcionalidades NUEVAS del catálogo (las que no existían cuando se sembró).
+
+    - Rol de sistema: la funcionalidad nueva entra con su nivel POR DEFECTO de la
+      matriz del PDF (p.ej. admin.pack_complementos = full para admin/manager).
+    - Rol personalizado: entra con "none" (el admin decide si lo concede).
+
+    Idempotente: solo escribe los roles que tenían claves de catálogo ausentes.
+    Esto mantiene los roles al día según crece el catálogo sin re-sembrar."""
+    claves = [f["clave"] for f in permisos_catalogo.FUNCIONALIDADES]
+    roles = db.query(Rol).execution_options(skip_tenant=True).all()
+    cambiados = 0
+    for rol in roles:
+        permisos = dict(rol.permisos or {})
+        faltan = [k for k in claves if k not in permisos]
+        if not faltan:
+            continue
+        if rol.es_sistema and rol.clave in permisos_catalogo.ROLES_SISTEMA:
+            por_defecto = permisos_catalogo.permisos_por_defecto(rol.clave)
+        else:
+            por_defecto = {}
+        for k in faltan:
+            permisos[k] = por_defecto.get(k, "none")
+        rol.permisos = permisos
+        db.add(rol)
+        cambiados += 1
+    if cambiados:
+        db.commit()
+        print(f"[seed] Completadas funcionalidades nuevas del catálogo en {cambiados} rol(es).")
+
+
 def _seed_bootstrap() -> None:
     """Arranque de una BD nueva y vacía: crea el ayuntamiento de Santa Cruz
     (cliente id=1) y, si no existe ningún usuario, un super-admin global y un
@@ -274,6 +308,9 @@ def _seed_bootstrap() -> None:
         # Siembra los roles por defecto en los ayuntamientos que aún no tengan
         # ninguno (BD nueva y también backfill de ayuntamientos ya existentes).
         _sembrar_roles_todos(db)
+        # Y completa las funcionalidades NUEVAS del catálogo en los roles ya
+        # sembrados (p.ej. admin.pack_complementos para admin/manager).
+        _completar_permisos_roles(db)
     except Exception as exc:  # pragma: no cover - no debe tumbar el arranque
         db.rollback()
         print(f"[seed] aviso durante el arranque: {exc}")
@@ -3058,6 +3095,7 @@ def get_productos(
         item = {
             "id": p.id,
             "sku": getattr(p, "sku", None),
+            "complemento_arbol": getattr(p, "complemento_arbol", None),
             "nombre_cientifico": p.nombre_cientifico,
             "nombre_natural": p.nombre_natural,
             "nombre": p.nombre_natural or p.nombre_cientifico,
@@ -3126,6 +3164,7 @@ class ProductoCreate(BaseModel):
     es_interno: bool = False
     precio: Optional[float] = None
     sku: Optional[str] = None
+    complemento_arbol: Optional[str] = None
 
 
 class ProductoUpdate(BaseModel):
@@ -3137,6 +3176,7 @@ class ProductoUpdate(BaseModel):
     es_interno: Optional[bool] = None
     precio: Optional[float] = None
     sku: Optional[str] = None
+    complemento_arbol: Optional[str] = None
 
 
 def _producto_dict(p: Producto) -> dict:
@@ -3144,6 +3184,7 @@ def _producto_dict(p: Producto) -> dict:
     return {
         "id": p.id,
         "sku": getattr(p, "sku", None),
+        "complemento_arbol": getattr(p, "complemento_arbol", None),
         "nombre_cientifico": p.nombre_cientifico,
         "nombre_natural": p.nombre_natural,
         "categoria": p.categoria,
@@ -3184,6 +3225,7 @@ def crear_producto(
         es_interno=bool(payload.es_interno),
         precio=payload.precio,
         sku=((payload.sku or "").strip() or None),
+        complemento_arbol=((payload.complemento_arbol or "").strip().lower() or None),
     )
     db.add(p)
     db.commit()
@@ -3239,6 +3281,8 @@ def actualizar_producto(
         producto.precio = payload.precio
     if payload.sku is not None:
         producto.sku = payload.sku.strip() or None
+    if payload.complemento_arbol is not None:
+        producto.complemento_arbol = payload.complemento_arbol.strip().lower() or None
 
     db.commit()
     db.refresh(producto)
@@ -3328,6 +3372,7 @@ async def importar_productos(
         "stock_minimo":      ["stock_minimo", "stock mínimo", "stock minimo", "minimo"],
         "es_interno":        ["es_interno", "interno", "internal"],
         "sku":               ["sku", "código", "codigo", "referencia", "ref", "cod"],
+        "complemento_arbol": ["complemento_arbol", "complemento", "complemento árbol", "complemento arbol"],
     }
 
     cols_lower = {str(c).strip().lower(): c for c in df.columns}
@@ -3393,6 +3438,13 @@ async def importar_productos(
                 if v is not None and str(v).strip().lower() not in ("", "nan"):
                     sku_val = str(v).strip()
 
+            comp_val = None
+            tiene_col_comp = "complemento_arbol" in resolved
+            if tiene_col_comp:
+                v = row[resolved["complemento_arbol"]]
+                if v is not None and str(v).strip().lower() not in ("", "nan"):
+                    comp_val = str(v).strip().lower()
+
             existente = (
                 db.query(Producto)
                 .filter(func.lower(Producto.nombre_cientifico) == nc.lower())
@@ -3408,6 +3460,8 @@ async def importar_productos(
                 # borrar los SKU existentes al reimportar sin ella.
                 if tiene_col_sku:
                     existente.sku = sku_val
+                if tiene_col_comp:
+                    existente.complemento_arbol = comp_val
                 actualizados += 1
             else:
                 p = Producto(
@@ -3418,6 +3472,7 @@ async def importar_productos(
                     stock_minimo=minimo,
                     es_interno=interno,
                     sku=sku_val,
+                    complemento_arbol=comp_val,
                 )
                 db.add(p)
                 insertados += 1
@@ -3434,6 +3489,165 @@ async def importar_productos(
         "saltados": saltados,
         "errores": errores[:50],  # no devolver listas enormes
     }
+
+
+# =============================
+# PACK DE COMPLEMENTOS DE ÁRBOL (configurable por ayuntamiento)
+# =============================
+# El admin/manager define las líneas del pack (qué producto complemento y cuánto
+# por árbol). Al añadir un árbol a un pedido, el frontend lee estas líneas y
+# ofrece los complementos. Leer el pack está abierto al ayuntamiento (lo necesita
+# quien crea pedidos); editarlo exige la funcionalidad admin.pack_complementos.
+class PackLineaCreate(BaseModel):
+    producto_id: int
+    cantidad_por_arbol: float
+    tamano: Optional[str] = None
+
+
+class PackLineaUpdate(BaseModel):
+    cantidad_por_arbol: Optional[float] = None
+    tamano: Optional[str] = None
+
+
+def _pack_linea_dict(linea: PackComplementoLinea, prod: Optional[Producto] = None) -> dict:
+    p = prod if prod is not None else getattr(linea, "producto", None)
+    nombre = None
+    sku = None
+    subcat = None
+    if p is not None:
+        nombre = p.nombre_cientifico or p.nombre_natural or f"Producto #{p.id}"
+        sku = getattr(p, "sku", None)
+        subcat = p.subcategoria
+    return {
+        "id": linea.id,
+        "producto_id": linea.producto_id,
+        "producto_nombre": nombre,
+        "producto_sku": sku,
+        "producto_subcategoria": subcat,
+        "cantidad_por_arbol": float(linea.cantidad_por_arbol or 0),
+        "tamano": linea.tamano,
+        "orden": int(linea.orden or 0),
+    }
+
+
+@app.get("/pack-complementos")
+def listar_pack_complementos(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Líneas del pack del ayuntamiento activo. Lectura abierta (la usa quien
+    crea pedidos para ofrecer el pack al añadir un árbol)."""
+    cid = _resolve_active_cliente_id(current_user, db)
+    if cid is None:
+        return {"lineas": []}
+    lineas = (
+        db.query(PackComplementoLinea)
+        .filter(PackComplementoLinea.cliente_id == cid)
+        .options(selectinload(PackComplementoLinea.producto))
+        .execution_options(skip_tenant=True)
+        .order_by(PackComplementoLinea.orden.asc(), PackComplementoLinea.id.asc())
+        .all()
+    )
+    return {"lineas": [_pack_linea_dict(l) for l in lineas]}
+
+
+@app.post("/pack-complementos", status_code=201)
+def crear_pack_linea(
+    payload: PackLineaCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permiso("admin.pack_complementos")),
+):
+    cid = _cliente_activo_o_400(current_user, db)
+    prod = (
+        db.query(Producto)
+        .filter(Producto.id == payload.producto_id, Producto.cliente_id == cid)
+        .execution_options(skip_tenant=True)
+        .first()
+    )
+    if not prod:
+        raise HTTPException(status_code=400, detail="El producto no existe en este ayuntamiento.")
+    if payload.cantidad_por_arbol is None or payload.cantidad_por_arbol <= 0:
+        raise HTTPException(status_code=400, detail="La cantidad por árbol debe ser mayor que 0.")
+    # Evita duplicar el mismo producto+tamaño en el pack.
+    tam = (payload.tamano or "").strip() or None
+    dup = (
+        db.query(PackComplementoLinea)
+        .filter(
+            PackComplementoLinea.cliente_id == cid,
+            PackComplementoLinea.producto_id == prod.id,
+            PackComplementoLinea.tamano.is_(None) if tam is None else PackComplementoLinea.tamano == tam,
+        )
+        .execution_options(skip_tenant=True)
+        .first()
+    )
+    if dup:
+        raise HTTPException(status_code=409, detail="Ese producto ya está en el pack con ese tamaño.")
+    maxorden = (
+        db.query(func.coalesce(func.max(PackComplementoLinea.orden), 0))
+        .filter(PackComplementoLinea.cliente_id == cid)
+        .execution_options(skip_tenant=True)
+        .scalar()
+    )
+    linea = PackComplementoLinea(
+        cliente_id=cid,
+        producto_id=prod.id,
+        cantidad_por_arbol=payload.cantidad_por_arbol,
+        tamano=tam,
+        orden=int(maxorden or 0) + 1,
+    )
+    db.add(linea)
+    db.commit()
+    db.refresh(linea)
+    return _pack_linea_dict(linea, prod)
+
+
+@app.put("/pack-complementos/{linea_id}")
+def editar_pack_linea(
+    linea_id: int,
+    payload: PackLineaUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permiso("admin.pack_complementos")),
+):
+    cid = _cliente_activo_o_400(current_user, db)
+    linea = (
+        db.query(PackComplementoLinea)
+        .filter(PackComplementoLinea.id == linea_id, PackComplementoLinea.cliente_id == cid)
+        .options(selectinload(PackComplementoLinea.producto))
+        .execution_options(skip_tenant=True)
+        .first()
+    )
+    if not linea:
+        raise HTTPException(status_code=404, detail="Línea del pack no encontrada.")
+    if payload.cantidad_por_arbol is not None:
+        if payload.cantidad_por_arbol <= 0:
+            raise HTTPException(status_code=400, detail="La cantidad por árbol debe ser mayor que 0.")
+        linea.cantidad_por_arbol = payload.cantidad_por_arbol
+    if payload.tamano is not None:
+        linea.tamano = payload.tamano.strip() or None
+    db.add(linea)
+    db.commit()
+    db.refresh(linea)
+    return _pack_linea_dict(linea)
+
+
+@app.delete("/pack-complementos/{linea_id}")
+def eliminar_pack_linea(
+    linea_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permiso("admin.pack_complementos")),
+):
+    cid = _cliente_activo_o_400(current_user, db)
+    linea = (
+        db.query(PackComplementoLinea)
+        .filter(PackComplementoLinea.id == linea_id, PackComplementoLinea.cliente_id == cid)
+        .execution_options(skip_tenant=True)
+        .first()
+    )
+    if not linea:
+        raise HTTPException(status_code=404, detail="Línea del pack no encontrada.")
+    db.delete(linea)
+    db.commit()
+    return {"ok": True, "deleted": linea_id}
 
 
 # =============================
@@ -6658,6 +6872,7 @@ _BACKUP_MODELS = [
     Usuario,
     Rol,
     Producto,
+    PackComplementoLinea,
     CaducidadConfig,
     ZonaPolygon,
     Lote,

@@ -26,6 +26,7 @@ import {
   resolveLandingRoute,
   canSelectCliente,
   canManageUsuarios,
+  canManagePackComplementos,
   canSeeNotifications,
   canOpenMapaVivero,
   canManageMapaImagen,
@@ -302,12 +303,14 @@ export default function Layout() {
             username={me?.username}
             rol={rolMostrado}
             canManageUsuarios={canManageUsuarios(me)}
+            canManagePack={canManagePackComplementos(me)}
             canOpenMapa={canOpenMapaVivero(me)}
             canManageAjustes={canManageAjustes(me)}
             onChangePassword={() => setPasswordModalOpen(true)}
             onOpenHelp={() => setWelcomeOpen(true)}
             onOpenUsuarios={() => navigate(ROUTES.ADMIN_USUARIOS)}
             onOpenRoles={() => navigate(ROUTES.ADMIN_ROLES)}
+            onOpenPack={() => navigate(ROUTES.ADMIN_PACK)}
             onOpenMapa={() => setMapOpen(true)}
             onOpenAjustes={() => setAjustesOpen(true)}
             onLogout={logout}

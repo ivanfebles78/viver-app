@@ -139,6 +139,37 @@ class Producto(Base):
     # Código/referencia alfanumérico del producto (lo aporta el ayuntamiento,
     # normalmente por importación de Excel). Opcional.
     sku = Column(String(60), nullable=True, index=True)
+    # Etiqueta que marca a un producto como COMPLEMENTO de árbol (tutores, cinta,
+    # etc.). Se conserva del original para identificar los complementos; el pack
+    # editable (PackComplementoLinea) referencia el producto por id. Opcional.
+    complemento_arbol = Column(String(30), nullable=True)
+
+
+# =========================
+# PACK DE COMPLEMENTOS DE ÁRBOL (configurable por ayuntamiento)
+# =========================
+# Al añadir un ÁRBOL a un pedido se ofrece un "pack" de complementos (ferretería:
+# tutores, travesaños, clavos, cinta, hebillas…). En el original las cantidades
+# estaban HARDCODEADAS; aquí el admin del ayuntamiento define las líneas (qué
+# producto y cuánto por árbol), y es POR AYUNTAMIENTO.
+class PackComplementoLinea(Base):
+    __tablename__ = "pack_complemento_lineas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True, index=True)
+    # Producto complemento que se ofrece (p.ej. "Tutor 2,4").
+    producto_id = Column(Integer, ForeignKey("productos.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Cantidad a ofrecer POR CADA ÁRBOL añadido al pedido.
+    cantidad_por_arbol = Column(Numeric(12, 3), nullable=False, default=0)
+    # Tamaño/formato del complemento a añadir (si el producto tiene varios). Si
+    # es NULL se usa el primero con existencias al ofrecer.
+    tamano = Column(String(30), nullable=True)
+    # Orden de presentación en el editor y en la oferta.
+    orden = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    producto = relationship("Producto")
 
 
 # =========================

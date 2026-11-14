@@ -41,7 +41,7 @@ vi.mock("../api/api", () => {
     validateAccountToken: f(), login: vi.fn(), authLogin: vi.fn(), forgotPassword: vi.fn(),
     changePassword: vi.fn(), marcarZonaInterna: vi.fn(), updateZonasConfig: vi.fn(),
     fetchMapaImagenUrl: f(), uploadMapaImagen: vi.fn(), getReporteDistribucion: f(),
-    getReporteStockBajo: f(), getReporteMovimientosExternos: f(), descargarPedidoPdf: vi.fn(),
+    getReporteStockBajo: f(), getReporteMovimientosExternos: f(), descargarPedidoPdf: vi.fn(), getPackComplementos: f(),
     setStoredToken: vi.fn(), getStoredToken: vi.fn(), clearStoredToken: vi.fn(),
   };
 });
