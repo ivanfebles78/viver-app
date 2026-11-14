@@ -33,6 +33,7 @@ export const accountLabels = {
   help: "Guía de bienvenida",
   usuarios: "Gestión de usuarios",
   roles: "Roles y permisos",
+  packComplementos: "Pack de complementos",
   mapa: "Mapa del vivero",
   ajustes: "Ajustes del ayuntamiento",
   logout: "Cerrar sesión",

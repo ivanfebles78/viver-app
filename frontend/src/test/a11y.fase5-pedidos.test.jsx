@@ -28,6 +28,7 @@ vi.mock("../api/api", () => ({
   updatePedido: vi.fn(),
   cancelarPedido: vi.fn(),
   descargarPedidoPdf: vi.fn(),
+  getPackComplementos: vi.fn(),
 }));
 
 vi.mock("../pages/pedidos.pdf", () => ({

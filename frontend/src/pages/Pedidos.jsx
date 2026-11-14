@@ -51,6 +51,7 @@ import {
   cancelarPedido,
   eliminarPedido,
   descargarPedidoPdf,
+  getPackComplementos,
 } from "../api/api";
 import { CARD_CLS, INPUT_CLS, TD, TH } from "../components/ui/tableStyles";
 import DevolucionPedidoModal from "./pedidos/DevolucionPedidoModal";
@@ -329,6 +330,29 @@ function PedidoModal({
   // Destinos plegados en el modal (por _id de grupo).
   const [gruposColapsados, setGruposColapsados] = useState({});
   const toggleGrupoColapsado = (id) => setGruposColapsados((p) => ({ ...p, [id]: !p[id] }));
+
+  // Pack de complementos de árbol (config del ayuntamiento). Al añadir un árbol
+  // se ofrece este pack. Se carga al abrir el modal; si falla, el pedido sigue
+  // funcionando sin complementos.
+  const [packLineas, setPackLineas] = useState([]);
+  // Oferta activa: { grupoId, nArboles, arbolNombre, items[], faltan[] } o null.
+  const [complementosOffer, setComplementosOffer] = useState(null);
+  useEffect(() => {
+    let cancel = false;
+    // Resiliente: si la llamada no devuelve una promesa (p.ej. en pruebas con el
+    // mock reseteado), no se rompe el modal; simplemente no hay pack.
+    const r = getPackComplementos();
+    if (r && typeof r.then === "function") {
+      r.then((d) => {
+        if (!cancel) setPackLineas(Array.isArray(d?.lineas) ? d.lineas : []);
+      }).catch(() => {
+        if (!cancel) setPackLineas([]);
+      });
+    }
+    return () => {
+      cancel = true;
+    };
+  }, []);
   // Comentarios/anotaciones que la empresa externa adjunta al pedido; los ve
   // quien aprueba y quien sirve, y salen en el PDF impreso.
   const [nota, setNota] = useState("");
@@ -401,6 +425,73 @@ function PedidoModal({
     (key) => grupos.reduce((s, g) => s + Number(g.cart?.[key] || 0), 0),
     [grupos]
   );
+
+  // ── Pack de complementos de árbol ─────────────────────────────────────────
+  const _normTxt = (s) =>
+    String(s || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "");
+  /** ¿Es un árbol? Por subcategoría, como en el original. */
+  const esArbolProd = (prod) => {
+    const s = _normTxt(prod?.subcategoria);
+    return s === "arbol" || s === "arboles" || s.startsWith("arbol");
+  };
+
+  /**
+   * Resuelve el pack para N árboles: por cada línea de la config busca el
+   * producto complemento en el catálogo, elige tamaño (el configurado o el
+   * primero con stock) y comprueba existencias. Devuelve items disponibles y la
+   * lista de los que faltan (sin stock o sin producto).
+   */
+  const resolveComplementos = (nArboles, grupoId, arbolNombre) => {
+    const n = Math.max(1, Number(nArboles) || 0);
+    const items = [];
+    const faltan = [];
+    for (const linea of packLineas) {
+      const prod = productos.find((p) => p.id === linea.producto_id);
+      if (!prod) {
+        faltan.push("Un complemento del pack ya no existe en el catálogo.");
+        continue;
+      }
+      const nombre = getScientificProductDisplayName(prod);
+      const formatoOptions = getFormatoOptions(getProductFormatoConfig(prod));
+      // Tamaño: el configurado (si tiene stock) o el primero con existencias.
+      let tam = linea.tamano && formatoOptions.includes(linea.tamano) ? linea.tamano : null;
+      if (!tam) {
+        tam =
+          formatoOptions.find(
+            (t) => Math.max(0, Number(stockByProductSize.get(lineKey(prod.id, t)) || 0)) - totalAsignado(lineKey(prod.id, t)) > 0
+          ) ||
+          linea.tamano ||
+          formatoOptions[0] ||
+          null;
+      }
+      if (!tam) {
+        faltan.push(`${nombre}: sin tamaño disponible.`);
+        continue;
+      }
+      const required = Number(linea.cantidad_por_arbol || 0) * n;
+      const key = lineKey(prod.id, tam);
+      const restante = Math.max(0, Number(stockByProductSize.get(key) || 0)) - totalAsignado(key);
+      if (required <= 0) continue;
+      if (restante < required) {
+        faltan.push(`${nombre} (${tam}): faltan ${formatCantidad(required - restante)} de ${formatCantidad(required)}.`);
+        continue;
+      }
+      items.push({ producto_id: prod.id, tamano: tam, nombre, cantidad: required });
+    }
+    return { ok: items.length > 0, grupoId, nArboles: n, arbolNombre, items, faltan };
+  };
+
+  /** Añade al grupo los complementos de la oferta aceptada. */
+  const aceptarComplementos = () => {
+    if (!complementosOffer) return;
+    const { grupoId, items } = complementosOffer;
+    for (const it of items) addToGrupo(grupoId, it.producto_id, it.tamano, it.cantidad);
+    setComplementosOffer(null);
+  };
 
   // Líneas (producto, tamaño, cantidad) de un grupo.
   const grupoLines = (g) =>
@@ -581,6 +672,13 @@ function PedidoModal({
 
     addToGrupo(activeGrupo._id, productoId, tamano, qty);
     setQtyInput((prev) => ({ ...prev, [key]: "" }));
+
+    // Al añadir un ÁRBOL, ofrecer el pack de complementos configurado (si hay).
+    const prodAdded = productos.find((p) => p.id === productoId);
+    if (prodAdded && esArbolProd(prodAdded) && packLineas.length > 0) {
+      const oferta = resolveComplementos(qty, activeGrupo._id, getScientificProductDisplayName(prodAdded));
+      if (oferta.ok) setComplementosOffer(oferta);
+    }
   };
 
   const submitPedido = async () => {
@@ -632,7 +730,8 @@ function PedidoModal({
   };
 
   return (
-    /*
+    <>
+    {/*
      * `Dialog` del sistema en lugar de dos `div` con `position: fixed`
      * anidados. Lo que gana no es aspecto: trampa de foco, cierre con Escape y
      * devolución del foco al botón que lo abrió — ninguna de las tres existía.
@@ -640,7 +739,7 @@ function PedidoModal({
      * Las tres columnas se conservan a partir de `xl`; por debajo se apilan, que
      * es lo que hacía falta: la rejilla fija de tres columnas obligaba a
      * desplazarse en horizontal en cualquier portátil.
-     */
+     */}
     <Dialog open={open} onOpenChange={(abierto) => !abierto && onClose()}>
       <DialogContent
         title="Nuevo pedido"
@@ -1138,6 +1237,58 @@ function PedidoModal({
       </div>
       </DialogContent>
     </Dialog>
+
+    {/* Oferta del pack de complementos al añadir un árbol. */}
+    <Dialog open={!!complementosOffer} onOpenChange={(a) => !a && setComplementosOffer(null)}>
+      {complementosOffer ? (
+        <DialogContent
+          title="🌳 Añadir complementos"
+          description={`Has añadido ${complementosOffer.nArboles} ${
+            complementosOffer.nArboles === 1 ? "árbol" : "árboles"
+          }${complementosOffer.arbolNombre ? ` (${complementosOffer.arbolNombre})` : ""}. ¿Añadimos el pack de complementos asociado?`}
+          closeLabel="Cerrar"
+          size="sm"
+        >
+          <div className="flex flex-col gap-4">
+            <ul className="flex flex-col gap-2">
+              {complementosOffer.items.map((it) => (
+                <li
+                  key={`${it.producto_id}-${it.tamano}`}
+                  className="flex items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-body-sm"
+                >
+                  <span className="min-w-0 break-words">
+                    {it.nombre}
+                    {it.tamano ? ` · ${it.tamano}` : ""}
+                  </span>
+                  <span className="tabular shrink-0 font-[var(--font-weight-medium)]">{formatCantidad(it.cantidad)}</span>
+                </li>
+              ))}
+            </ul>
+
+            {complementosOffer.faltan.length > 0 ? (
+              <Alert tone="warning">
+                Algunos complementos no se pueden añadir ahora:
+                <ul className="mt-1 list-inside list-disc">
+                  {complementosOffer.faltan.map((f, i) => (
+                    <li key={i}>{f}</li>
+                  ))}
+                </ul>
+              </Alert>
+            ) : null}
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
+              <Button type="button" variant="secondary" onClick={() => setComplementosOffer(null)}>
+                Ahora no
+              </Button>
+              <Button type="button" variant="primary" onClick={aceptarComplementos}>
+                Añadir complementos
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      ) : null}
+    </Dialog>
+    </>
   );
 }
 

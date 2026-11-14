@@ -121,6 +121,7 @@ _MATRIX = [
     ("informes.estadisticas", "INFORMES", "Estadísticas (costes)", False, "F N N N N N N"),
     # ADMINISTRACIÓN
     ("admin.usuarios", "ADMINISTRACION", "Gestión de usuarios y roles", False, "F N N N N N N"),
+    ("admin.pack_complementos", "ADMINISTRACION", "Configurar el pack de complementos de árbol", False, "F F N N N N N"),
     ("admin.email", "ADMINISTRACION", "Configuración y prueba de email", False, "F N N N N N N"),
     ("admin.backup", "ADMINISTRACION", "Copia de seguridad y restauración", False, "F N N N N N N"),
 ]

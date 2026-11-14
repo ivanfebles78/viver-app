@@ -146,6 +146,7 @@ export const ROUTES = Object.freeze({
   VIVERO: "/vivero",
   ADMIN_USUARIOS: "/admin/usuarios",
   ADMIN_ROLES: "/admin/roles",
+  ADMIN_PACK: "/admin/pack-complementos",
   PLATAFORMA: "/plataforma",
 });
 
@@ -219,6 +220,7 @@ const ROUTES_BY_ROLE = Object.freeze({
     ROUTES.VIVERO,
     ROUTES.ADMIN_USUARIOS,
     ROUTES.ADMIN_ROLES,
+    ROUTES.ADMIN_PACK,
   ],
   [ROLES.TECNICO]: [
     ROUTES.DASHBOARD,
@@ -237,6 +239,7 @@ const ROUTES_BY_ROLE = Object.freeze({
     ROUTES.INFORMES,
     ROUTES.LOTES,
     ROUTES.VIVERO,
+    ROUTES.ADMIN_PACK,
   ],
   [ROLES.GESTOR_VIVERO]: [
     ROUTES.DASHBOARD,
@@ -302,6 +305,7 @@ const ROUTE_FUNC = Object.freeze({
   [ROUTES.VIVERO]: "general.mapa",
   [ROUTES.ADMIN_USUARIOS]: "admin.usuarios",
   [ROUTES.ADMIN_ROLES]: "admin.usuarios",
+  [ROUTES.ADMIN_PACK]: "admin.pack_complementos",
 });
 
 /** ¿La matriz de `me` concede ver esta ruta? (solo cuando hay matriz). */
@@ -421,6 +425,15 @@ export function canSelectCliente(me) {
 /** Acceso a la gestión de usuarios y roles (`/admin/usuarios`). */
 export function canManageUsuarios(me) {
   return _cap(me, "admin.usuarios", () => rolEfectivo(me) === ROLES.ADMIN);
+}
+
+/** Configurar el pack de complementos de árbol (`/admin/pack-complementos`). */
+export function canManagePackComplementos(me) {
+  return _cap(
+    me,
+    "admin.pack_complementos",
+    () => rolEfectivo(me) === ROLES.ADMIN || rolEfectivo(me) === ROLES.MANAGER
+  );
 }
 
 /** Campana de notificaciones. */

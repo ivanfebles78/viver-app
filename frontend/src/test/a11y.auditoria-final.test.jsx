@@ -66,6 +66,7 @@ vi.mock("../api/api", () => {
     getReporteStockBajo: vacio(),
     getReporteMovimientosExternos: vacio(),
     descargarPedidoPdf: vi.fn(),
+    getPackComplementos: vacio(),
     setStoredToken: vi.fn(),
     getStoredToken: vi.fn(),
     clearStoredToken: vi.fn(),
