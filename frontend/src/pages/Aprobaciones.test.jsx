@@ -22,6 +22,7 @@ vi.mock("../api/api", () => ({
   getPedidos: vi.fn(),
   aprobarPedido: vi.fn(),
   denegarPedido: vi.fn(),
+  reabrirPedido: vi.fn(),
   decidirPedido: vi.fn(),
   descargarPedidoPdf: vi.fn(),
 }));
@@ -328,6 +329,89 @@ describe("Aprobaciones · decisión línea a línea", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(api.decidirPedido).not.toHaveBeenCalled();
+  });
+});
+
+describe("Aprobaciones · reabrir pedidos decididos", () => {
+  // Un pedido ya DENEGADO y SIN material servido: reabrible.
+  const PEDIDO_DENEGADO = {
+    id: 7,
+    estado: "DENEGADO",
+    tipo: "suministro",
+    created_at: "2026-05-01T09:00:00",
+    solicitante_username: "medina",
+    distrito_destino: "Centro-Ifara",
+    items: [linea(71, "DENEGADO")],
+  };
+  // Un pedido APROBADO con material ya servido: NO reabrible.
+  const PEDIDO_SERVIDO = {
+    id: 8,
+    estado: "APROBADO",
+    tipo: "suministro",
+    created_at: "2026-05-01T09:00:00",
+    solicitante_username: "medina",
+    distrito_destino: "Centro-Ifara",
+    items: [linea(81, "APROBADO", { cantidad_servida: 3 })],
+  };
+
+  const abrirDetalle = async (user, id) => {
+    const fila = await filaDe(id);
+    await user.click(within(fila).getByRole("button", { name: /detalle/i }));
+    return screen.findByRole("dialog");
+  };
+
+  it("admin y manager ven «Reabrir pedido» en un pedido decidido sin servir", async () => {
+    for (const rol of ["admin", "manager"]) {
+      conRol(rol);
+      api.getPedidos.mockResolvedValue([PEDIDO_DENEGADO]);
+      const user = userEvent.setup();
+      const { unmount } = pintar();
+      const dlg = await abrirDetalle(user, 7);
+      expect(within(dlg).getByRole("button", { name: /reabrir pedido/i }), rol).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("un rol sin permiso NO ve «Reabrir pedido»", async () => {
+    conRol("tecnico");
+    api.getPedidos.mockResolvedValue([PEDIDO_DENEGADO]);
+    const user = userEvent.setup();
+    pintar();
+    const dlg = await abrirDetalle(user, 7);
+    expect(within(dlg).queryByRole("button", { name: /reabrir pedido/i })).not.toBeInTheDocument();
+  });
+
+  it("un pedido con material servido NO ofrece reabrir", async () => {
+    conRol("admin");
+    api.getPedidos.mockResolvedValue([PEDIDO_SERVIDO]);
+    const user = userEvent.setup();
+    pintar();
+    const dlg = await abrirDetalle(user, 8);
+    expect(within(dlg).queryByRole("button", { name: /reabrir pedido/i })).not.toBeInTheDocument();
+  });
+
+  it("reabrir exige confirmación: no llama al backend hasta confirmar", async () => {
+    conRol("admin");
+    api.getPedidos.mockResolvedValue([PEDIDO_DENEGADO]);
+    const user = userEvent.setup();
+    pintar();
+    const dlg = await abrirDetalle(user, 7);
+    await user.click(within(dlg).getByRole("button", { name: /reabrir pedido/i }));
+    await screen.findByRole("alertdialog");
+    expect(api.reabrirPedido).not.toHaveBeenCalled();
+  });
+
+  it("confirmar SÍ reabre el pedido", async () => {
+    conRol("admin");
+    api.getPedidos.mockResolvedValue([PEDIDO_DENEGADO]);
+    api.reabrirPedido.mockResolvedValue({ ...PEDIDO_DENEGADO, estado: "RESERVA" });
+    const user = userEvent.setup();
+    pintar();
+    const dlg = await abrirDetalle(user, 7);
+    await user.click(within(dlg).getByRole("button", { name: /reabrir pedido/i }));
+    const confirmDlg = await screen.findByRole("alertdialog");
+    await user.click(within(confirmDlg).getByRole("button", { name: /^reabrir$/i }));
+    await waitFor(() => expect(api.reabrirPedido).toHaveBeenCalledWith(7));
   });
 });
 

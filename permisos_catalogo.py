@@ -104,6 +104,7 @@ _MATRIX = [
     ("pedidos.modificacion", "PEDIDOS", "Solicitar modificación de pedido", False, "F N F F N N N"),
     ("pedidos.devolucion", "PEDIDOS", "Registrar devolución de pedido", False, "F F F F N N N"),
     ("pedidos.aceptar", "PEDIDOS", "Marcar leído / aceptar pedido", False, "N N N N N F N"),
+    ("pedidos.reabrir", "PEDIDOS", "Reabrir pedido decidido (vuelve a reserva)", False, "F F N N N N N"),
     # APROBACIONES
     ("aprobaciones.ver", "APROBACIONES", "Ver pantalla Aprobaciones", True, "F F N N N N R"),
     ("aprobaciones.decidir", "APROBACIONES", "Aprobar / denegar pedidos", False, "F F N N N N N"),

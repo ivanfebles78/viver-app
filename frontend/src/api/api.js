@@ -299,6 +299,13 @@ export const denegarPedido = async (id, payload = {}) => {
   return data;
 };
 
+// Reabre un pedido ya decidido (vuelve a RESERVA). Solo para quien tenga el
+// permiso `pedidos.reabrir`; el backend rechaza si hay material servido.
+export const reabrirPedido = async (id) => {
+  const { data } = await api.post(`/pedidos/${id}/reabrir`);
+  return data;
+};
+
 // Atomic per-item decision: payload = { approved_item_ids, denied_item_ids,
 // motivo_denegacion? }.  The union of both id lists must cover ALL items
 // currently in RESERVA — the backend rejects partial decisions.

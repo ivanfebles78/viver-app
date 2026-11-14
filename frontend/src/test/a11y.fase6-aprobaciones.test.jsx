@@ -23,6 +23,7 @@ vi.mock("../api/api", () => ({
   getPedidos: vi.fn(),
   aprobarPedido: vi.fn(),
   denegarPedido: vi.fn(),
+  reabrirPedido: vi.fn(),
   decidirPedido: vi.fn(),
   descargarPedidoPdf: vi.fn(),
 }));
