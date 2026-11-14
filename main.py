@@ -4437,6 +4437,64 @@ def _select_items_for_action(pedido: Pedido, item_ids):
     return [items_by_id[iid] for iid in item_ids if _item_estado(items_by_id[iid]) == "RESERVA"]
 
 
+@app.post("/pedidos/{pedido_id}/reabrir", response_model=PedidoOut)
+def reabrir_pedido(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permiso("pedidos.reabrir")),
+):
+    """Reabre un pedido ya decidido —DENEGADO / CANCELADO / CADUCADO /
+    APROBADO / APROBADO_PARCIAL— devolviéndolo a RESERVA para poder revisarlo y
+    volver a decidirlo. No se permite si el pedido ya tiene material servido.
+
+    El SELECT de `Pedido` ya queda acotado al ayuntamiento activo por el filtro
+    multi-tenant (tenant.py), así que un admin solo reabre pedidos de su propia
+    entidad.
+    """
+    pedido = db.query(Pedido).filter(Pedido.id == pedido_id).first()
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado.")
+
+    estado = (pedido.estado or "").upper()
+    reabribles = {"DENEGADO", "CANCELADO", "CADUCADO", "APROBADO", "APROBADO_PARCIAL"}
+    if estado not in reabribles:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Solo se pueden reabrir pedidos ya decididos (denegados, "
+                f"cancelados, caducados o aprobados). Estado actual: {estado}."
+            ),
+        )
+
+    items = getattr(pedido, "items", None) or []
+    if not items:
+        raise HTTPException(status_code=400, detail="El pedido no tiene líneas.")
+    if any(float(getattr(it, "cantidad_servida", 0) or 0) > 0 for it in items):
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede reabrir: el pedido ya tiene material servido.",
+        )
+
+    # Vuelve todo a RESERVA y limpia la decisión previa.
+    for it in items:
+        it.estado_item = "RESERVA"
+    pedido.estado = "RESERVA"
+    for attr in (
+        "denegado_por", "denegado_at", "motivo_denegacion",
+        "aprobado_por", "aprobado_at", "served_at", "served_by",
+    ):
+        if hasattr(pedido, attr):
+            setattr(pedido, attr, None)
+    # Renueva la caducidad (como en la creación: 15 días) para que no vuelva a
+    # caducar de inmediato.
+    if hasattr(pedido, "fecha_caducidad"):
+        pedido.fecha_caducidad = datetime.utcnow().date() + timedelta(days=15)
+
+    db.commit()
+    db.refresh(pedido)
+    return _pedido_to_dict(pedido)
+
+
 @app.post("/pedidos/{pedido_id}/aprobar", response_model=PedidoOut)
 def aprobar_pedido(
     pedido_id: int,

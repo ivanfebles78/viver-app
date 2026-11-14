@@ -9,6 +9,7 @@ import {
   denegarPedido,
   descargarPedidoPdf,
   getPedidos,
+  reabrirPedido,
 } from "../api/api";
 import { formatCantidad } from "../utils/numero";
 import { Button, Dialog, DialogContent, Status, StatusBadge } from "../ui";
@@ -213,12 +214,13 @@ function ModificacionDecisionPanel({ pedido, mod, canApprove, onPedidoUpdated, o
 
 /* ── Modal de detalle ──────────────────────────────────────────────────── */
 
-function DetallePedidoModal({ pedido, onClose, canApprove = false, onPedidoUpdated, onMessage }) {
+function DetallePedidoModal({ pedido, onClose, canApprove = false, canReabrir = false, onReabrir, onPedidoUpdated, onMessage }) {
   // Las decisiones viven SOLO aquí: nada llega al backend hasta «Confirmar».
   // Cerrar el modal las descarta, que es el comportamiento de main.
   const [pendingDecisions, setPendingDecisions] = useState({});
   const [motivo, setMotivo] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [reabriendo, setReabriendo] = useState(false);
   const [colapsados, setColapsados] = useState({});
 
   const toggleColapsado = (dst) => setColapsados((p) => ({ ...p, [dst]: !p[dst] }));
@@ -238,6 +240,25 @@ function DetallePedidoModal({ pedido, onClose, canApprove = false, onPedidoUpdat
   };
 
   const items = safeArray(pedido.items);
+  // Reapertura: un pedido ya decidido y SIN material servido puede volver a
+  // RESERVA para revisarlo. Mismos estados que en main (ViveroSCTFE).
+  const estadoNorm = String(pedido.estado || "").toUpperCase();
+  const algoServido = items.some((it) => Number(it.cantidad_servida || 0) > 0);
+  const reabrible =
+    canReabrir &&
+    ["DENEGADO", "CANCELADO", "CADUCADO", "APROBADO", "APROBADO_PARCIAL"].includes(estadoNorm) &&
+    !algoServido;
+
+  const handleReabrir = async () => {
+    if (reabriendo || !onReabrir) return;
+    setReabriendo(true);
+    try {
+      await onReabrir(pedido);
+    } finally {
+      setReabriendo(false);
+    }
+  };
+
   const { pendingCount, decidedLocalCount, allDecided, anyDenied } = progresoDecision(pedido, pendingDecisions);
   const canShowPdf = puedeVerPdf(pedido);
   const variosDestinos = tieneVariosDestinos(pedido);
@@ -525,11 +546,24 @@ function DetallePedidoModal({ pedido, onClose, canApprove = false, onPedidoUpdat
                     ? "Hay líneas aprobadas disponibles en el PDF."
                     : "Sin decisión registrada todavía."}
               </p>
-              {canShowPdf ? (
-                <Button type="button" variant="secondary" onClick={downloadPdf}>
-                  Descargar PDF
-                </Button>
-              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {reabrible ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    disabled={reabriendo}
+                    onClick={handleReabrir}
+                    title="Reabrir el pedido: vuelve a reserva para poder revisarlo y volver a decidirlo"
+                  >
+                    {reabriendo ? "Reabriendo…" : "↩ Reabrir pedido"}
+                  </Button>
+                ) : null}
+                {canShowPdf ? (
+                  <Button type="button" variant="secondary" onClick={downloadPdf}>
+                    Descargar PDF
+                  </Button>
+                ) : null}
+              </div>
             </div>
           )}
         </div>
@@ -645,6 +679,28 @@ export default function Aprobaciones() {
   // Decidir (aprobar/denegar/decidir modificaciones) lo gobierna la matriz
   // (aprobaciones.decidir); sin matriz (pruebas) cae a los roles responsables.
   const canApprove = puedeAccion(me, "aprobaciones.decidir", ["admin", "manager"]);
+
+  // Reabrir pedidos decididos lo gobierna la matriz (pedidos.reabrir); sin
+  // matriz (pruebas) cae a admin y manager.
+  const canReabrir = puedeAccion(me, "pedidos.reabrir", ["admin", "manager"]);
+
+  const reabrirPedidoCompleto = async (pedido) => {
+    const ok = await confirmar({
+      title: `¿Reabrir el pedido #${pedido.id}?`,
+      description:
+        "Volverá a estado reserva (pendiente de decisión) para poder revisarlo y volver a decidirlo. Se renovará su caducidad.",
+      confirmLabel: "Reabrir",
+    });
+    if (!ok) return;
+    try {
+      await reabrirPedido(pedido.id);
+      await load();
+      setDetallePedido(null);
+      showTimedMessage(`Pedido #${pedido.id} reabierto: vuelve a estar pendiente de decisión.`);
+    } catch (e) {
+      showTimedMessage(e?.response?.data?.detail || e?.message || "No se pudo reabrir el pedido.");
+    }
+  };
 
   const campoFiltro = (id, label, control) => (
     <div className="flex min-w-0 flex-col gap-1">
@@ -830,6 +886,8 @@ export default function Aprobaciones() {
         <DetallePedidoModal
           pedido={detallePedido}
           canApprove={canApprove}
+          canReabrir={canReabrir}
+          onReabrir={reabrirPedidoCompleto}
           onClose={() => setDetallePedido(null)}
           onPedidoUpdated={async () => {
             await load();
